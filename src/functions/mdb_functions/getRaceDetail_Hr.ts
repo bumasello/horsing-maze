@@ -1,9 +1,9 @@
 import dotenv from "dotenv";
-import RaceCardDetail from "../modelHr/raceDetailHrModel";
-import Horse from "../modelHr/horseHrModel";
+import RaceCardDetail from "../../models/modelHr/raceDetailHrModel";
+import Horse from "../../models/modelHr/horseHrModel";
 
-import type { IRaceDetail_Hr } from "../modelHr/raceDetailHrModel";
-import type { IHorse_Hr } from "../modelHr/horseHrModel";
+import type { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
+import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 
 dotenv.config();
 
@@ -33,21 +33,32 @@ const getRaceDetailAndStore_Hr = async (raceid: number) => {
       );
     }
 
-    const data = await response.json();
+    const data: IRaceDetail_Hr = await response.json();
 
-    if (data.length === 0) {
+    if (!data) {
       throw new Error("Requisição retornou sem dados.");
     }
 
-    const raceDetail = new RaceCardDetail<IRaceDetail_Hr>(data);
+    const checkRd = await RaceCardDetail.findOne({ id_race: data.id_race });
 
-    await raceDetail.save();
+    if (!checkRd) {
+      const raceDetail = new RaceCardDetail<IRaceDetail_Hr>(data);
 
-    for (const hr of data.horses) {
-      const horse = new Horse.HorseModel_Hr<IHorse_Hr>(hr);
-      horse.id_race = raceDetail.id_race;
+      await raceDetail.save();
 
-      await horse.save();
+      for (const hr of data.horses) {
+        const checkHr = await Horse.HorseModel_Hr.findOne({
+          id_horse: hr.id_horse,
+          id_race: hr.id_race,
+        });
+
+        if (!checkHr) {
+          const horse = new Horse.HorseModel_Hr<IHorse_Hr>(hr);
+          horse.id_race = raceDetail.id_race;
+
+          await horse.save();
+        }
+      }
     }
   } catch (error) {
     throw new Error(`Erro na requisição getRaceDetailAndStore_Hr: ${error}`);

@@ -1,7 +1,14 @@
-import horseStatsHrModel from "../modelHr/horseStatsHrModel";
+import HorseStatsHrModel from "../../models/modelHr/horseStatsHrModel";
 import raceDetail from "./getRaceDetail_Hr";
 
-import type { IRaceCard_Hr } from "../modelHr/raceCardHrModel";
+import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
+import type { IHorseStats_HR } from "../../models/modelHr/horseStatsHrModel";
+
+const getStoredHorseStats_Hr = async () => {
+  const horseStats = await HorseStatsHrModel.find<IHorseStats_HR>();
+
+  return horseStats;
+};
 
 const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
   const headers = new Headers();
@@ -30,14 +37,16 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
             );
           }
 
-          const data = await response.json();
+          const data: IHorseStats_HR = await response.json();
 
-          if (data.length === 0) {
+          if (!data) {
             throw new Error("Requisição retornou sem dados.");
           }
           // console.log(data);
 
-          const horseStats = new horseStatsHrModel(data);
+          // const checkHr = await
+
+          const horseStats = new HorseStatsHrModel(data);
 
           await horseStats.save();
         } catch (error) {
@@ -50,4 +59,5 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
 
 export default {
   getHorseStatsAndStore_hr,
+  getStoredHorseStats_Hr,
 };

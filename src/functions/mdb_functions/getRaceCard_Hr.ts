@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
-import RaceCard from "../modelHr/raceCardHrModel";
-import { supabase } from "..";
+import RaceCard from "../../models/modelHr/raceCardHrModel";
+import { supabase } from "../..";
 
-import type { IRaceCard_Hr } from "../modelHr/raceCardHrModel";
+import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
 
 dotenv.config();
 
@@ -38,12 +38,16 @@ const getRaceCardAndStore_Hr = async (date: string) => {
     }
 
     for (const rc of data as IRaceCard_Hr[]) {
-      const raceCard = new RaceCard<IRaceCard_Hr>(rc);
-      const [, off_time = "00:00"] = (rc.date || "").split(" ");
+      const checkRc = await RaceCard.findOne({ id_race: rc.id_race });
 
-      raceCard.off_time_br = timeUkToBr(off_time);
+      if (!checkRc) {
+        const raceCard = new RaceCard<IRaceCard_Hr>(rc);
+        const [, off_time = "00:00"] = (rc.date || "").split(" ");
 
-      await raceCard.save();
+        raceCard.off_time_br = timeUkToBr(off_time);
+
+        await raceCard.save();
+      }
     }
   } catch (err) {
     throw new Error(`Erro na requisição getRaceCard: ${err}`);

@@ -1,6 +1,6 @@
 import express from "express";
 
-import racingCardController from "../controller/racingCardController";
+import racingCardController from "../controller/mdbDataController";
 
 const router = express.Router();
 

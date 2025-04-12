@@ -8,4 +8,6 @@ router.get("/racecards", spbDataController.spbRaceCards);
 
 router.get("/racedetails", spbDataController.spbRaceDetail);
 
+router.get("/horsestats", spbDataController.spbHorseStats);
+
 export default router;

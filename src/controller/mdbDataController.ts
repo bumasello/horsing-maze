@@ -1,6 +1,6 @@
-import raceCards from "../mdb_functions/getRaceCard_Hr";
-import raceDetails from "../mdb_functions/getRaceDetail_Hr";
-import horseStats from "../mdb_functions/getHorseResults_Hr";
+import raceCards from "../functions/mdb_functions/getRaceCard_Hr";
+import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr";
+import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
 
 import type { Request, Response, NextFunction } from "express";
 
@@ -10,7 +10,7 @@ const getRaceCards = async (
   next: NextFunction,
 ) => {
   const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  tomorrowDate.setDate(tomorrowDate.getDate());
 
   const formatted = tomorrowDate.toISOString().slice(0, 10);
 
