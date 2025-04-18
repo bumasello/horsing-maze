@@ -10,7 +10,7 @@ const getRaceCards = async (
   next: NextFunction,
 ) => {
   const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate());
+  tomorrowDate.setDate(tomorrowDate.getDate() - 1);
 
   const formatted = tomorrowDate.toISOString().slice(0, 10);
 

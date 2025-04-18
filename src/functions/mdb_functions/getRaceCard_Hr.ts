@@ -10,7 +10,7 @@ const getStoredRaceCard_Hr = async () => {
   const racecards = await RaceCard.find<IRaceCard_Hr>({
     finished: "0",
     canceled: "0",
-  }).limit(5);
+  });
 
   return racecards;
 };
@@ -37,16 +37,19 @@ const getRaceCardAndStore_Hr = async (date: string) => {
       throw new Error("Requisição retornou sem dados.");
     }
 
+    let inseridos = 0;
+
     for (const rc of data as IRaceCard_Hr[]) {
       const checkRc = await RaceCard.findOne({ id_race: rc.id_race });
 
-      if (!checkRc) {
+      if (!checkRc && inseridos < 6) {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
         const [, off_time = "00:00"] = (rc.date || "").split(" ");
 
         raceCard.off_time_br = timeUkToBr(off_time);
 
         await raceCard.save();
+        inseridos++;
       }
     }
   } catch (err) {

@@ -1,6 +1,7 @@
 import populateRaceCard_spb from "../functions/spb_functions/populateRaceCard_spb";
 import populateRaceDetail_spb from "../functions/spb_functions/populateRaceDetail_spb";
 import populateHorseStats_spb from "../functions/spb_functions/populateHorseStats_spb";
+import populateHorseFeature_spb from "../functions/spb_functions/services/populateHorseFeatures";
 
 import type { Request, Response, NextFunction } from "express";
 
@@ -48,8 +49,27 @@ const spbHorseStats = async (
     .json({ message: "HorseStats carregados para supabase com sucesso." });
 };
 
+const spbHorseFeatures = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    console.log("spbHorseFeatures");
+
+    await populateHorseFeature_spb(next);
+
+    res
+      .status(200)
+      .json({ message: "HorseFeatures carregados para supabase com sucesso." });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
   spbRaceCards,
   spbRaceDetail,
   spbHorseStats,
+  spbHorseFeatures,
 };

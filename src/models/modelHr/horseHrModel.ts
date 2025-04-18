@@ -19,7 +19,7 @@ export interface IHorse_Hr extends Document {
   last_ran_days_ago: number;
   non_runner: number;
   form: string;
-  position: number;
+  position: string;
   distance_beaten: string;
   owner: string;
   sire: string;
@@ -54,7 +54,7 @@ const HorseSchema_Hr = new mongoose.Schema<IHorse_Hr>({
   last_ran_days_ago: Number,
   non_runner: Number,
   form: String,
-  position: Number,
+  position: String,
   distance_beaten: String,
   owner: String,
   sire: String,

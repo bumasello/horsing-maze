@@ -44,19 +44,21 @@ const getRaceDetailAndStore_Hr = async (raceid: number) => {
     if (!checkRd) {
       const raceDetail = new RaceCardDetail<IRaceDetail_Hr>(data);
 
-      await raceDetail.save();
+      if (raceDetail.horses.length > 6 && raceDetail.horses.length <= 15) {
+        await raceDetail.save();
 
-      for (const hr of data.horses) {
-        const checkHr = await Horse.HorseModel_Hr.findOne({
-          id_horse: hr.id_horse,
-          id_race: hr.id_race,
-        });
+        for (const hr of data.horses) {
+          const checkHr = await Horse.HorseModel_Hr.findOne({
+            id_horse: hr.id_horse,
+            id_race: hr.id_race,
+          });
 
-        if (!checkHr) {
-          const horse = new Horse.HorseModel_Hr<IHorse_Hr>(hr);
-          horse.id_race = raceDetail.id_race;
+          if (!checkHr) {
+            const horse = new Horse.HorseModel_Hr<IHorse_Hr>(hr);
+            horse.id_race = raceDetail.id_race;
 
-          await horse.save();
+            await horse.save();
+          }
         }
       }
     }
