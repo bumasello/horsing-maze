@@ -8,6 +8,7 @@ import { initBot } from "./router/tle_DataRouter";
 import mdb_dataRouter from "./router/mdb_DataRouter";
 import spb_dataRouter from "./router/spb_DataRouter";
 import tle_dataRouter from "./router/tle_DataRouter";
+import tsr_dataRouter from "./router/tsr_DataRouter";
 
 import type { Request, Response, NextFunction } from "express";
 
@@ -26,6 +27,7 @@ initBot();
 app.use("/mdb_data", mdb_dataRouter);
 app.use("/spb_data", spb_dataRouter);
 app.use("/tle_data", tle_dataRouter);
+app.use("/tsr_data", tsr_dataRouter);
 
 app.use(
   (error: CustomError, _req: Request, res: Response, _next: NextFunction) => {

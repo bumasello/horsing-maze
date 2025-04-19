@@ -8,6 +8,7 @@ export interface IOdds_Hr extends Document {
 }
 
 export interface IHorse_Hr extends Document {
+  _id?: string;
   horse: string;
   id_horse: number;
   id_race: number;

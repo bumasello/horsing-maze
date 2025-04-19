@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
-export interface IRaceCard_Hr extends Document {
+export interface IRaceCard_Hr {
+  _id?: string;
   id_race: number;
   course: string;
   date: string;
@@ -16,7 +17,9 @@ export interface IRaceCard_Hr extends Document {
   class: number;
 }
 
-const RaceCard_Hr = new mongoose.Schema<IRaceCard_Hr>({
+interface IRaceCard_HrModel extends Document, IRaceCard_Hr {}
+
+const RaceCard_Hr = new mongoose.Schema<IRaceCard_HrModel>({
   id_race: String,
   course: String,
   date: String,
@@ -32,7 +35,7 @@ const RaceCard_Hr = new mongoose.Schema<IRaceCard_Hr>({
   class: Number,
 });
 
-const RaceCardModel_Hr = mongoose.model<IRaceCard_Hr>(
+const RaceCardModel_Hr = mongoose.model<IRaceCard_HrModel>(
   "RaceCard_Hr",
   RaceCard_Hr,
 );

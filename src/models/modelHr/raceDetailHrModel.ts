@@ -5,6 +5,7 @@ import type { IRaceCard_Hr } from "./raceCardHrModel";
 import type { IHorse_Hr } from "./horseHrModel";
 
 export interface IRaceDetail_Hr extends IRaceCard_Hr {
+  _id?: string;
   horses: IHorse_Hr[];
 }
 

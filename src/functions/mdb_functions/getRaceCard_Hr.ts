@@ -1,12 +1,24 @@
 import dotenv from "dotenv";
 import RaceCard from "../../models/modelHr/raceCardHrModel";
-import { supabase } from "../..";
 
 import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
 
 dotenv.config();
 
+const getOneStoredRaceCard_Hr = async (
+  idrace: number,
+): Promise<IRaceCard_Hr | null> => {
+  const racecard = await RaceCard.findOne<IRaceCard_Hr>({ id_race: idrace });
+
+  return racecard;
+};
+
 const getStoredRaceCard_Hr = async () => {
+  const racecards = await RaceCard.find<IRaceCard_Hr>();
+  return racecards;
+};
+
+const getUnfinishedRaceCard_Hr = async () => {
   const racecards = await RaceCard.find<IRaceCard_Hr>({
     finished: "0",
     canceled: "0",
@@ -19,7 +31,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACECARDS}${date}` || "error";
 
-  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY2}`);
+  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY}`);
   headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
 
   try {
@@ -78,4 +90,6 @@ const timeUkToBr = (off_time: string) => {
 export default {
   getRaceCardAndStore_Hr,
   getStoredRaceCard_Hr,
+  getOneStoredRaceCard_Hr,
+  getUnfinishedRaceCard_Hr,
 };
