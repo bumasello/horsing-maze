@@ -5,7 +5,8 @@ import type { NextFunction } from "express";
 
 const populateRacecards_spb = async (next: NextFunction) => {
   try {
-    const racecards: IRaceCard_Hr[] = await raceCard.getStoredRaceCard_Hr();
+    const racecards: IRaceCard_Hr[] =
+      await raceCard.getUnfinishedRaceCard_Hr(true);
 
     for (const rc of racecards) {
       const {

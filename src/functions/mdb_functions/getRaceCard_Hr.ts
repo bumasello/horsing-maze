@@ -13,15 +13,18 @@ const getOneStoredRaceCard_Hr = async (
   return racecard;
 };
 
-const getStoredRaceCard_Hr = async () => {
+const getStoredRaceCard_Hr = async (): Promise<IRaceCard_Hr[]> => {
   const racecards = await RaceCard.find<IRaceCard_Hr>();
   return racecards;
 };
 
-const getUnfinishedRaceCard_Hr = async () => {
+const getUnfinishedRaceCard_Hr = async (
+  bool: boolean,
+): Promise<IRaceCard_Hr[]> => {
   const racecards = await RaceCard.find<IRaceCard_Hr>({
     finished: "0",
     canceled: "0",
+    checked_detail: bool,
   });
 
   return racecards;
@@ -54,11 +57,12 @@ const getRaceCardAndStore_Hr = async (date: string) => {
     for (const rc of data as IRaceCard_Hr[]) {
       const checkRc = await RaceCard.findOne({ id_race: rc.id_race });
 
-      if (!checkRc && inseridos < 6) {
+      if (!checkRc && inseridos < 11) {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
         const [, off_time = "00:00"] = (rc.date || "").split(" ");
 
         raceCard.off_time_br = timeUkToBr(off_time);
+        raceCard.checked_detail = false;
 
         await raceCard.save();
         inseridos++;
@@ -69,7 +73,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
   }
 };
 
-const timeUkToBr = (off_time: string) => {
+const timeUkToBr = (off_time: string): string => {
   const [horasStr, minStr] = off_time.split(":");
 
   let horasBr = Number.parseInt(horasStr);

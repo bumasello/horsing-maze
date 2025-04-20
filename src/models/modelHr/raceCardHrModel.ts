@@ -15,6 +15,7 @@ export interface IRaceCard_Hr {
   finish_time: string;
   prize: string;
   class: number;
+  checked_detail?: boolean;
 }
 
 interface IRaceCard_HrModel extends Document, IRaceCard_Hr {}
@@ -33,6 +34,7 @@ const RaceCard_Hr = new mongoose.Schema<IRaceCard_HrModel>({
   finish_time: String,
   prize: String,
   class: Number,
+  checked_detail: Boolean,
 });
 
 const RaceCardModel_Hr = mongoose.model<IRaceCard_HrModel>(

@@ -10,7 +10,7 @@ import { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
 dotenv.config();
 
 const updateRaceCard_Hr = async () => {
-  const racecards = await raceCard.getStoredRaceCard_Hr();
+  const racecards = await raceCard.getUnfinishedRaceCard_Hr(true);
   const BATCH_SIZE = 10; // Processar 10 requisições por lote
   const BATCH_DELAY = 60000; // 60 segundos de pausa entre lotes
   const REQUEST_DELAY = 1000; // 1 segundo entre requisições
@@ -110,6 +110,7 @@ const checkMissingRacedetails_hr = async () => {
 
   for (const rc of racecards) {
     const racedetail = await raceDetail.getStoredRaceDetail_Hr(rc.id_race);
+    console.log(racedetail);
 
     if (!racedetail) {
       console.log(rc);

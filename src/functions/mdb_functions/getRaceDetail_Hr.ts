@@ -26,7 +26,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number) => {
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACEDETAILS}${raceid}` || "error";
 
-  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY2}`);
+  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY4}`);
   headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
   try {
     const response = await fetch(url, {
@@ -48,6 +48,15 @@ const getRaceDetailAndStore_Hr = async (raceid: number) => {
 
     if (data.horses.length > 6 && data.horses.length <= 15) {
       const { _id, ...dataWithoutId } = data;
+      const { horses, ...updatedRaceCard } = dataWithoutId;
+
+      await RaceCard.findOneAndUpdate(
+        { id_race: data.id_race },
+        { $set: { ...updatedRaceCard, checked_detail: true } },
+        {
+          new: true,
+        },
+      );
 
       await RaceCardDetail.findOneAndUpdate(
         { id_race: data.id_race },

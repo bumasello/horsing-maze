@@ -1,11 +1,12 @@
 import express from "express";
-import telegrambot from "node-telegram-bot-api";
+import telegrambot, { Message } from "node-telegram-bot-api";
 import dotenv from "dotenv";
 
 import { message, message2 } from "../controller/tleController";
 import { tleUserModel } from "../models/modelTle/tle_userModel";
 
 import type { Response, Request, NextFunction } from "express";
+import { pendingRaces } from "../functions/tensor_functions/loadData";
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ dotenv.config();
 const token = process.env.TELEGRAMKEY || "error";
 
 export const bot = new telegrambot(token, { polling: true });
+export const pendingEmail = new Map<number, true>();
 
 export const initBot = (): void => {
   console.log("Bot telegram iniciado");
@@ -20,15 +22,55 @@ export const initBot = (): void => {
   bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const username = msg.from?.username;
+    const firstName = msg.from?.first_name;
+    const lastName = msg.from?.last_name;
 
     tleUserModel.addUser({
       chatId,
       username,
+      firstName,
+      lastName,
+      active: false,
       registeredAt: new Date(),
     });
 
-    bot.sendMessage(chatId, `Olá ${username}, você foi registrado!🥵 😅`);
-    console.log("Novo usuário: ", chatId);
+    pendingEmail.set(chatId, true);
+
+    bot.sendMessage(
+      chatId,
+      `Olá ${username}, você foi registrado! Para terminar seu cadastro, por favor, envie seu melhor email.`,
+    );
+
+    bot.on("message", (msg: Message) => {
+      const chatId = msg.chat.id;
+      const text = msg.text?.trim();
+      if (!text || !pendingEmail.has(chatId)) return;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(text)) {
+        bot.sendMessage(chatId, "❌ E‑mail inválido. Tente novamente:");
+        pendingEmail.delete(chatId);
+        return;
+      }
+
+      try {
+        tleUserModel.updateUser(chatId, {
+          email: text,
+          active: true,
+        });
+        pendingEmail.delete(chatId);
+        bot.sendMessage(
+          chatId,
+          `✅ Cadastro finalizado!\nE‑mail: ${text}\nStatus: ativo`,
+        );
+        console.log("Novo usuário: ", chatId);
+      } catch (err) {
+        console.log(err);
+        bot.sendMessage(
+          chatId,
+          "! Ocorreu um erro ao salvar seu e‑mail. Por favor, envie /start novamente.",
+        );
+      }
+    });
   });
 };
 
