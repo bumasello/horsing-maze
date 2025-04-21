@@ -1,7 +1,7 @@
-import populateRaceCard_spb from "../functions/spb_functions/populateRaceCard_spb";
-import populateRaceDetail_spb from "../functions/spb_functions/populateRaceDetail_spb";
-import populateHorseStats_spb from "../functions/spb_functions/populateHorseStats_spb";
-import populateHorseFeature_spb from "../functions/spb_functions/services/populateHorseFeatures";
+import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb";
+import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb";
+import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb";
+import populateHorseFeature_spb from "../functions/spb_functions/populate/populateHorseFeatures";
 
 import type { Request, Response, NextFunction } from "express";
 

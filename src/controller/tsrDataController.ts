@@ -1,8 +1,9 @@
-// import { trainData } from "../functions/tensor_functions/trainData";
-import type { Request, Response, NextFunction } from "express";
 import { cl_trainData } from "../functions/tensor_functions/claude_trainData";
+import layPick from "../functions/spb_functions/entries/createEntries";
 
-const getPredictions = async (
+import type { Request, Response, NextFunction } from "express";
+
+const getTrainDataAndCreatePredictions = async (
   req: Request,
   res: Response,
   next: NextFunction,
@@ -17,6 +18,21 @@ const getPredictions = async (
   }
 };
 
+const getInsertPredictions = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  console.log("getInsertPredictions");
+  try {
+    await layPick.generateLayPicks();
+    res.status(200).json({ message: "Previsões armazendas com suscesso." });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
-  getPredictions,
+  getTrainDataAndCreatePredictions,
+  getInsertPredictions,
 };

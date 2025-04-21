@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import RaceCard from "../../models/modelHr/raceCardHrModel";
 
 import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
+import { exists } from "fs";
 
 dotenv.config();
 
@@ -17,6 +18,18 @@ const getStoredRaceCard_Hr = async (): Promise<IRaceCard_Hr[]> => {
   const racecards = await RaceCard.find<IRaceCard_Hr>();
   return racecards;
 };
+
+// const getUnfinishedRaceCard_Hr = async (
+//   bool: boolean,
+// ): Promise<IRaceCard_Hr[]> => {
+//   const racecards = await RaceCard.find<IRaceCard_Hr>({
+//     finished: "0",
+//     canceled: "0",
+//     checked_detail: { $exists: false },
+//   });
+//
+//   return racecards;
+// };
 
 const getUnfinishedRaceCard_Hr = async (
   bool: boolean,
@@ -34,7 +47,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACECARDS}${date}` || "error";
 
-  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY}`);
+  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY0}`);
   headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
 
   try {

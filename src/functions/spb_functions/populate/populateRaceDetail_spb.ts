@@ -1,6 +1,6 @@
-import { supabase } from "../../"; // ajuste conforme sua estrutura
-import raceDetail from "../mdb_functions/getRaceDetail_Hr";
-import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
+import { supabase } from "../../.."; // ajuste conforme sua estrutura
+import raceDetail from "../../mdb_functions/getRaceDetail_Hr";
+import type { IHorse_Hr } from "../../../models/modelHr/horseHrModel";
 
 const populateRaceDetail_spb = async () => {
   // Seleciona as racecards do Supabase para obter os ids e o id_race original

@@ -26,90 +26,75 @@ const getRaceDetailAndStore_Hr = async (raceid: number) => {
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACEDETAILS}${raceid}` || "error";
 
-  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY4}`);
-  headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: headers,
-    });
+  headers.set("x-rapidapi-key", process.env.XRAPIDAPIKEY0!);
+  headers.set("x-rapidapi-host", process.env.XRAPIDAPIHOST!);
 
+  try {
+    const response = await fetch(url, { method: "GET", headers });
     if (!response.ok) {
       throw new Error(
-        `Erro na requisição getRaceDetailAndStore_Hr: ${response.statusText}`,
+        `Erro na requisição getRaceDetail: ${response.statusText}`,
       );
     }
 
     const data: IRaceDetail_Hr = await response.json();
+    if (!data) throw new Error("Requisição retornou sem dados.");
 
-    if (!data) {
-      throw new Error("Requisição retornou sem dados.");
-    }
+    const horses = Array.isArray(data.horses) ? data.horses : [];
 
-    if (data.horses.length > 6 && data.horses.length <= 15) {
-      const { _id, ...dataWithoutId } = data;
-      const { horses, ...updatedRaceCard } = dataWithoutId;
+    // Desestruturação inicial: remove _id do objeto inteiro
+    const { _id: detailId, ...dataSansId } = data as any;
+    // Separa horses e extrai out o _id de dentro do objeto de RaceCard
+    const { horses: _, _id: cardId, ...raceCardFields } = dataSansId;
 
+    if (horses.length > 6 && horses.length <= 15) {
+      // 1) Atualiza RaceCard (só campos que interessam + checked_detail)
       await RaceCard.findOneAndUpdate(
         { id_race: data.id_race },
-        { $set: { ...updatedRaceCard, checked_detail: true } },
         {
-          new: true,
+          $set: {
+            ...raceCardFields,
+            checked_detail: true,
+          },
         },
+        { new: true },
       );
 
+      // 2) Upsert do RaceCardDetail (already sem _id)
       await RaceCardDetail.findOneAndUpdate(
         { id_race: data.id_race },
-        dataWithoutId,
-        {
-          upsert: true,
-          new: true,
-          setDefaultsOnInsert: true,
-        },
+        dataSansId,
+        { upsert: true, new: true, setDefaultsOnInsert: true },
       );
 
-      for (const hr of data.horses) {
+      // 3) Upsert de cada horse (removendo _id do subdocumento)
+      const incomingHorseIds: number[] = [];
+      for (const hr of horses as IHorse_Hr[]) {
+        incomingHorseIds.push(hr.id_horse);
         hr.id_race = data.id_race;
 
-        // Atualizar ou inserir os dados do cavalo
-        const { _id: horseId, ...horseWithoutId } = hr;
+        // remove o _id do hr antes de atualizar
+        const { _id: hid, ...horseSansId } = hr as any;
         await Horse.HorseModel_Hr.findOneAndUpdate(
           { id_horse: hr.id_horse, id_race: hr.id_race },
-          horseWithoutId,
+          horseSansId,
           { upsert: true, new: true, setDefaultsOnInsert: true },
         );
       }
-    }
 
-    if (data.horses.length <= 6 || data.horses.length >= 15) {
-      await RaceCard.findOneAndDelete({ id_race: raceid });
+      // 4) Limpa horses removidos do feed
+      await Horse.HorseModel_Hr.deleteMany({
+        id_race: raceid,
+        id_horse: { $nin: incomingHorseIds },
+      });
+    } else {
+      // se inválido, remove tudo
+      await RaceCardDetail.deleteOne({ id_race: raceid });
+      await Horse.HorseModel_Hr.deleteMany({ id_race: raceid });
+      await RaceCard.deleteOne({ id_race: raceid });
     }
-
-    // const checkRd = await RaceCardDetail.findOne({ id_race: data.id_race });
-    //
-    // if (!checkRd) {
-    //   const raceDetail = new RaceCardDetail<IRaceDetail_Hr>(data);
-    //
-    //   if (raceDetail.horses.length > 6 && raceDetail.horses.length <= 15) {
-    //     await raceDetail.save();
-    //
-    //     for (const hr of data.horses) {
-    //       const checkHr = await Horse.HorseModel_Hr.findOne({
-    //         id_horse: hr.id_horse,
-    //         id_race: hr.id_race,
-    //       });
-    //
-    //       if (!checkHr) {
-    //         const horse = new Horse.HorseModel_Hr<IHorse_Hr>(hr);
-    //         horse.id_race = raceDetail.id_race;
-    //
-    //         await horse.save();
-    //       }
-    //     }
-    //   }
-    // }
   } catch (error) {
-    throw new Error(`Erro na requisição getRaceDetailAndStore_Hr: ${error}`);
+    throw new Error(`Erro em getRaceDetailAndStore_Hr: ${error}`);
   }
 };
 

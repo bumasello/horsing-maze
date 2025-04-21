@@ -1,6 +1,6 @@
-import raceCard from "../mdb_functions/getRaceCard_Hr";
-import { supabase } from "../..";
-import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
+import raceCard from "../../mdb_functions/getRaceCard_Hr";
+import { supabase } from "../../..";
+import type { IRaceCard_Hr } from "../../../models/modelHr/raceCardHrModel";
 import type { NextFunction } from "express";
 
 const populateRacecards_spb = async (next: NextFunction) => {

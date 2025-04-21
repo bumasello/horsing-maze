@@ -5,7 +5,6 @@ import updateData from "../functions/mdb_functions/updateRaceCard_Hr";
 
 import type { Request, Response, NextFunction } from "express";
 import type { IRaceCard_Hr } from "../models/modelHr/raceCardHrModel";
-import updateRaceCard_Hr from "../functions/mdb_functions/updateRaceCard_Hr";
 
 const getRaceCards = async (
   req: Request,
@@ -149,7 +148,7 @@ const checkRacedetails = async (
 ) => {
   console.log("checkRacedetails");
   try {
-    await updateData.checkMissingRacedetails_hr();
+    await updateData.syncMissingRaceDetails();
 
     res.status(200).json({ message: "Racedetails checados com sucesso." });
   } catch (error) {
