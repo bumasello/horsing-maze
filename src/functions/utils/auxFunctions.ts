@@ -21,48 +21,52 @@ export const convertFurlongsToMeters = (distanceStr: string): number => {
   const YARD_TO_METERS = 0.9144;
   const MILE_TO_FURLONGS = 8;
 
-  // Remover espaços e converter para minúsculas
-  const cleanStr = distanceStr.toLowerCase().trim();
+  // 1. Limpa espaços e remove conteúdo entre parênteses, ex: "1m(Rnd)" -> "1m"
+  const cleaned = distanceStr
+    .toLowerCase()
+    .trim()
+    .replace(/\([^)]*\)/g, "") // remove tudo de '(' até ')' :contentReference[oaicite:1]{index=1}
+    .trim();
 
-  // Caso 1: formato "1m4f" (milhas e furlongs)
-  const mileAndFurlongMatch = cleanStr.match(/(\d+)m(\d+)f/);
+  // 2. Caso "1m4f" (milhas + furlongs)
+  const mileAndFurlongMatch = cleaned.match(/(\d+)m(\d+)f/);
   if (mileAndFurlongMatch) {
-    const miles = Number.parseInt(mileAndFurlongMatch[1], 10);
-    const furlongs = Number.parseInt(mileAndFurlongMatch[2], 10);
+    const miles = parseInt(mileAndFurlongMatch[1], 10);
+    const furlongs = parseInt(mileAndFurlongMatch[2], 10);
     return Math.round(
       (miles * MILE_TO_FURLONGS + furlongs) * FURLONG_TO_METERS,
     );
   }
 
-  // Caso 2: formato "6f" (apenas furlongs)
-  const furlongMatch = cleanStr.match(/(\d+(\.\d+)?)f/);
+  // 3. Caso "6f" (apenas furlongs)
+  const furlongMatch = cleaned.match(/(\d+(\.\d+)?)f/);
   if (furlongMatch) {
-    return Math.round(Number.parseFloat(furlongMatch[1]) * FURLONG_TO_METERS);
+    return Math.round(parseFloat(furlongMatch[1]) * FURLONG_TO_METERS);
   }
 
-  // Caso 3: formato "6f110y" (furlongs e jardas)
-  const furlongYardMatch = cleanStr.match(/(\d+)f(\d+)y/);
+  // 4. Caso "6f110y" (furlongs + jardas)
+  const furlongYardMatch = cleaned.match(/(\d+)f(\d+)y/);
   if (furlongYardMatch) {
-    const furlongs = Number.parseInt(furlongYardMatch[1], 10);
-    const yards = Number.parseInt(furlongYardMatch[2], 10);
+    const furlongs = parseInt(furlongYardMatch[1], 10);
+    const yards = parseInt(furlongYardMatch[2], 10);
     return Math.round(furlongs * FURLONG_TO_METERS + yards * YARD_TO_METERS);
   }
 
-  // Caso 4: formato "1m" (apenas milhas)
-  const mileMatch = cleanStr.match(/(\d+(\.\d+)?)m$/);
+  // 5. Caso "1m" (apenas milhas)
+  const mileMatch = cleaned.match(/(\d+(\.\d+)?)m$/);
   if (mileMatch) {
     return Math.round(
-      Number.parseFloat(mileMatch[1]) * MILE_TO_FURLONGS * FURLONG_TO_METERS,
+      parseFloat(mileMatch[1]) * MILE_TO_FURLONGS * FURLONG_TO_METERS,
     );
   }
 
-  // Caso 5: formato numérico simples (assumindo que são furlongs)
-  const numericMatch = cleanStr.match(/^(\d+(\.\d+)?)$/);
+  // 6. Caso numérico simples (assume furlongs)
+  const numericMatch = cleaned.match(/^(\d+(\.\d+)?)$/);
   if (numericMatch) {
-    return Math.round(Number.parseFloat(numericMatch[1]) * FURLONG_TO_METERS);
+    return Math.round(parseFloat(numericMatch[1]) * FURLONG_TO_METERS);
   }
 
-  // Se chegou aqui, não conseguiu interpretar o formato
+  // 7. Não reconheceu o formato
   console.warn(`Formato de distância não reconhecido: ${distanceStr}`);
   return 0;
 };

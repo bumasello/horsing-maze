@@ -57,10 +57,14 @@ const updateRaceCard_Hr = async () => {
         const newRaceCard = await raceDetail.getStoredRaceDetail_Hr(rc.id_race);
         if (newRaceCard && newRaceCard.length > 0) {
           const raceDetailData = newRaceCard[0];
-          const { horses, ...raceCardData } = raceDetailData as IRaceDetail_Hr;
+          const {
+            _id: detailId,
+            horses,
+            ...raceCardData
+          } = raceDetailData as IRaceDetail_Hr;
           await RaceCard.findOneAndUpdate(
             { id_race: rc.id_race },
-            raceCardData,
+            { $set: { raceCardData } },
             {
               new: true,
             },
