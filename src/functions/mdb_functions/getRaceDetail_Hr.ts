@@ -26,8 +26,8 @@ const getRaceDetailAndStore_Hr = async (raceid: number) => {
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACEDETAILS}${raceid}` || "error";
 
-  headers.set("x-rapidapi-key", process.env.XRAPIDAPIKEY1!);
-  headers.set("x-rapidapi-host", process.env.XRAPIDAPIHOST!);
+  headers.set("x-rapidapi-key", process.env.XRAPIDAPIKEY0 || "error");
+  headers.set("x-rapidapi-host", process.env.XRAPIDAPIHOST || "error");
 
   try {
     const response = await fetch(url, { method: "GET", headers });
@@ -47,7 +47,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number) => {
     // Separa horses e extrai out o _id de dentro do objeto de RaceCard
     const { horses: _, _id: cardId, ...raceCardFields } = dataSansId;
 
-    if (horses.length > 6 && horses.length <= 15) {
+    if (horses.length > 8 && horses.length <= 15) {
       // 1) Atualiza RaceCard (só campos que interessam + checked_detail)
       await RaceCard.findOneAndUpdate(
         { id_race: data.id_race },

@@ -97,7 +97,6 @@ const getHorseStats = async (
 ) => {
   try {
     const racecards = await raceCards.getUnfinishedRaceCard_Hr(true);
-    console.log("temos os racecards nao finalizados");
 
     if (!racecards) {
       throw new Error("Não encontramos corridas não iniciadas.");

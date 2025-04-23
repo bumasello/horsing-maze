@@ -4,6 +4,7 @@ import populateHorseStats_spb from "../functions/spb_functions/populate/populate
 import populateHorseFeature_spb from "../functions/spb_functions/populate/populateHorseFeatures";
 
 import type { Request, Response, NextFunction } from "express";
+import { updateRacecards_spb } from "../functions/spb_functions/update/racecard_hr";
 
 const spbRaceCards = async (
   req: Request,
@@ -67,9 +68,26 @@ const spbHorseFeatures = async (
   }
 };
 
+const spbUpdateRacecard = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    await updateRacecards_spb(next);
+
+    res
+      .status(200)
+      .json({ message: "Racecards atualizados no supabase com sucesso." });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
   spbRaceCards,
   spbRaceDetail,
   spbHorseStats,
   spbHorseFeatures,
+  spbUpdateRacecard,
 };

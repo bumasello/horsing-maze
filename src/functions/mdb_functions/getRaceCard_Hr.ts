@@ -70,7 +70,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
     for (const rc of data as IRaceCard_Hr[]) {
       const checkRc = await RaceCard.findOne({ id_race: rc.id_race });
 
-      if (!checkRc && inseridos < 11) {
+      if (!checkRc && inseridos < 16) {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
         const [, off_time = "00:00"] = (rc.date || "").split(" ");
 

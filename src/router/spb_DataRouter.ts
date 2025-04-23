@@ -12,4 +12,6 @@ router.get("/horsestats", spbDataController.spbHorseStats);
 
 router.get("/horsefeatures", spbDataController.spbHorseFeatures);
 
+router.get("/update");
+
 export default router;

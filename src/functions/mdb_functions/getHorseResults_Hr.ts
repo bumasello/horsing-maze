@@ -6,7 +6,7 @@ import type {
   IHorseStats_HR,
   IResults_Hr,
 } from "../../models/modelHr/horseStatsHrModel";
-import { IHorse_Hr } from "../../models/modelHr/horseHrModel";
+import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 
 const getStoredHorseStats_Hr = async () => {
   const horseStats = await HorseStatsHrModel.find<IHorseStats_HR>();
@@ -15,11 +15,34 @@ const getStoredHorseStats_Hr = async () => {
 };
 
 const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
-  const headers = new Headers();
+  const apiKeys = [
+    process.env.XRAPIDAPIKEY0,
+    process.env.XRAPIDAPIKEY1,
+    process.env.XRAPIDAPIKEY2,
+    process.env.XRAPIDAPIKEY3,
+    process.env.XRAPIDAPIKEY4,
+  ].filter((key): key is string => Boolean(key));
 
-  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY4}`);
-  headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
-  let key = 0;
+  if (apiKeys.length === 0) {
+    throw new Error("Nenhuma api key no array.");
+  }
+
+  let currentKeyIndex = 0;
+
+  const getHeaders = () => {
+    const headers = new Headers();
+
+    headers.set("x-rapidapi-key", apiKeys[currentKeyIndex]);
+    headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
+    return headers;
+  };
+
+  const rotateApiKey = () => {
+    currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+    console.log("Mudando chave da api");
+    return getHeaders();
+  };
+
   const rc = racecard;
   const BATCH_SIZE = 10; // Processar 10 requisições por lote
   const BATCH_DELAY = 60000; // 60 segundos de pausa entre lotes
@@ -37,6 +60,8 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
         const MAX_RETRIES = 3;
         let waitTime = 5000; // Tempo inicial de espera para retry
 
+        let headers = getHeaders();
+
         while (!success && retryCount < MAX_RETRIES) {
           try {
             const url =
@@ -49,6 +74,11 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
             });
 
             if (!response.ok) {
+              if (response.status === 429) {
+                console.log("too many requests detectado");
+                headers = rotateApiKey();
+                continue;
+              }
               throw new Error(
                 `Erro na requisição getRaceDetailAndStore_Hr: ${response.statusText}`,
               );
@@ -61,16 +91,24 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
             }
 
             const cleanedData = cleanHorseStatsData(data);
-
             const horseStats = new HorseStatsHrModel(cleanedData);
-
             await horseStats.save();
             success = true;
-          } catch (error) {
+          } catch (error: unknown) {
             retryCount++;
-            key++;
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+
             console.error(error);
-            if (retryCount < MAX_RETRIES) {
+
+            if (errorMessage.includes("Too Many Requests")) {
+              console.log(
+                "Erro de limite de requisições, trocando de API key...",
+              );
+              headers = rotateApiKey();
+              // Reduzir o tempo de espera quando estamos apenas trocando de chave
+              waitTime = 1000;
+            } else if (retryCount < MAX_RETRIES) {
               console.log(
                 `Aguardando ${waitTime / 1000} segundos antes de tentar novamente...`,
               );
