@@ -91,8 +91,15 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
             }
 
             const cleanedData = cleanHorseStatsData(data);
-            const horseStats = new HorseStatsHrModel(cleanedData);
-            await horseStats.save();
+
+            await HorseStatsHrModel.findOneAndUpdate(
+              { id_horse: cleanedData.id_horse },
+              cleanedData,
+              { upsert: true, new: true, setDefaultsOnInsert: true },
+            );
+
+            // const horseStats = new HorseStatsHrModel(cleanedData);
+            // await horseStats.save();
             success = true;
           } catch (error: unknown) {
             retryCount++;

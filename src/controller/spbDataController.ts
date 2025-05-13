@@ -1,13 +1,16 @@
-import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb";
-import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb";
-import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb";
-import populateHorseFeature_spb from "../functions/spb_functions/populate/populateHorseFeatures";
+import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb.ts";
+import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb.ts";
+import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb.ts";
+import populateHorseFeature_spb from "../functions/spb_functions/populate/populateHorseFeatures.ts";
+
+import { updateRacecards_spb } from "../functions/spb_functions/update/racecard_hr.ts";
+import { updateLayPicks_spb } from "../functions/spb_functions/update/lay_picks.ts";
 
 import type { Request, Response, NextFunction } from "express";
-import { updateRacecards_spb } from "../functions/spb_functions/update/racecard_hr";
+import debugPopulateHorseFeature_spb from "../functions/debug/dbgPopulateHorseFeature_spb.ts";
 
 const spbRaceCards = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
@@ -19,7 +22,7 @@ const spbRaceCards = async (
 };
 
 const spbRaceDetail = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
@@ -35,7 +38,7 @@ const spbRaceDetail = async (
 };
 
 const spbHorseStats = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
@@ -51,14 +54,15 @@ const spbHorseStats = async (
 };
 
 const spbHorseFeatures = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   try {
     console.log("spbHorseFeatures");
 
-    await populateHorseFeature_spb(next);
+    // await populateHorseFeature_spb(next);
+    await debugPopulateHorseFeature_spb(256536, next);
 
     res
       .status(200)
@@ -69,12 +73,13 @@ const spbHorseFeatures = async (
 };
 
 const spbUpdateRacecard = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   try {
     await updateRacecards_spb(next);
+    await updateLayPicks_spb(next);
 
     res
       .status(200)

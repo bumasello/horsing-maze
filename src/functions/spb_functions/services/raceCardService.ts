@@ -1,9 +1,26 @@
-import { supabase } from "../../..";
+import { supabase } from "../../../index.ts";
 
-import type { IRaceCard_Spb } from "../../../models/modelSpb/raceCard_Spb";
+import type { IRaceCard_Spb } from "../../../models/modelSpb/raceCard_Spb.ts";
 
 export const fetchRacecards = async (): Promise<IRaceCard_Spb[]> => {
   const { data, error } = await supabase.from("racecards_hr").select("*");
+
+  if (error) {
+    throw new Error(
+      `Error buscando serviço do racecards: ${JSON.stringify(error)}`,
+    );
+  }
+
+  return data as IRaceCard_Spb[];
+};
+
+export const fetchSingleRacecards = async (
+  rc: number,
+): Promise<IRaceCard_Spb[]> => {
+  const { data, error } = await supabase
+    .from("racecards_hr")
+    .select("*")
+    .eq("id_race", rc);
 
   if (error) {
     throw new Error(

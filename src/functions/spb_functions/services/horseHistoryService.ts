@@ -27,8 +27,7 @@ export const fetchHorseHistoricalResults = async (
   const { data, error } = await supabase
     .from("horse_results_hr")
     .select("*")
-    .eq("stats_id", stats_id)
-    .lt("date", raceDate);
+    .eq("stats_id", stats_id);
 
   if (error) {
     throw new Error(

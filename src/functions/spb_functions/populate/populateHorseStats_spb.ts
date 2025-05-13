@@ -1,7 +1,7 @@
-import { supabase } from "../../..";
-import horseStatsData from "../../mdb_functions/getHorseResults_Hr";
+import { supabase } from "../../../index.ts";
+import horseStatsData from "../../mdb_functions/getHorseResults_Hr.ts";
 
-import type { IHorseStats_HR } from "../../../models/modelHr/horseStatsHrModel";
+import type { IHorseStats_HR } from "../../../models/modelHr/horseStatsHrModel.ts";
 import type { Request, Response, NextFunction } from "express";
 
 const populateHorseStats_spb = async (next: NextFunction) => {
@@ -9,6 +9,7 @@ const populateHorseStats_spb = async (next: NextFunction) => {
     const horseStats: IHorseStats_HR[] =
       await horseStatsData.getStoredHorseStats_Hr();
 
+    // selecionando todos os cavalos armazenados
     for (const stats of horseStats) {
       const { data: existing, error: checkError } = await supabase
         .from("horse_stats_hr")
@@ -55,6 +56,10 @@ const populateHorseStats_spb = async (next: NextFunction) => {
           //   `Resultado para "${stats.horse}" na data ${results.date} já existe.`,
           // );
         } else {
+          if (!results.position) {
+            continue;
+          }
+
           const { error: insertResultError } = await supabase
             .from("horse_results_hr")
             .insert({
@@ -63,12 +68,12 @@ const populateHorseStats_spb = async (next: NextFunction) => {
               position: results.position,
               course: results.course,
               distance: results.distance,
-              class: results.class,
+              class: results.class || 0,
               weight: results.weight,
               starting_price: results.starting_price,
               jockey: results.jockey,
               trainer: results.trainer,
-              or_rating: results.OR,
+              or_rating: results.OR || 0,
               race: results.race,
               prize: results.prize,
             });

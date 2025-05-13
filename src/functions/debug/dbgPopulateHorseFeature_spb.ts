@@ -1,44 +1,65 @@
-import { supabase } from "../../../index.ts";
 import dayjs from "dayjs";
 import {
-  fetchRacecards,
   fetchRaceHorses,
-} from "../services/raceCardService.ts";
-import { fetchHorseHistoricalResults } from "../services/horseHistoryService.ts";
+  fetchSingleRacecards,
+} from "../spb_functions/services/raceCardService.ts";
+import { fetchHorseHistoricalResults } from "../spb_functions/services/horseHistoryService.ts";
 import {
   fetchJockeyWinRate,
   fetchJockeyHorseWinRate,
-} from "../services/jockeyService.ts";
+} from "../spb_functions/services/jockeyService.ts";
 import {
   average,
   variance,
   convertFurlongsToMeters,
-  cleanDateString,
-  countWins,
-  countPlaces,
+  cleanDateString as _cleanDateString,
+  countWins as _countWins,
+  countPlaces as _countPlaces,
   convertHorseWeightToKg,
-} from "../../utils/auxFunctions.ts";
+} from "../utils/auxFunctions.ts";
 
-import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb.ts";
-import type { IHorseFeatureEntry_Spb } from "../../../models/modelSpb/horseFeatureEntry_Spb.ts";
+// import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb.ts";
+// import type { IHorseFeatureEntry_Spb } from "../../../models/modelSpb/horseFeatureEntry_Spb.ts";
+
 import type { NextFunction } from "express";
 
-const populateHorseFeature_spb = async (next: NextFunction) => {
+const debugPopulateHorseFeature_spb = async (
+  racecard_id: number,
+  next: NextFunction,
+) => {
   try {
-    const racecards = await fetchRacecards();
+    console.log(`\n[DEBUG] Iniciando debug para racecard_id = ${racecard_id}`);
+
+    // Ajuste: passamos o racecard_id
+    const racecards = await fetchSingleRacecards(racecard_id);
+    console.log(
+      "[DEBUG] racecards retornados:",
+      JSON.stringify(racecards, null, 2),
+    );
 
     for (const rc of racecards) {
       const raceDate = dayjs(rc.date).format("YYYY-MM-DD");
+      console.log(
+        `\n[DEBUG] Processando Racecard ID=${rc.id}, date=${raceDate}`,
+      );
+
       const horses = await fetchRaceHorses(rc.id);
+      console.log(`[DEBUG] ${horses.length} cavalos encontrados:`, horses);
 
       const field_size = horses.length;
-      for (const h of horses as IRaceHorse_Spb[]) {
+      for (const h of horses) {
+        console.log(`\n[DEBUG] Horse ID=${h.id_horse} | Dados iniciais:`, h);
+
         const historicalResults = await fetchHorseHistoricalResults(
           h.id_horse || 0,
           raceDate,
         );
+        console.log(
+          `[DEBUG] historicalResults (count=${historicalResults.length}):`,
+          historicalResults,
+        );
 
-        // iniciar variaveis com zero
+        // inicialização
         let avg_position = 0,
           position_variance = 0,
           win_rate = 0,
@@ -54,8 +75,11 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
           avg_position = average(positions);
           position_variance = variance(positions, avg_position);
 
+          console.log("[DEBUG] - PLACE RATE");
           const totalResults = historicalResults.length;
+          console.log("totalResults: ", totalResults);
           win_rate = positions.filter((pos) => pos === 1).length / totalResults;
+          console.log("win_rate: ", win_rate);
           place_rate =
             positions.filter((pos) => pos <= 3).length / totalResults;
 
@@ -63,7 +87,7 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
           avg_or_rating = average(orRatings);
           or_trend = (h.or_rating || 0) - avg_or_rating;
 
-          // calular dias da ultima corrida
+          // dias desde última corrida
           const validPastDates = historicalResults
             .map((r) => r.date ?? "")
             .filter((d) =>
@@ -76,18 +100,16 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
             );
 
           if (validPastDates.length > 0) {
-            // encontra a última data
-            const lastDate = validPastDates.reduce(
-              (max, curr) => (dayjs(curr).isAfter(dayjs(max)) ? curr : max),
-              validPastDates[0],
+            const lastDate = validPastDates.reduce((max, curr) =>
+              dayjs(curr).isAfter(dayjs(max)) ? curr : max,
             );
-
             days_since_last_run = dayjs(raceDate).diff(
               dayjs(lastDate, ["YYYY-MM-DD", "DD-MM-YYYY"], true),
               "day",
             );
           }
 
+          // desempenho por going
           const goingResults = historicalResults.filter(
             (r) => r.course === rc.course,
           );
@@ -97,6 +119,7 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
             );
           }
 
+          // desempenho por distância
           const currentDistanceMeters = convertFurlongsToMeters(
             rc.distance || "",
           );
@@ -115,6 +138,7 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
             );
           }
         }
+
         const jockey_win_rate = await fetchJockeyWinRate(h.jockey || "");
         const jockey_horse_win_rate = await fetchJockeyHorseWinRate(
           h.jockey || "",
@@ -133,11 +157,10 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
           Heavy: 0,
         };
         const going_encoded = goingMap[rc.going || "Good"] ?? 2;
-
         const distance_meters = convertFurlongsToMeters(rc.distance || "");
-
         const weight_kg = convertHorseWeightToKg(h.weight || "");
-        const featureEntry: IHorseFeatureEntry_Spb = {
+
+        const featureEntry = {
           race_horse_id: h.id,
           race_id: rc.id,
           going_encoded,
@@ -161,21 +184,15 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
           target,
         };
 
-        const { data, error } = await supabase
-          .from("horse_features")
-          .upsert(featureEntry, {
-            onConflict: "race_horse_id,race_id",
-          })
-          .select("id");
-
-        if (error) {
-          throw new Error(`Erro no upsert features: ${error}`);
-        }
+        console.log("[DEBUG] featureEntry gerado:", featureEntry);
       }
     }
+
+    console.log("\n[DEBUG] Debug completo.");
   } catch (error) {
+    console.error("[DEBUG] Erro durante debug:", error);
     next(error);
   }
 };
 
-export default populateHorseFeature_spb;
+export default debugPopulateHorseFeature_spb;

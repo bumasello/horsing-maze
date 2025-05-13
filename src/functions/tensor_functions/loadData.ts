@@ -45,7 +45,7 @@ export async function loadTrainingData(): Promise<IHorseFeatureEntry_Spb[]> {
   const { data: racesDone, error: racesError } = await supabase
     .from("racecards_hr")
     .select("id")
-    .eq("finished", 1);
+    .eq("finished", 0);
   if (racesError) throw new Error(racesError.message);
 
   const allFeatures: IHorseFeatureEntry_Spb[] = [];

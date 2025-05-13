@@ -1,18 +1,22 @@
-import raceCards from "../functions/mdb_functions/getRaceCard_Hr";
-import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr";
-import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
-import updateData from "../functions/mdb_functions/updateRaceCard_Hr";
+import raceCards from "../functions/mdb_functions/getRaceCard_Hr.ts";
+import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr.ts";
+import horseStats from "../functions/mdb_functions/getHorseResults_Hr.ts";
+import updateData from "../functions/mdb_functions/updateRaceCard_Hr.ts";
 
 import type { Request, Response, NextFunction } from "express";
-import type { IRaceCard_Hr } from "../models/modelHr/raceCardHrModel";
+import type { IRaceCard_Hr } from "../models/modelHr/raceCardHrModel.ts";
+import {
+  dbgGetRaceDetailAndStore_Hr,
+  teste,
+} from "../functions/debug/dbgGetRaceDetail_hr.ts";
 
 const getRaceCards = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  tomorrowDate.setDate(tomorrowDate.getDate());
 
   const formatted = tomorrowDate.toISOString().slice(0, 10);
 
@@ -26,12 +30,12 @@ const getRaceCards = async (
 };
 
 const getRaceCardsDetails = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   try {
-    const racecards = await raceCards.getUnfinishedRaceCard_Hr(false);
+    const racecards = await raceCards.getUnfinishedRaceCard_Hr(true);
 
     const BATCH_SIZE = 10; // Processar 10 requisições por lote
     const BATCH_DELAY = 60000; // 60 segundos de pausa entre lotes
@@ -89,9 +93,18 @@ const getRaceCardsDetails = async (
   }
 };
 
+const dbgGetRaceDetail = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  await dbgGetRaceDetailAndStore_Hr();
+  res.status(200).json({ message: "Racecards atualizados com sucesso." });
+};
+
 // Pegar o histórico do cavalo gasta muitas requisições. Aguardar ter uma Api ilimitate para utilizar esse recurso.
 const getHorseStats = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
@@ -111,7 +124,7 @@ const getHorseStats = async (
 };
 
 const updateRaceCard = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
@@ -126,7 +139,7 @@ const updateRaceCard = async (
 };
 
 const checkRacecards = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
@@ -141,7 +154,7 @@ const checkRacecards = async (
 };
 
 const checkRacedetails = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
