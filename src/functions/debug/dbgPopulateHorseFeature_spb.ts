@@ -2,12 +2,12 @@ import dayjs from "dayjs";
 import {
   fetchRaceHorses,
   fetchSingleRacecards,
-} from "../spb_functions/services/raceCardService.ts";
-import { fetchHorseHistoricalResults } from "../spb_functions/services/horseHistoryService.ts";
+} from "../spb_functions/services/raceCardService";
+import { fetchHorseHistoricalResults } from "../spb_functions/services/horseHistoryService";
 import {
   fetchJockeyWinRate,
   fetchJockeyHorseWinRate,
-} from "../spb_functions/services/jockeyService.ts";
+} from "../spb_functions/services/jockeyService";
 import {
   average,
   variance,
@@ -16,10 +16,10 @@ import {
   countWins as _countWins,
   countPlaces as _countPlaces,
   convertHorseWeightToKg,
-} from "../utils/auxFunctions.ts";
+} from "../utils/auxFunctions";
 
-// import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb.ts";
-// import type { IHorseFeatureEntry_Spb } from "../../../models/modelSpb/horseFeatureEntry_Spb.ts";
+// import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb";
+// import type { IHorseFeatureEntry_Spb } from "../../../models/modelSpb/horseFeatureEntry_Spb";
 
 import type { NextFunction } from "express";
 

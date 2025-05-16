@@ -9,4 +9,6 @@ const router = express_1.default.Router();
 router.get("/racecards", spbDataController_1.default.spbRaceCards);
 router.get("/racedetails", spbDataController_1.default.spbRaceDetail);
 router.get("/horsestats", spbDataController_1.default.spbHorseStats);
+router.get("/horsefeatures", spbDataController_1.default.spbHorseFeatures);
+router.get("/checkhorseresultlength", spbDataController_1.default.spbCheckCreateEntry);
 exports.default = router;

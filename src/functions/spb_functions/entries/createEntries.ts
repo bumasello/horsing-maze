@@ -50,7 +50,7 @@ interface RacePrediction {
 
 const generateLayPicks = async () => {
   const { data: raw, error } = await supabase
-    .from("race_predictions")
+    .from("horse_race_predictions")
     .select(
       `
       racecard_id,

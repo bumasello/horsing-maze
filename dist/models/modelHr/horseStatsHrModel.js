@@ -6,15 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importDefault(require("mongoose"));
 const Results_Hr_Schema = new mongoose_1.default.Schema({
     date: String,
-    position: Number,
+    position: Number || null,
     course: String,
     distance: String,
-    class: Number,
+    class: Number || null,
     weight: String,
-    starting_price: Number,
+    starting_price: Number || null,
     jockey: String,
     trainer: String,
-    OR: Number,
+    OR: Number || null,
     race: String,
     prize: String,
 });

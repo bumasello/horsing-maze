@@ -1,7 +1,7 @@
-import { supabase } from "../../../index.ts";
-import horseStatsData from "../../mdb_functions/getHorseResults_Hr.ts";
+import { supabase } from "../../../index";
+import horseStatsData from "../../mdb_functions/getHorseResults_Hr";
 
-import type { IHorseStats_HR } from "../../../models/modelHr/horseStatsHrModel.ts";
+import type { IHorseStats_HR } from "../../../models/modelHr/horseStatsHrModel";
 import type { Request, Response, NextFunction } from "express";
 
 const populateHorseStats_spb = async (next: NextFunction) => {

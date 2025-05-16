@@ -15,17 +15,37 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const dotenv_1 = __importDefault(require("dotenv"));
 const raceCardHrModel_1 = __importDefault(require("../../models/modelHr/raceCardHrModel"));
 dotenv_1.default.config();
+const getOneStoredRaceCard_Hr = (idrace) => __awaiter(void 0, void 0, void 0, function* () {
+    const racecard = yield raceCardHrModel_1.default.findOne({ id_race: idrace });
+    return racecard;
+});
 const getStoredRaceCard_Hr = () => __awaiter(void 0, void 0, void 0, function* () {
+    const racecards = yield raceCardHrModel_1.default.find();
+    return racecards;
+});
+// const getUnfinishedRaceCard_Hr = async (
+//   bool: boolean,
+// ): Promise<IRaceCard_Hr[]> => {
+//   const racecards = await RaceCard.find<IRaceCard_Hr>({
+//     finished: "0",
+//     canceled: "0",
+//     checked_detail: { $exists: false },
+//   });
+//
+//   return racecards;
+// };
+const getUnfinishedRaceCard_Hr = (bool) => __awaiter(void 0, void 0, void 0, function* () {
     const racecards = yield raceCardHrModel_1.default.find({
         finished: "0",
         canceled: "0",
-    }).limit(5);
+        checked_detail: bool,
+    });
     return racecards;
 });
 const getRaceCardAndStore_Hr = (date) => __awaiter(void 0, void 0, void 0, function* () {
     const headers = new Headers();
     const url = `${process.env.HORSERACINGAPIURLRACECARDS}${date}` || "error";
-    headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY2}`);
+    headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY0}`);
     headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
     try {
         const response = yield fetch(url, {
@@ -39,13 +59,16 @@ const getRaceCardAndStore_Hr = (date) => __awaiter(void 0, void 0, void 0, funct
         if (data.length === 0) {
             throw new Error("Requisição retornou sem dados.");
         }
+        let inseridos = 0;
         for (const rc of data) {
             const checkRc = yield raceCardHrModel_1.default.findOne({ id_race: rc.id_race });
-            if (!checkRc) {
+            if (!checkRc && inseridos < 18) {
                 const raceCard = new raceCardHrModel_1.default(rc);
                 const [, off_time = "00:00"] = (rc.date || "").split(" ");
                 raceCard.off_time_br = timeUkToBr(off_time);
+                raceCard.checked_detail = false;
                 yield raceCard.save();
+                inseridos++;
             }
         }
     }
@@ -67,4 +90,6 @@ const timeUkToBr = (off_time) => {
 exports.default = {
     getRaceCardAndStore_Hr,
     getStoredRaceCard_Hr,
+    getOneStoredRaceCard_Hr,
+    getUnfinishedRaceCard_Hr,
 };

@@ -1,14 +1,11 @@
-import { supabase } from "../../../index.ts";
+import { supabase } from "../../../index";
 import dayjs from "dayjs";
-import {
-  fetchRacecards,
-  fetchRaceHorses,
-} from "../services/raceCardService.ts";
-import { fetchHorseHistoricalResults } from "../services/horseHistoryService.ts";
+import { fetchRacecards, fetchRaceHorses } from "../services/raceCardService";
+import { fetchHorseHistoricalResults } from "../services/horseHistoryService";
 import {
   fetchJockeyWinRate,
   fetchJockeyHorseWinRate,
-} from "../services/jockeyService.ts";
+} from "../services/jockeyService";
 import {
   average,
   variance,
@@ -17,10 +14,10 @@ import {
   countWins,
   countPlaces,
   convertHorseWeightToKg,
-} from "../../utils/auxFunctions.ts";
+} from "../../utils/auxFunctions";
 
-import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb.ts";
-import type { IHorseFeatureEntry_Spb } from "../../../models/modelSpb/horseFeatureEntry_Spb.ts";
+import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb";
+import type { IHorseFeatureEntry_Spb } from "../../../models/modelSpb/horseFeatureEntry_Spb";
 import type { NextFunction } from "express";
 
 const populateHorseFeature_spb = async (next: NextFunction) => {

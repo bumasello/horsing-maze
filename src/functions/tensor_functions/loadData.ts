@@ -1,7 +1,7 @@
 import { supabase } from "../..";
 
 import type { IHorseFeatureEntry_Spb } from "../../models/modelSpb/horseFeatureEntry_Spb";
-import { IRaceCard_Spb } from "../../models/modelSpb/raceCard_Spb";
+import type { IRaceCard_Spb } from "../../models/modelSpb/raceCard_Spb";
 
 export async function pendingRaces(): Promise<
   {
@@ -13,7 +13,8 @@ export async function pendingRaces(): Promise<
   const { data: races, error: racesError } = await supabase
     .from("racecards_hr")
     .select("id, id_race")
-    .eq("finished", 0);
+    .eq("finished", 0)
+    .eq("create_entry", true);
 
   if (racesError) throw new Error(racesError.message);
 

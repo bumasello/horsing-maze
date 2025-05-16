@@ -25,7 +25,7 @@ const HorseSchema_Hr = new mongoose_1.default.Schema({
     last_ran_days_ago: Number,
     non_runner: Number,
     form: String,
-    position: Number,
+    position: String,
     distance_beaten: String,
     owner: String,
     sire: String,

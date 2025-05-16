@@ -2,7 +2,6 @@ import dotenv from "dotenv";
 import RaceCard from "../../models/modelHr/raceCardHrModel";
 
 import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
-import { exists } from "fs";
 
 dotenv.config();
 
@@ -70,7 +69,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
     for (const rc of data as IRaceCard_Hr[]) {
       const checkRc = await RaceCard.findOne({ id_race: rc.id_race });
 
-      if (!checkRc && inseridos < 16) {
+      if (!checkRc && inseridos < 18) {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
         const [, off_time = "00:00"] = (rc.date || "").split(" ");
 

@@ -1,24 +1,30 @@
-import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb.ts";
-import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb.ts";
-import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb.ts";
-import populateHorseFeature_spb from "../functions/spb_functions/populate/populateHorseFeatures.ts";
+import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb";
+import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb";
+import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb";
+import populateHorseFeature_spb from "../functions/spb_functions/populate/populateHorseFeatures";
 
-import { updateRacecards_spb } from "../functions/spb_functions/update/racecard_hr.ts";
-import { updateLayPicks_spb } from "../functions/spb_functions/update/lay_picks.ts";
+import { updateRacecards_spb } from "../functions/spb_functions/update/racecard_hr";
+import { updateLayPicks_spb } from "../functions/spb_functions/update/lay_picks";
 
 import type { Request, Response, NextFunction } from "express";
-import debugPopulateHorseFeature_spb from "../functions/debug/dbgPopulateHorseFeature_spb.ts";
+import debugPopulateHorseFeature_spb from "../functions/debug/dbgPopulateHorseFeature_spb";
+import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
 
 const spbRaceCards = async (
   _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
-  await populateRaceCard_spb(next);
+  try {
+    console.log("spbRaceCards");
+    await populateRaceCard_spb(next);
 
-  res
-    .status(200)
-    .json({ message: "Racecards carregados para supabase com sucesso." });
+    res
+      .status(200)
+      .json({ message: "Racecards carregados para supabase com sucesso." });
+  } catch (error) {
+    next(error);
+  }
 };
 
 const spbRaceDetail = async (
@@ -61,12 +67,29 @@ const spbHorseFeatures = async (
   try {
     console.log("spbHorseFeatures");
 
-    // await populateHorseFeature_spb(next);
-    await debugPopulateHorseFeature_spb(256536, next);
+    await populateHorseFeature_spb(next);
+    // await debugPopulateHorseFeature_spb(256536, next);
 
     res
       .status(200)
       .json({ message: "HorseFeatures carregados para supabase com sucesso." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const spbCheckCreateEntry = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    console.log("spbCheckCreateEntry");
+    await checkHorseResultLength();
+    res.status(200).json({
+      message:
+        "Corridas de cavalos com mais de 3 resultados selecionadas com sucesso.",
+    });
   } catch (error) {
     next(error);
   }
@@ -78,6 +101,7 @@ const spbUpdateRacecard = async (
   next: NextFunction,
 ) => {
   try {
+    console.log("spbUpdateRacecard");
     await updateRacecards_spb(next);
     await updateLayPicks_spb(next);
 
@@ -95,4 +119,5 @@ export default {
   spbHorseStats,
   spbHorseFeatures,
   spbUpdateRacecard,
+  spbCheckCreateEntry,
 };

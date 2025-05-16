@@ -11,6 +11,14 @@ class UserModel {
         this.users.set(user.chatId, user);
         console.log(`Usuário ${user.chatId} adicionado/atualizado`);
     }
+    updateUser(chatId, updates) {
+        const user = this.users.get(chatId);
+        if (!user)
+            throw new Error(`Usuário ${chatId} não encontrado.`);
+        const updated = Object.assign(Object.assign({}, user), { updates });
+        this.users.set(chatId, updated);
+        console.log("usuário atualizado");
+    }
     // Verificar se um usuário existe
     hasUser(chatId) {
         return this.users.has(chatId);

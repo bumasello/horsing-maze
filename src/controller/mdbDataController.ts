@@ -1,20 +1,21 @@
-import raceCards from "../functions/mdb_functions/getRaceCard_Hr.ts";
-import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr.ts";
-import horseStats from "../functions/mdb_functions/getHorseResults_Hr.ts";
-import updateData from "../functions/mdb_functions/updateRaceCard_Hr.ts";
+import raceCards from "../functions/mdb_functions/getRaceCard_Hr";
+import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr";
+import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
+import updateData from "../functions/mdb_functions/updateRaceCard_Hr";
 
 import type { Request, Response, NextFunction } from "express";
-import type { IRaceCard_Hr } from "../models/modelHr/raceCardHrModel.ts";
+import type { IRaceCard_Hr } from "../models/modelHr/raceCardHrModel";
 import {
   dbgGetRaceDetailAndStore_Hr,
   teste,
-} from "../functions/debug/dbgGetRaceDetail_hr.ts";
+} from "../functions/debug/dbgGetRaceDetail_hr";
 
 const getRaceCards = async (
   _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
+  console.log("mdbGetRaceCards");
   const tomorrowDate = new Date();
   tomorrowDate.setDate(tomorrowDate.getDate());
 
@@ -35,7 +36,8 @@ const getRaceCardsDetails = async (
   next: NextFunction,
 ) => {
   try {
-    const racecards = await raceCards.getUnfinishedRaceCard_Hr(true);
+    console.log("mdbGetRaceCardsDetails");
+    const racecards = await raceCards.getUnfinishedRaceCard_Hr(false);
 
     const BATCH_SIZE = 10; // Processar 10 requisições por lote
     const BATCH_DELAY = 60000; // 60 segundos de pausa entre lotes
@@ -93,6 +95,8 @@ const getRaceCardsDetails = async (
   }
 };
 
+// apenas para debug
+/*
 const dbgGetRaceDetail = async (
   _req: Request,
   res: Response,
@@ -101,6 +105,7 @@ const dbgGetRaceDetail = async (
   await dbgGetRaceDetailAndStore_Hr();
   res.status(200).json({ message: "Racecards atualizados com sucesso." });
 };
+*/
 
 // Pegar o histórico do cavalo gasta muitas requisições. Aguardar ter uma Api ilimitate para utilizar esse recurso.
 const getHorseStats = async (
@@ -109,6 +114,7 @@ const getHorseStats = async (
   next: NextFunction,
 ) => {
   try {
+    console.log("mdbGetHorseStats");
     const racecards = await raceCards.getUnfinishedRaceCard_Hr(true);
 
     if (!racecards) {
@@ -128,7 +134,7 @@ const updateRaceCard = async (
   res: Response,
   next: NextFunction,
 ) => {
-  console.log("updateRaceCard");
+  console.log("mdbUpdateRaceCard");
   try {
     await updateData.updateRaceCard_Hr();
 

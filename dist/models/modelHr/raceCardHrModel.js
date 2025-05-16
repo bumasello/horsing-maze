@@ -18,6 +18,7 @@ const RaceCard_Hr = new mongoose_1.default.Schema({
     finish_time: String,
     prize: String,
     class: Number,
+    checked_detail: Boolean,
 });
 const RaceCardModel_Hr = mongoose_1.default.model("RaceCard_Hr", RaceCard_Hr);
 exports.default = RaceCardModel_Hr;
