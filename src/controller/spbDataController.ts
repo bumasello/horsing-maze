@@ -1,10 +1,10 @@
 import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb";
 import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb";
 import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb";
-import populateHorseFeature_spb from "../functions/spb_functions/populate/populateHorseFeatures";
+import populateHorseFeature_spb from "../functions/spb_functions/features_v1/populateHorseFeatures";
 
-import { updateRacecards_spb } from "../functions/spb_functions/update/racecard_hr";
-import { updateLayPicks_spb } from "../functions/spb_functions/update/lay_picks";
+import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
+import { updateLayPicks_spb } from "../functions/spb_functions/update/updateLayPicks";
 
 import type { Request, Response, NextFunction } from "express";
 import debugPopulateHorseFeature_spb from "../functions/debug/dbgPopulateHorseFeature_spb";

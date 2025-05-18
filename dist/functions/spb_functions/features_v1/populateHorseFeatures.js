@@ -12,59 +12,49 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const index_1 = require("../../../index");
 const dayjs_1 = __importDefault(require("dayjs"));
-const raceCardService_1 = require("../spb_functions/features_v1/services/raceCardService");
-const horseHistoryService_1 = require("../spb_functions/features_v1/services/horseHistoryService");
-const jockeyService_1 = require("../spb_functions/features_v1/services/jockeyService");
-const auxFunctions_1 = require("../utils/auxFunctions");
-const debugPopulateHorseFeature_spb = (racecard_id, next) => __awaiter(void 0, void 0, void 0, function* () {
+const raceCardService_1 = require("./services/raceCardService");
+const horseHistoryService_1 = require("./services/horseHistoryService");
+const jockeyService_1 = require("./services/jockeyService");
+const auxFunctions_1 = require("../../utils/auxFunctions");
+const populateHorseFeature_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
-        console.log(`\n[DEBUG] Iniciando debug para racecard_id = ${racecard_id}`);
-        // Ajuste: passamos o racecard_id
-        const racecards = yield (0, raceCardService_1.fetchSingleRacecards)(racecard_id);
-        console.log("[DEBUG] racecards retornados:", JSON.stringify(racecards, null, 2));
+        const racecards = yield (0, raceCardService_1.fetchRacecards)();
         for (const rc of racecards) {
             const raceDate = (0, dayjs_1.default)(rc.date).format("YYYY-MM-DD");
-            console.log(`\n[DEBUG] Processando Racecard ID=${rc.id}, date=${raceDate}`);
             const horses = yield (0, raceCardService_1.fetchRaceHorses)(rc.id);
-            console.log(`[DEBUG] ${horses.length} cavalos encontrados:`, horses);
             const field_size = horses.length;
             for (const h of horses) {
-                console.log(`\n[DEBUG] Horse ID=${h.id_horse} | Dados iniciais:`, h);
                 const historicalResults = yield (0, horseHistoryService_1.fetchHorseHistoricalResults)(h.id_horse || 0, raceDate);
-                console.log(`[DEBUG] historicalResults (count=${historicalResults.length}):`, historicalResults);
-                // inicialização
+                // iniciar variaveis com zero
                 let avg_position = 0, position_variance = 0, win_rate = 0, place_rate = 0, avg_or_rating = 0, or_trend = 0, days_since_last_run = 0, going_performance = 0, distance_performance = 0;
                 if (historicalResults.length > 0) {
                     const positions = historicalResults.map((r) => r.position || 0);
                     avg_position = (0, auxFunctions_1.average)(positions);
                     position_variance = (0, auxFunctions_1.variance)(positions, avg_position);
-                    console.log("[DEBUG] - PLACE RATE");
                     const totalResults = historicalResults.length;
-                    console.log("totalResults: ", totalResults);
                     win_rate = positions.filter((pos) => pos === 1).length / totalResults;
-                    console.log("win_rate: ", win_rate);
                     place_rate =
                         positions.filter((pos) => pos <= 3).length / totalResults;
                     const orRatings = historicalResults.map((r) => r.or_rating || 0);
                     avg_or_rating = (0, auxFunctions_1.average)(orRatings);
                     or_trend = (h.or_rating || 0) - avg_or_rating;
-                    // dias desde última corrida
+                    // calular dias da ultima corrida
                     const validPastDates = historicalResults
                         .map((r) => { var _a; return (_a = r.date) !== null && _a !== void 0 ? _a : ""; })
                         .filter((d) => (0, dayjs_1.default)(d, ["YYYY-MM-DD", "DD-MM-YYYY"], true).isValid())
                         .filter((d) => (0, dayjs_1.default)(d, ["YYYY-MM-DD", "DD-MM-YYYY"], true).isBefore((0, dayjs_1.default)(raceDate)));
                     if (validPastDates.length > 0) {
-                        const lastDate = validPastDates.reduce((max, curr) => (0, dayjs_1.default)(curr).isAfter((0, dayjs_1.default)(max)) ? curr : max);
+                        // encontra a última data
+                        const lastDate = validPastDates.reduce((max, curr) => ((0, dayjs_1.default)(curr).isAfter((0, dayjs_1.default)(max)) ? curr : max), validPastDates[0]);
                         days_since_last_run = (0, dayjs_1.default)(raceDate).diff((0, dayjs_1.default)(lastDate, ["YYYY-MM-DD", "DD-MM-YYYY"], true), "day");
                     }
-                    // desempenho por going
                     const goingResults = historicalResults.filter((r) => r.course === rc.course);
                     if (goingResults.length > 0) {
                         going_performance = (0, auxFunctions_1.average)(goingResults.map((r) => r.position || 0));
                     }
-                    // desempenho por distância
                     const currentDistanceMeters = (0, auxFunctions_1.convertFurlongsToMeters)(rc.distance || "");
                     const distanceResults = historicalResults.filter((r) => {
                         const rMeters = (0, auxFunctions_1.convertFurlongsToMeters)(r.distance || "");
@@ -115,14 +105,20 @@ const debugPopulateHorseFeature_spb = (racecard_id, next) => __awaiter(void 0, v
                     jockey_horse_win_rate,
                     target,
                 };
-                console.log("[DEBUG] featureEntry gerado:", featureEntry);
+                const { data, error } = yield index_1.supabase
+                    .from("horse_features")
+                    .upsert(featureEntry, {
+                    onConflict: "race_horse_id,race_id",
+                })
+                    .select("id");
+                if (error) {
+                    throw new Error(`Erro no upsert features: ${error}`);
+                }
             }
         }
-        console.log("\n[DEBUG] Debug completo.");
     }
     catch (error) {
-        console.error("[DEBUG] Erro durante debug:", error);
         next(error);
     }
 });
-exports.default = debugPopulateHorseFeature_spb;
+exports.default = populateHorseFeature_spb;

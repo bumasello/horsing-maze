@@ -1,6 +1,6 @@
-import { supabase } from "../../../index";
+import { supabase } from "../../../..";
 
-import type { IRaceCard_Spb } from "../../../models/modelSpb/raceCard_Spb";
+import type { IRaceCard_Spb } from "../../../../models/modelSpb/raceCard_Spb";
 
 export const fetchRacecards = async (): Promise<IRaceCard_Spb[]> => {
   const { data, error } = await supabase.from("racecards_hr").select("*");

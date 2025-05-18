@@ -1,5 +1,5 @@
 import { cl_trainData } from "../functions/tensor_functions/claude_trainData";
-import layPick from "../functions/spb_functions/entries/createEntries";
+import populateLayPicks from "../functions/spb_functions/populate/populateLayPicks";
 
 import type { Request, Response, NextFunction } from "express";
 import { trainHorseData } from "../functions/tensor_functions/trainHorseData";
@@ -27,7 +27,7 @@ const getInsertPredictions = async (
 ) => {
   console.log("tsrgetInsertPredictions");
   try {
-    await layPick.generateLayPicks();
+    await populateLayPicks.generateLayPicks();
     res.status(200).json({ message: "Previsões armazendas com suscesso." });
   } catch (error) {
     next(error);

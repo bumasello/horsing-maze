@@ -1,6 +1,6 @@
-import { supabase } from "../../..";
+import { supabase } from "../../../..";
 
-import type { IHorseResult_Spb } from "../../../models/modelSpb/horseResult_Spb";
+import type { IHorseResult_Spb } from "../../../../models/modelSpb/horseResult_Spb";
 
 export const fetchHorseHistoricalResults = async (
   id_horse: number,

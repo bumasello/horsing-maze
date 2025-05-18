@@ -1,11 +1,11 @@
 import { supabase } from "../../../index";
 import dayjs from "dayjs";
-import { fetchRacecards, fetchRaceHorses } from "../services/raceCardService";
-import { fetchHorseHistoricalResults } from "../services/horseHistoryService";
+import { fetchRacecards, fetchRaceHorses } from "./services/raceCardService";
+import { fetchHorseHistoricalResults } from "./services/horseHistoryService";
 import {
   fetchJockeyWinRate,
   fetchJockeyHorseWinRate,
-} from "../services/jockeyService";
+} from "./services/jockeyService";
 import {
   average,
   variance,

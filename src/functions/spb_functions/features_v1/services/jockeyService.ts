@@ -1,4 +1,4 @@
-import { supabase } from "../../..";
+import { supabase } from "../../../..";
 
 export const fetchJockeyWinRate = async (jockey: string): Promise<number> => {
   const { data: allData, error: allError } = await supabase

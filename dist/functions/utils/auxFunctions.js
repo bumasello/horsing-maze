@@ -19,6 +19,10 @@ const convertFurlongsToMeters = (distanceStr) => {
     const FURLONG_TO_METERS = 201.168;
     const YARD_TO_METERS = 0.9144;
     const MILE_TO_FURLONGS = 8;
+    if (!distanceStr) {
+        console.log("Sem distancia");
+        return 0;
+    }
     // 1. Limpa espaços e remove conteúdo entre parênteses, ex: "1m(Rnd)" -> "1m"
     const cleaned = distanceStr
         .toLowerCase()
@@ -70,6 +74,10 @@ const convertHorseWeightToKg = (weightStr) => {
     // Constantes de conversão
     const POUND_TO_KG = 0.45359237;
     const STONE_TO_POUNDS = 14;
+    if (!weightStr) {
+        console.log("Sem peso do cavalo.");
+        return 0;
+    }
     // Remover espaços
     const cleanStr = weightStr.trim();
     // Formato "11-12" (11 stones e 12 pounds)

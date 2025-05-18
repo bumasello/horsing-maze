@@ -19,7 +19,7 @@ const updateRaceCard_Hr_1 = __importDefault(require("../functions/mdb_functions/
 const getRaceCards = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("mdbGetRaceCards");
     const tomorrowDate = new Date();
-    tomorrowDate.setDate(tomorrowDate.getDate());
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
     const formatted = tomorrowDate.toISOString().slice(0, 10);
     try {
         yield getRaceCard_Hr_1.default.getRaceCardAndStore_Hr(formatted);

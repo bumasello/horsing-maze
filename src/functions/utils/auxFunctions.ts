@@ -15,11 +15,16 @@ export const countPlaces = (positions: number[]): number =>
   positions.filter((pos) => pos <= 3).length;
 
 // Função para converter distância (ex: "5f") para metros (1f ≈ 201.168 meters)
-export const convertFurlongsToMeters = (distanceStr: string): number => {
+export const convertFurlongsToMeters = (distanceStr: string | null): number => {
   // Constantes de conversão
   const FURLONG_TO_METERS = 201.168;
   const YARD_TO_METERS = 0.9144;
   const MILE_TO_FURLONGS = 8;
+
+  if (!distanceStr) {
+    console.log("Sem distancia");
+    return 0;
+  }
 
   // 1. Limpa espaços e remove conteúdo entre parênteses, ex: "1m(Rnd)" -> "1m"
   const cleaned = distanceStr
@@ -78,10 +83,15 @@ export const cleanDateString = (dateStr: string): string => {
     .replace(/[\/\.]/g, "-");
 };
 
-export const convertHorseWeightToKg = (weightStr: string): number => {
+export const convertHorseWeightToKg = (weightStr: string | null): number => {
   // Constantes de conversão
   const POUND_TO_KG = 0.45359237;
   const STONE_TO_POUNDS = 14;
+
+  if (!weightStr) {
+    console.log("Sem peso do cavalo.");
+    return 0;
+  }
 
   // Remover espaços
   const cleanStr = weightStr.trim();

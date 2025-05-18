@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const createEntries_1 = __importDefault(require("../functions/spb_functions/entries/createEntries"));
+const populateLayPicks_1 = __importDefault(require("../functions/spb_functions/populate/populateLayPicks"));
 const trainHorseData_1 = require("../functions/tensor_functions/trainHorseData");
 const getTrainDataAndCreatePredictions = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrTrainData");
@@ -28,7 +28,7 @@ const getTrainDataAndCreatePredictions = (req, res, next) => __awaiter(void 0, v
 const getInsertPredictions = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrgetInsertPredictions");
     try {
-        yield createEntries_1.default.generateLayPicks();
+        yield populateLayPicks_1.default.generateLayPicks();
         res.status(200).json({ message: "Previsões armazendas com suscesso." });
     }
     catch (error) {

@@ -2,12 +2,12 @@ import dayjs from "dayjs";
 import {
   fetchRaceHorses,
   fetchSingleRacecards,
-} from "../spb_functions/services/raceCardService";
-import { fetchHorseHistoricalResults } from "../spb_functions/services/horseHistoryService";
+} from "../spb_functions/features_v1/services/raceCardService";
+import { fetchHorseHistoricalResults } from "../spb_functions/features_v1/services/horseHistoryService";
 import {
   fetchJockeyWinRate,
   fetchJockeyHorseWinRate,
-} from "../spb_functions/services/jockeyService";
+} from "../spb_functions/features_v1/services/jockeyService";
 import {
   average,
   variance,
