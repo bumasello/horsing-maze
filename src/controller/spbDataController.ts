@@ -70,10 +70,10 @@ const spbHorseFeatures = async (
   try {
     console.log("spbHorseFeatures");
 
-    await generateTrainingFeatures();
-    await generatePredictionFeatures();
+    // await generateTrainingFeatures();
+    // await generatePredictionFeatures();
 
-    // await populateHorseFeature_spb(next);
+    await populateHorseFeature_spb(next);
     // await debugPopulateHorseFeature_spb(256536, next);
 
     res

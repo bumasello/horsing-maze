@@ -16,9 +16,9 @@ const getTraining = async (
 ) => {
   console.log("tsrTrainData");
   try {
-    // await cl_trainData();
+    await cl_trainData();
     // await trainHorseData();
-    await trainHorseData_v2();
+    // await trainHorseData_v2();
 
     res
       .status(200)
@@ -51,8 +51,8 @@ const getInsertPredictions = async (
 ) => {
   console.log("tsrGetInsertPredictions");
   try {
-    // await populateLayPicks.generateLayPicks();
-    await generateHorseEntries();
+    await populateLayPicks.generateLayPicks();
+    // await generateHorseEntries();
     res.status(200).json({ message: "Previsões armazendas com suscesso." });
   } catch (error) {
     next(error);
