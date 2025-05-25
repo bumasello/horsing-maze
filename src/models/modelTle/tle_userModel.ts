@@ -3,6 +3,8 @@ interface User {
   username?: string;
   firstName?: string;
   lastName?: string;
+  email?: string;
+  active: boolean;
   registeredAt: Date;
 }
 
@@ -18,6 +20,17 @@ class UserModel {
   addUser(user: User): void {
     this.users.set(user.chatId, user);
     console.log(`Usuário ${user.chatId} adicionado/atualizado`);
+  }
+
+  updateUser(
+    chatId: number,
+    updates: Partial<Pick<User, "email" | "active">>,
+  ): void {
+    const user = this.users.get(chatId);
+    if (!user) throw new Error(`Usuário ${chatId} não encontrado.`);
+    const updated = { ...user, updates };
+    this.users.set(chatId, updated);
+    console.log("usuário atualizado");
   }
 
   // Verificar se um usuário existe

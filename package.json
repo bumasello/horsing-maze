@@ -1,9 +1,14 @@
 {
   "name": "horsingmaze",
   "version": "1.0.0",
+  "engines": {
+    "node": "20.19.0"
+  },
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node dist/index.js",
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/index.ts"
   },
@@ -12,6 +17,7 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@biomejs/biome": "1.9.4",
     "@types/express": "^5.0.1",
     "@types/mongoose": "^5.11.96",
     "@types/node": "^22.13.14",
@@ -21,6 +27,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
+    "@tensorflow/tfjs-node": "^4.22.0",
+    "dayjs": "^1.11.13",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "mongoose": "^8.13.1",
