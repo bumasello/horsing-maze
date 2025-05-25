@@ -17,7 +17,7 @@ const getRaceCards = async (
 ) => {
   console.log("mdbGetRaceCards");
   const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  tomorrowDate.setDate(tomorrowDate.getDate());
 
   const formatted = tomorrowDate.toISOString().slice(0, 10);
 

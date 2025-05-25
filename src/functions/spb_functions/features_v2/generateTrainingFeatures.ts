@@ -100,7 +100,12 @@ export const generateTrainingFeatures = async (): Promise<void> => {
       `Geração de features concluída. Total de ${featuresCount} features geradas.`,
     );
   } catch (error) {
+    console.log(error);
     console.error("Erro na geração de features para treinamento:", error);
-    throw error;
+    const detalhe =
+      error instanceof Error
+        ? `${error.message}\n${error.stack}`
+        : JSON.stringify(error, null, 2);
+    throw new Error(`Erro ao salvar feature de treinamento: ${detalhe}`);
   }
 };

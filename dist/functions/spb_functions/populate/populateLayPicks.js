@@ -12,7 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const __1 = require("../../..");
 const generateLayPicks = () => __awaiter(void 0, void 0, void 0, function* () {
     const { data: raw, error } = yield __1.supabase
-        .from("horse_race_predictions")
+        .from("race_predictions")
         .select(`
       racecard_id,
       race_horse_id,

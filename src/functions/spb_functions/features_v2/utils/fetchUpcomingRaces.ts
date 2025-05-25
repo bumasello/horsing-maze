@@ -16,3 +16,20 @@ export const fetchUpcoming = async (): Promise<IRaceCard_Spb[]> => {
 
   return data as IRaceCard_Spb[];
 };
+
+export const fetchUpcomingEntrie = async (): Promise<IRaceCard_Spb[]> => {
+  const { data, error } = await supabase
+    .from("racecards_hr")
+    .select("*")
+    .eq("finished", 0)
+    .eq("create_entry", true)
+    .order("date", { ascending: true });
+
+  if (error) {
+    throw new Error(
+      `Erro buscando corridas pendentes: ${JSON.stringify(error)}`,
+    );
+  }
+
+  return data as IRaceCard_Spb[];
+};

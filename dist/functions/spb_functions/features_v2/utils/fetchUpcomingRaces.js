@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fetchUpcoming = void 0;
+exports.fetchUpcomingEntrie = exports.fetchUpcoming = void 0;
 const __1 = require("../../../..");
 const fetchUpcoming = () => __awaiter(void 0, void 0, void 0, function* () {
     const { data, error } = yield __1.supabase
@@ -23,3 +23,16 @@ const fetchUpcoming = () => __awaiter(void 0, void 0, void 0, function* () {
     return data;
 });
 exports.fetchUpcoming = fetchUpcoming;
+const fetchUpcomingEntrie = () => __awaiter(void 0, void 0, void 0, function* () {
+    const { data, error } = yield __1.supabase
+        .from("racecards_hr")
+        .select("*")
+        .eq("finished", 0)
+        .eq("create_entry", true)
+        .order("date", { ascending: true });
+    if (error) {
+        throw new Error(`Erro buscando corridas pendentes: ${JSON.stringify(error)}`);
+    }
+    return data;
+});
+exports.fetchUpcomingEntrie = fetchUpcomingEntrie;

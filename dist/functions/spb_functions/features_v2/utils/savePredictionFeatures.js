@@ -14,6 +14,7 @@ const __1 = require("../../../..");
 const savePredictionFeature = (feature) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { error } = yield __1.supabase
+            .schema("hml")
             .from("prediction_horse_features")
             .upsert(feature, {
             onConflict: "race_horse_id,race_id", // Evita duplicatas

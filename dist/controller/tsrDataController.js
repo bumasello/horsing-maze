@@ -12,13 +12,28 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const claude_trainData_1 = require("../functions/tensor_functions/claude_trainData");
 const populateLayPicks_1 = __importDefault(require("../functions/spb_functions/populate/populateLayPicks"));
-const trainHorseData_1 = require("../functions/tensor_functions/trainHorseData");
-const getTrainDataAndCreatePredictions = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+const generatePredictions_1 = require("../functions/spb_functions/features_v2/generatePredictions");
+const populateHorseEntries_1 = require("../functions/spb_functions/populate/populateHorseEntries");
+const getTraining = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrTrainData");
     try {
-        // await cl_trainData();
-        yield (0, trainHorseData_1.trainHorseData)();
+        yield (0, claude_trainData_1.cl_trainData)();
+        // await trainHorseData();
+        // await trainHorseData_v2();
+        res
+            .status(200)
+            .json({ message: "Treinamento do modelo executado com sucesso." });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+const getGeneratePredictions = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+    console.log("tsrGeneratePredictions");
+    yield (0, generatePredictions_1.generatePredictions)();
+    try {
         res.status(200).json({ message: "Previsões geradas com suscesso." });
     }
     catch (error) {
@@ -26,9 +41,10 @@ const getTrainDataAndCreatePredictions = (req, res, next) => __awaiter(void 0, v
     }
 });
 const getInsertPredictions = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    console.log("tsrgetInsertPredictions");
+    console.log("tsrGetInsertPredictions");
     try {
         yield populateLayPicks_1.default.generateLayPicks();
+        yield (0, populateHorseEntries_1.generateHorseEntries)();
         res.status(200).json({ message: "Previsões armazendas com suscesso." });
     }
     catch (error) {
@@ -36,6 +52,7 @@ const getInsertPredictions = (req, res, next) => __awaiter(void 0, void 0, void 
     }
 });
 exports.default = {
-    getTrainDataAndCreatePredictions,
+    getTraining,
     getInsertPredictions,
+    getGeneratePredictions,
 };

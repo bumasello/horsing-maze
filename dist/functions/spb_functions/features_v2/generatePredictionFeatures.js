@@ -23,7 +23,7 @@ const generatePredictionFeatures = () => __awaiter(void 0, void 0, void 0, funct
     try {
         console.log("Iniciando geração de features para previsão...");
         // 1. Buscar corridas não finalizadas
-        const upcomingRaces = yield (0, fetchUpcomingRaces_1.fetchUpcoming)();
+        const upcomingRaces = yield (0, fetchUpcomingRaces_1.fetchUpcomingEntrie)();
         console.log(`Encontradas ${upcomingRaces.length} corridas pendentes para previsão.`);
         const allPredictionFeatures = [];
         // 2. Para cada corrida

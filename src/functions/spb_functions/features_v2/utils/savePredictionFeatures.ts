@@ -3,6 +3,7 @@ import { supabase } from "../../../..";
 export const savePredictionFeature = async (feature: any) => {
   try {
     const { error } = await supabase
+      .schema("hml")
       .from("prediction_horse_features")
       .upsert(feature, {
         onConflict: "race_horse_id,race_id", // Evita duplicatas

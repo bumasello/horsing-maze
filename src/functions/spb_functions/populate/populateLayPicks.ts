@@ -1,23 +1,5 @@
 import { supabase } from "../../..";
 
-interface RawPred {
-  racecard_id: number;
-  race_horse_id: number;
-  probability: number;
-  racecards_hr: {
-    course: string;
-    date: string;
-    off_time_br: string;
-    title: string;
-    finished: number;
-    canceled: number;
-  };
-  race_horses_hr: {
-    horse: string;
-    number: number;
-  };
-}
-
 interface Pick {
   racecard_id: number;
   race_horse_id: number;
@@ -30,27 +12,9 @@ interface Pick {
   number: number;
 }
 
-interface RacePrediction {
-  racecard_id: number;
-  race_horse_id: number;
-  probability: number;
-  racecards_hr: {
-    date: string;
-    title: string;
-    course: string;
-    canceled: number;
-    finished: number;
-    off_time_br: string;
-  };
-  race_horses_hr: {
-    horse: string;
-    number: number;
-  };
-}
-
 const generateLayPicks = async () => {
   const { data: raw, error } = await supabase
-    .from("horse_race_predictions")
+    .from("race_predictions")
     .select(
       `
       racecard_id,

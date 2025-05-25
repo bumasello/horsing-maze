@@ -58,6 +58,8 @@ const spbHorseStats = (_req, res, next) => __awaiter(void 0, void 0, void 0, fun
 const spbHorseFeatures = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbHorseFeatures");
+        // await generateTrainingFeatures();
+        // await generatePredictionFeatures();
         yield (0, populateHorseFeatures_1.default)(next);
         // await debugPopulateHorseFeature_spb(256536, next);
         res

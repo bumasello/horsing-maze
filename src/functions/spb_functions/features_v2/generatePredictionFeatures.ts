@@ -1,13 +1,11 @@
-import { fetchFinishedRaces } from "./utils/fetchFinishedRaces";
 import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
 import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
 import { calculateHistoricalFeatures } from "./utils/calculateHistorialFeatures";
 import { calculateJockeyFeatures } from "./utils/calculateJockeyFeatures";
 import { convertFurlongsToMeters } from "../../utils/auxFunctions";
 import { convertHorseWeightToKg } from "../../utils/auxFunctions";
-import { saveTrainingFeature } from "./utils/saveTrainingFeature";
 import { encodeGoing } from "./aux/encodeGoing";
-import { fetchUpcoming } from "./utils/fetchUpcomingRaces";
+import { fetchUpcoming, fetchUpcomingEntrie } from "./utils/fetchUpcomingRaces";
 import { savePredictionFeature } from "./utils/savePredictionFeatures";
 
 export const generatePredictionFeatures = async () => {
@@ -15,7 +13,7 @@ export const generatePredictionFeatures = async () => {
     console.log("Iniciando geração de features para previsão...");
 
     // 1. Buscar corridas não finalizadas
-    const upcomingRaces = await fetchUpcoming();
+    const upcomingRaces = await fetchUpcomingEntrie();
     console.log(
       `Encontradas ${upcomingRaces.length} corridas pendentes para previsão.`,
     );
