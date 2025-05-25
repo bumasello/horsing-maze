@@ -5,10 +5,6 @@ import updateData from "../functions/mdb_functions/updateRaceCard_Hr";
 
 import type { Request, Response, NextFunction } from "express";
 import type { IRaceCard_Hr } from "../models/modelHr/raceCardHrModel";
-import {
-  dbgGetRaceDetailAndStore_Hr,
-  teste,
-} from "../functions/debug/dbgGetRaceDetail_hr";
 
 const getRaceCards = async (
   _req: Request,

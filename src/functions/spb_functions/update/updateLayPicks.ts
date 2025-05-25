@@ -2,15 +2,6 @@ import { supabase } from "../../..";
 
 import type { NextFunction } from "express";
 
-interface RaceHorsePosition {
-  position: number;
-}
-
-interface LayPick {
-  id: number;
-  race_horse_id: RaceHorsePosition[] | { position: number }; // Pode ser um array ou um objeto único
-}
-
 export const updateLayPicks_spb = async (next: NextFunction) => {
   try {
     const { data: unFinished, error } = await supabase

@@ -14,6 +14,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_1 = require("../../../index");
 const getHorseResults_Hr_1 = __importDefault(require("../../mdb_functions/getHorseResults_Hr"));
+const horseStatsHrModel_1 = __importDefault(require("../../../models/modelHr/horseStatsHrModel"));
 const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
@@ -34,15 +35,16 @@ const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, funct
             else {
                 const { data: insertedStats, error: insertError } = yield index_1.supabase
                     .from("horse_stats_hr")
-                    .insert({
+                    .upsert({
                     horse: stats.horse,
                     id_horse: stats.id_horse,
-                })
+                    result_count: stats.result_count || 0,
+                }, { onConflict: "id" })
                     .select("id");
                 if (insertError) {
                     throw new Error(`Erro ao inserir stats para ${stats.horse}:`);
                 }
-                stats_id = insertedStats && ((_a = insertedStats[0]) === null || _a === void 0 ? void 0 : _a.id);
+                stats_id = (_a = insertedStats === null || insertedStats === void 0 ? void 0 : insertedStats[0]) === null || _a === void 0 ? void 0 : _a.id;
             }
             for (const results of stats.results) {
                 const { data: existingResult, error: resultCheckError } = yield index_1.supabase
@@ -85,6 +87,7 @@ const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, funct
                     }
                 }
             }
+            yield horseStatsHrModel_1.default.updateOne({ id_horse: stats.id_horse }, { $set: { updated: false } });
         }
     }
     catch (error) {

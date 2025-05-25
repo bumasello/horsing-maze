@@ -18,6 +18,8 @@ export interface IResults_Hr extends Document {
 export interface IHorseStats_HR extends Document {
   horse: string;
   id_horse: number;
+  updated?: boolean;
+  result_count: number;
   results: IResults_Hr[];
 }
 
@@ -39,6 +41,8 @@ const Results_Hr_Schema = new mongoose.Schema<IResults_Hr>({
 const HorseStats_Hr_Schema = new mongoose.Schema<IHorseStats_HR>({
   horse: String,
   id_horse: Number,
+  updated: Boolean,
+  result_count: Number,
   results: [Results_Hr_Schema],
 });
 

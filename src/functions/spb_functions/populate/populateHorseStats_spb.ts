@@ -1,8 +1,10 @@
 import { supabase } from "../../../index";
+
 import horseStatsData from "../../mdb_functions/getHorseResults_Hr";
+import horseStatsHrModel from "../../../models/modelHr/horseStatsHrModel";
 
 import type { IHorseStats_HR } from "../../../models/modelHr/horseStatsHrModel";
-import type { Request, Response, NextFunction } from "express";
+import type { NextFunction } from "express";
 
 const populateHorseStats_spb = async (next: NextFunction) => {
   try {
@@ -27,15 +29,19 @@ const populateHorseStats_spb = async (next: NextFunction) => {
       } else {
         const { data: insertedStats, error: insertError } = await supabase
           .from("horse_stats_hr")
-          .insert({
-            horse: stats.horse,
-            id_horse: stats.id_horse,
-          })
+          .upsert(
+            {
+              horse: stats.horse,
+              id_horse: stats.id_horse,
+              result_count: stats.result_count || 0,
+            },
+            { onConflict: "id" },
+          )
           .select("id");
         if (insertError) {
           throw new Error(`Erro ao inserir stats para ${stats.horse}:`);
         }
-        stats_id = insertedStats && insertedStats[0]?.id;
+        stats_id = insertedStats?.[0]?.id;
       }
       for (const results of stats.results) {
         const { data: existingResult, error: resultCheckError } = await supabase
@@ -85,6 +91,10 @@ const populateHorseStats_spb = async (next: NextFunction) => {
           }
         }
       }
+      await horseStatsHrModel.updateOne(
+        { id_horse: stats.id_horse },
+        { $set: { updated: false } },
+      );
     }
   } catch (error) {
     next(error);

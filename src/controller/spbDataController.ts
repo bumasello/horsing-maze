@@ -11,6 +11,7 @@ import debugPopulateHorseFeature_spb from "../functions/debug/dbgPopulateHorseFe
 import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
 import { generatePredictionFeatures } from "../functions/spb_functions/features_v2/generatePredictionFeatures";
 import { generateTrainingFeatures } from "../functions/spb_functions/features_v2/generateTrainingFeatures";
+import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
 
 const spbRaceCards = async (
   _req: Request,
@@ -91,6 +92,7 @@ const spbCheckCreateEntry = async (
   try {
     console.log("spbCheckCreateEntry");
     await checkHorseResultLength();
+    await updateCleanRacecard(next);
     res.status(200).json({
       message:
         "Corridas de cavalos com mais de 3 resultados selecionadas com sucesso.",

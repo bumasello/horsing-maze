@@ -9,7 +9,9 @@ import type {
 import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 
 const getStoredHorseStats_Hr = async () => {
-  const horseStats = await HorseStatsHrModel.find<IHorseStats_HR>();
+  const horseStats = await HorseStatsHrModel.find<IHorseStats_HR>({
+    updated: true,
+  });
 
   return horseStats;
 };
@@ -50,7 +52,7 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
 
   for (const racecard of rc) {
     const detail = await raceDetail.getStoredRaceDetail_Hr(racecard.id_race);
-    console.log("temos o detail da corrida: ", racecard.id_race);
+    // console.log("temos o detail da corrida: ", racecard.id_race);
 
     for (const rdetail of detail) {
       for (let i = 0; i < rdetail.horses.length; i++) {
@@ -147,7 +149,7 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
 
 function cleanHorseStatsData(data: IHorseStats_HR): IHorseStats_HR {
   // Cria uma cópia profunda para não modificar o original
-  const cleanedData = JSON.parse(JSON.stringify(data));
+  const cleanedData: IHorseStats_HR = JSON.parse(JSON.stringify(data));
 
   // Validar resultados se existirem
   if (Array.isArray(cleanedData.results)) {
@@ -158,7 +160,7 @@ function cleanHorseStatsData(data: IHorseStats_HR): IHorseStats_HR {
       // position
       if (
         typeof cleanResult.position === "string" &&
-        isNaN(Number(cleanResult.position))
+        Number.isNaN(Number(cleanResult.position))
       ) {
         cleanResult.position = null;
       } else if (typeof cleanResult.position === "string") {
@@ -168,7 +170,7 @@ function cleanHorseStatsData(data: IHorseStats_HR): IHorseStats_HR {
       // class
       if (
         typeof cleanResult.class === "string" &&
-        isNaN(Number(cleanResult.class))
+        Number.isNaN(Number(cleanResult.class))
       ) {
         cleanResult.class = null;
       } else if (typeof cleanResult.class === "string") {
@@ -178,7 +180,7 @@ function cleanHorseStatsData(data: IHorseStats_HR): IHorseStats_HR {
       // starting_price
       if (
         typeof cleanResult.starting_price === "string" &&
-        isNaN(Number(cleanResult.starting_price))
+        Number.isNaN(Number(cleanResult.starting_price))
       ) {
         cleanResult.starting_price = null;
       } else if (typeof cleanResult.starting_price === "string") {
@@ -186,7 +188,10 @@ function cleanHorseStatsData(data: IHorseStats_HR): IHorseStats_HR {
       }
 
       // OR (Official Rating)
-      if (typeof cleanResult.OR === "string" && isNaN(Number(cleanResult.OR))) {
+      if (
+        typeof cleanResult.OR === "string" &&
+        Number.isNaN(Number(cleanResult.OR))
+      ) {
         cleanResult.OR = null;
       } else if (typeof cleanResult.OR === "string") {
         cleanResult.OR = Number(cleanResult.OR);
@@ -199,10 +204,13 @@ function cleanHorseStatsData(data: IHorseStats_HR): IHorseStats_HR {
   // Validar também os campos principais do cavalo
   if (
     typeof cleanedData.id_horse === "string" &&
-    !isNaN(Number(cleanedData.id_horse))
+    !Number.isNaN(Number(cleanedData.id_horse))
   ) {
     cleanedData.id_horse = Number(cleanedData.id_horse);
   }
+
+  cleanedData.updated = true;
+  cleanedData.result_count = cleanedData.results.length;
 
   return cleanedData;
 }

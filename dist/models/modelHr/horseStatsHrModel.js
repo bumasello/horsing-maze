@@ -21,6 +21,8 @@ const Results_Hr_Schema = new mongoose_1.default.Schema({
 const HorseStats_Hr_Schema = new mongoose_1.default.Schema({
     horse: String,
     id_horse: Number,
+    updated: Boolean,
+    result_count: Number,
     results: [Results_Hr_Schema],
 });
 exports.default = mongoose_1.default.model("HorseStats_HR", HorseStats_Hr_Schema);
