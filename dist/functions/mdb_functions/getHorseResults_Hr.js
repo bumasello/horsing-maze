@@ -15,7 +15,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const horseStatsHrModel_1 = __importDefault(require("../../models/modelHr/horseStatsHrModel"));
 const getRaceDetail_Hr_1 = __importDefault(require("./getRaceDetail_Hr"));
 const getStoredHorseStats_Hr = () => __awaiter(void 0, void 0, void 0, function* () {
-    const horseStats = yield horseStatsHrModel_1.default.find();
+    const horseStats = yield horseStatsHrModel_1.default.find({
+        updated: true,
+    });
     return horseStats;
 });
 const getHorseStatsAndStore_hr = (racecard) => __awaiter(void 0, void 0, void 0, function* () {
@@ -47,7 +49,7 @@ const getHorseStatsAndStore_hr = (racecard) => __awaiter(void 0, void 0, void 0,
     const REQUEST_DELAY = 2000; // 1 segundo entre requisições
     for (const racecard of rc) {
         const detail = yield getRaceDetail_Hr_1.default.getStoredRaceDetail_Hr(racecard.id_race);
-        console.log("temos o detail da corrida: ", racecard.id_race);
+        // console.log("temos o detail da corrida: ", racecard.id_race);
         for (const rdetail of detail) {
             for (let i = 0; i < rdetail.horses.length; i++) {
                 const horse = rdetail.horses[i];
@@ -125,7 +127,7 @@ function cleanHorseStatsData(data) {
             // Limpar campos numéricos específicos
             // position
             if (typeof cleanResult.position === "string" &&
-                isNaN(Number(cleanResult.position))) {
+                Number.isNaN(Number(cleanResult.position))) {
                 cleanResult.position = null;
             }
             else if (typeof cleanResult.position === "string") {
@@ -133,7 +135,7 @@ function cleanHorseStatsData(data) {
             }
             // class
             if (typeof cleanResult.class === "string" &&
-                isNaN(Number(cleanResult.class))) {
+                Number.isNaN(Number(cleanResult.class))) {
                 cleanResult.class = null;
             }
             else if (typeof cleanResult.class === "string") {
@@ -141,14 +143,15 @@ function cleanHorseStatsData(data) {
             }
             // starting_price
             if (typeof cleanResult.starting_price === "string" &&
-                isNaN(Number(cleanResult.starting_price))) {
+                Number.isNaN(Number(cleanResult.starting_price))) {
                 cleanResult.starting_price = null;
             }
             else if (typeof cleanResult.starting_price === "string") {
                 cleanResult.starting_price = Number(cleanResult.starting_price);
             }
             // OR (Official Rating)
-            if (typeof cleanResult.OR === "string" && isNaN(Number(cleanResult.OR))) {
+            if (typeof cleanResult.OR === "string" &&
+                Number.isNaN(Number(cleanResult.OR))) {
                 cleanResult.OR = null;
             }
             else if (typeof cleanResult.OR === "string") {
@@ -159,9 +162,11 @@ function cleanHorseStatsData(data) {
     }
     // Validar também os campos principais do cavalo
     if (typeof cleanedData.id_horse === "string" &&
-        !isNaN(Number(cleanedData.id_horse))) {
+        !Number.isNaN(Number(cleanedData.id_horse))) {
         cleanedData.id_horse = Number(cleanedData.id_horse);
     }
+    cleanedData.updated = true;
+    cleanedData.result_count = cleanedData.results.length;
     return cleanedData;
 }
 exports.default = {

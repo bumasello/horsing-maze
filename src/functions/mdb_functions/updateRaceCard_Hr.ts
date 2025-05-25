@@ -4,10 +4,10 @@ import raceDetail from "../mdb_functions/getRaceDetail_Hr";
 
 import RaceCard from "../../models/modelHr/raceCardHrModel";
 
+import RaceCardDetailModel_Hr from "../../models/modelHr/raceDetailHrModel";
+
+import type { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
 import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
-import RaceCardDetailModel_Hr, {
-  IRaceDetail_Hr,
-} from "../../models/modelHr/raceDetailHrModel";
 
 dotenv.config();
 

@@ -15,10 +15,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const populateRaceCard_spb_1 = __importDefault(require("../functions/spb_functions/populate/populateRaceCard_spb"));
 const populateRaceDetail_spb_1 = __importDefault(require("../functions/spb_functions/populate/populateRaceDetail_spb"));
 const populateHorseStats_spb_1 = __importDefault(require("../functions/spb_functions/populate/populateHorseStats_spb"));
-const populateHorseFeatures_1 = __importDefault(require("../functions/spb_functions/features_v1/populateHorseFeatures"));
-const updateRacecard_hr_1 = require("../functions/spb_functions/update/updateRacecard_hr");
-const updateLayPicks_1 = require("../functions/spb_functions/update/updateLayPicks");
 const checkHorseResultLength_1 = require("../functions/spb_functions/entries/checkHorseResultLength");
+const generatePredictionFeatures_1 = require("../functions/spb_functions/features_v2/generatePredictionFeatures");
+const generateTrainingFeatures_1 = require("../functions/spb_functions/features_v2/generateTrainingFeatures");
+const updateCleanRacecard_1 = require("../functions/spb_functions/update/updateCleanRacecard");
 const spbRaceCards = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbRaceCards");
@@ -58,9 +58,9 @@ const spbHorseStats = (_req, res, next) => __awaiter(void 0, void 0, void 0, fun
 const spbHorseFeatures = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbHorseFeatures");
-        // await generateTrainingFeatures();
-        // await generatePredictionFeatures();
-        yield (0, populateHorseFeatures_1.default)(next);
+        yield (0, generateTrainingFeatures_1.generateTrainingFeatures)();
+        yield (0, generatePredictionFeatures_1.generatePredictionFeatures)();
+        // await populateHorseFeature_spb(next);
         // await debugPopulateHorseFeature_spb(256536, next);
         res
             .status(200)
@@ -85,8 +85,9 @@ const spbCheckCreateEntry = (_req, res, next) => __awaiter(void 0, void 0, void 
 const spbUpdateRacecard = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbUpdateRacecard");
-        yield (0, updateRacecard_hr_1.updateRacecards_spb)(next);
-        yield (0, updateLayPicks_1.updateLayPicks_spb)(next);
+        yield (0, updateCleanRacecard_1.updateCleanRacecard)(next);
+        // await updateRacecards_spb(next);
+        // await updateLayPicks_spb(next);
         res
             .status(200)
             .json({ message: "Racecards atualizados no supabase com sucesso." });

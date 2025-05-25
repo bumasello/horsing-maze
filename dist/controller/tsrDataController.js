@@ -8,20 +8,16 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-const claude_trainData_1 = require("../functions/tensor_functions/claude_trainData");
-const populateLayPicks_1 = __importDefault(require("../functions/spb_functions/populate/populateLayPicks"));
+const trainHorseData_v2_1 = require("../functions/tensor_functions/trainHorseData_v2");
 const generatePredictions_1 = require("../functions/spb_functions/features_v2/generatePredictions");
 const populateHorseEntries_1 = require("../functions/spb_functions/populate/populateHorseEntries");
-const getTraining = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+const getTraining = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrTrainData");
     try {
-        yield (0, claude_trainData_1.cl_trainData)();
+        // await cl_trainData();
         // await trainHorseData();
-        // await trainHorseData_v2();
+        yield (0, trainHorseData_v2_1.trainHorseData_v2)();
         res
             .status(200)
             .json({ message: "Treinamento do modelo executado com sucesso." });
@@ -30,7 +26,7 @@ const getTraining = (req, res, next) => __awaiter(void 0, void 0, void 0, functi
         next(error);
     }
 });
-const getGeneratePredictions = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+const getGeneratePredictions = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrGeneratePredictions");
     yield (0, generatePredictions_1.generatePredictions)();
     try {
@@ -40,10 +36,10 @@ const getGeneratePredictions = (req, res, next) => __awaiter(void 0, void 0, voi
         next(error);
     }
 });
-const getInsertPredictions = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+const getInsertPredictions = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrGetInsertPredictions");
     try {
-        yield populateLayPicks_1.default.generateLayPicks();
+        // await populateLayPicks.generateLayPicks();
         yield (0, populateHorseEntries_1.generateHorseEntries)();
         res.status(200).json({ message: "Previsões armazendas com suscesso." });
     }
