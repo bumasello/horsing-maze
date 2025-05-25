@@ -9,12 +9,16 @@ import { generateHorseEntries } from "../functions/spb_functions/populate/popula
 
 import type { Request, Response, NextFunction } from "express";
 
-const getTraining = async (req: Request, res: Response, next: NextFunction) => {
+const getTraining = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
   console.log("tsrTrainData");
   try {
-    await cl_trainData();
+    // await cl_trainData();
     // await trainHorseData();
-    // await trainHorseData_v2();
+    await trainHorseData_v2();
 
     res
       .status(200)
@@ -25,7 +29,7 @@ const getTraining = async (req: Request, res: Response, next: NextFunction) => {
 };
 
 const getGeneratePredictions = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
@@ -41,13 +45,13 @@ const getGeneratePredictions = async (
 };
 
 const getInsertPredictions = async (
-  req: Request,
+  _req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   console.log("tsrGetInsertPredictions");
   try {
-    await populateLayPicks.generateLayPicks();
+    // await populateLayPicks.generateLayPicks();
     await generateHorseEntries();
     res.status(200).json({ message: "Previsões armazendas com suscesso." });
   } catch (error) {
