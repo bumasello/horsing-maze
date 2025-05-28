@@ -89,7 +89,7 @@ const spbUpdateRacecard = (_req, res, next) => __awaiter(void 0, void 0, void 0,
     try {
         console.log("spbUpdateRacecard");
         yield (0, updateRacecard_hr_1.updateRacecards_spb)(next);
-        yield (0, updateLayPicks_1.updateLayPicks_spb)(next);
+        yield (0, updateLayPicks_1.updateHorseEntries_spb)(next);
         res
             .status(200)
             .json({ message: "Racecards atualizados no supabase com sucesso." });
