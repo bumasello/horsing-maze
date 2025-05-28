@@ -1,13 +1,11 @@
 import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb";
 import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb";
 import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb";
-import populateHorseFeature_spb from "../functions/spb_functions/features_v1/populateHorseFeatures";
 
 import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
-import { updateLayPicks_spb } from "../functions/spb_functions/update/updateLayPicks";
+import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
 
 import type { Request, Response, NextFunction } from "express";
-import debugPopulateHorseFeature_spb from "../functions/debug/dbgPopulateHorseFeature_spb";
 import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
 import { generatePredictionFeatures } from "../functions/spb_functions/features_v2/generatePredictionFeatures";
 import { generateTrainingFeatures } from "../functions/spb_functions/features_v2/generateTrainingFeatures";
@@ -110,7 +108,7 @@ const spbUpdateRacecard = async (
   try {
     console.log("spbUpdateRacecard");
     await updateRacecards_spb(next);
-    await updateLayPicks_spb(next);
+    await updateHorseEntries_spb(next);
 
     res
       .status(200)

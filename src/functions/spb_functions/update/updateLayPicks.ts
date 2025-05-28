@@ -2,34 +2,35 @@ import { supabase } from "../../..";
 
 import type { NextFunction } from "express";
 
-export const updateLayPicks_spb = async (next: NextFunction) => {
+interface IHorseEntrie {
+  id: number;
+  race_horse_id: number;
+}
+
+export const updateHorseEntries_spb = async (next: NextFunction) => {
   try {
     const { data: unFinished, error } = await supabase
-      .from("lay_picks")
-      .select("id,race_horse_id!inner(position)")
+      .schema("hml")
+      .from("horse_entries")
+      .select("id,race_horse_id")
       .is("was_correct", null);
 
     if (!unFinished) return;
 
-    // console.log(unFinished);
+    for (const lay of unFinished as IHorseEntrie[]) {
+      const { data: positionData, error: positionError } = await supabase
+        .from("race_horses_hr")
+        .select("position")
+        .eq("id", lay.race_horse_id);
 
-    // console.log(unFinished);
-    for (const lay of unFinished) {
-      // Vamos verificar a estrutura e acessar a posição corretamente
-      let position: number;
+      if (!positionData) return;
 
-      if (Array.isArray(lay.race_horse_id)) {
-        // Se for um array, pegamos a posição do primeiro item (se existir)
-        position =
-          lay.race_horse_id.length > 0 ? lay.race_horse_id[0].position : 0;
-      } else {
-        // Se for um objeto único
-        position = (lay.race_horse_id as { position: number }).position;
-      }
+      const position = positionData[0].position;
 
       if (position === 1) {
         await supabase
-          .from("lay_picks")
+          .schema("hml")
+          .from("horse_entries")
           .update({
             was_correct: false,
             void: false,
@@ -39,7 +40,8 @@ export const updateLayPicks_spb = async (next: NextFunction) => {
           .eq("id", lay.id);
       } else if (position === 0) {
         await supabase
-          .from("lay_picks")
+          .schema("hml")
+          .from("horse_entries")
           .update({
             was_correct: false,
             void: true,
@@ -49,7 +51,8 @@ export const updateLayPicks_spb = async (next: NextFunction) => {
           .eq("id", lay.id);
       } else {
         await supabase
-          .from("lay_picks")
+          .schema("hml")
+          .from("horse_entries")
           .update({
             was_correct: true,
             void: false,
@@ -58,8 +61,6 @@ export const updateLayPicks_spb = async (next: NextFunction) => {
           })
           .eq("id", lay.id);
       }
-
-      // console.log(`LayPick ID: ${lay.id}, Position: ${position}`);
     }
   } catch (error) {
     next(error);

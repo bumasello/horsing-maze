@@ -62,7 +62,7 @@ const getRaceCardAndStore_Hr = (date) => __awaiter(void 0, void 0, void 0, funct
         let inseridos = 0;
         for (const rc of data) {
             const checkRc = yield raceCardHrModel_1.default.findOne({ id_race: rc.id_race });
-            if (!checkRc && inseridos < 18) {
+            if (!checkRc && inseridos < 20) {
                 const raceCard = new raceCardHrModel_1.default(rc);
                 const [, off_time = "00:00"] = (rc.date || "").split(" ");
                 raceCard.off_time_br = timeUkToBr(off_time);
