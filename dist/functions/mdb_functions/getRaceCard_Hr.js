@@ -45,7 +45,7 @@ const getUnfinishedRaceCard_Hr = (bool) => __awaiter(void 0, void 0, void 0, fun
 const getRaceCardAndStore_Hr = (date) => __awaiter(void 0, void 0, void 0, function* () {
     const headers = new Headers();
     const url = `${process.env.HORSERACINGAPIURLRACECARDS}${date}` || "error";
-    headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY0}`);
+    headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY4}`);
     headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
     try {
         const response = yield fetch(url, {

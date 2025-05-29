@@ -8,42 +8,52 @@ import type { NextFunction } from "express";
 
 const populateHorseStats_spb = async (next: NextFunction) => {
   try {
+    console.log(
+      "Iniciando população de estatísticas de cavalos no Supabase...",
+    );
+
+    // Buscar estatísticas de cavalos marcados como atualizados no MongoDB
     const horseStats: IHorseStats_HR[] =
       await horseStatsData.getStoredHorseStats_Hr();
 
-    // selecionando todos os cavalos armazenados
+    console.log(
+      `Processando ${horseStats.length} cavalos com estatísticas atualizadas.`,
+    );
+
+    // Processar cada cavalo
     for (const stats of horseStats) {
-      const { data: existing, error: checkError } = await supabase
+      // Realizar upsert diretamente sem verificação prévia
+      const { data: insertedStats, error: upsertError } = await supabase
         .from("horse_stats_hr")
-        .select("id")
-        .eq("id_horse", stats.id_horse);
+        .upsert(
+          {
+            horse: stats.horse,
+            id_horse: stats.id_horse,
+            result_count: stats.result_count || 0,
+          },
+          { onConflict: "id_horse" }, // Usar id_horse como chave de conflito
+        )
+        .select("id");
 
-      if (checkError) {
-        throw new Error(`Erro ao verificar existência de ${stats.horse}:`);
+      if (upsertError) {
+        throw new Error(
+          `Erro ao fazer upsert para ${stats.horse}: ${upsertError.message}`,
+        );
       }
 
-      let stats_id: number;
+      // Obter o ID do registro inserido/atualizado
+      const stats_id = insertedStats?.[0]?.id;
 
-      if (existing && existing.length > 0) {
-        stats_id = existing[0].id;
-      } else {
-        const { data: insertedStats, error: insertError } = await supabase
-          .from("horse_stats_hr")
-          .upsert(
-            {
-              horse: stats.horse,
-              id_horse: stats.id_horse,
-              result_count: stats.result_count || 0,
-            },
-            { onConflict: "id" },
-          )
-          .select("id");
-        if (insertError) {
-          throw new Error(`Erro ao inserir stats para ${stats.horse}:`);
-        }
-        stats_id = insertedStats?.[0]?.id;
+      if (!stats_id) {
+        console.warn(
+          `Aviso: Não foi possível obter ID após upsert para ${stats.horse}`,
+        );
+        continue;
       }
+
+      // Processar os resultados do cavalo
       for (const results of stats.results) {
+        // Verificar se o resultado já existe
         const { data: existingResult, error: resultCheckError } = await supabase
           .from("horse_results_hr")
           .select("id")
@@ -53,15 +63,12 @@ const populateHorseStats_spb = async (next: NextFunction) => {
 
         if (resultCheckError) {
           throw new Error(
-            `Erro ao verificar resultado para ${stats.horse} na data ${results.date}:`,
+            `Erro ao verificar resultado para ${stats.horse} na data ${results.date}: ${resultCheckError.message}`,
           );
         }
 
-        if (existingResult && existingResult.length > 0) {
-          // console.log(
-          //   `Resultado para "${stats.horse}" na data ${results.date} já existe.`,
-          // );
-        } else {
+        // Inserir apenas se o resultado não existir
+        if (!existingResult || existingResult.length === 0) {
           if (!results.position) {
             continue;
           }
@@ -86,17 +93,22 @@ const populateHorseStats_spb = async (next: NextFunction) => {
 
           if (insertResultError) {
             throw new Error(
-              `Erro inserindo resultado para "${stats.horse}" na data ${results.date}:`,
+              `Erro inserindo resultado para "${stats.horse}" na data ${results.date}: ${insertResultError.message}`,
             );
           }
         }
       }
+
+      // Marcar como não atualizado no MongoDB após processamento
       await horseStatsHrModel.updateOne(
         { id_horse: stats.id_horse },
         { $set: { updated: false } },
       );
     }
+
+    console.log("População de estatísticas de cavalos concluída com sucesso.");
   } catch (error) {
+    console.error("Erro durante a população de estatísticas:", error);
     next(error);
   }
 };

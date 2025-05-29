@@ -46,7 +46,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACECARDS}${date}` || "error";
 
-  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY0}`);
+  headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY4}`);
   headers.set("x-rapidapi-host", `${process.env.XRAPIDAPIHOST}`);
 
   try {

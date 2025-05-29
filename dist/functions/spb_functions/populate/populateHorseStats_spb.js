@@ -18,35 +18,33 @@ const horseStatsHrModel_1 = __importDefault(require("../../../models/modelHr/hor
 const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
+        console.log("Iniciando população de estatísticas de cavalos no Supabase...");
+        // Buscar estatísticas de cavalos marcados como atualizados no MongoDB
         const horseStats = yield getHorseResults_Hr_1.default.getStoredHorseStats_Hr();
-        // selecionando todos os cavalos armazenados
+        console.log(`Processando ${horseStats.length} cavalos com estatísticas atualizadas.`);
+        // Processar cada cavalo
         for (const stats of horseStats) {
-            const { data: existing, error: checkError } = yield index_1.supabase
+            // Realizar upsert diretamente sem verificação prévia
+            const { data: insertedStats, error: upsertError } = yield index_1.supabase
                 .from("horse_stats_hr")
-                .select("id")
-                .eq("id_horse", stats.id_horse);
-            if (checkError) {
-                throw new Error(`Erro ao verificar existência de ${stats.horse}:`);
+                .upsert({
+                horse: stats.horse,
+                id_horse: stats.id_horse,
+                result_count: stats.result_count || 0,
+            }, { onConflict: "id_horse" })
+                .select("id");
+            if (upsertError) {
+                throw new Error(`Erro ao fazer upsert para ${stats.horse}: ${upsertError.message}`);
             }
-            let stats_id;
-            if (existing && existing.length > 0) {
-                stats_id = existing[0].id;
+            // Obter o ID do registro inserido/atualizado
+            const stats_id = (_a = insertedStats === null || insertedStats === void 0 ? void 0 : insertedStats[0]) === null || _a === void 0 ? void 0 : _a.id;
+            if (!stats_id) {
+                console.warn(`Aviso: Não foi possível obter ID após upsert para ${stats.horse}`);
+                continue;
             }
-            else {
-                const { data: insertedStats, error: insertError } = yield index_1.supabase
-                    .from("horse_stats_hr")
-                    .upsert({
-                    horse: stats.horse,
-                    id_horse: stats.id_horse,
-                    result_count: stats.result_count || 0,
-                }, { onConflict: "id" })
-                    .select("id");
-                if (insertError) {
-                    throw new Error(`Erro ao inserir stats para ${stats.horse}:`);
-                }
-                stats_id = (_a = insertedStats === null || insertedStats === void 0 ? void 0 : insertedStats[0]) === null || _a === void 0 ? void 0 : _a.id;
-            }
+            // Processar os resultados do cavalo
             for (const results of stats.results) {
+                // Verificar se o resultado já existe
                 const { data: existingResult, error: resultCheckError } = yield index_1.supabase
                     .from("horse_results_hr")
                     .select("id")
@@ -54,14 +52,10 @@ const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, funct
                     .eq("date", results.date)
                     .eq("race", results.race);
                 if (resultCheckError) {
-                    throw new Error(`Erro ao verificar resultado para ${stats.horse} na data ${results.date}:`);
+                    throw new Error(`Erro ao verificar resultado para ${stats.horse} na data ${results.date}: ${resultCheckError.message}`);
                 }
-                if (existingResult && existingResult.length > 0) {
-                    // console.log(
-                    //   `Resultado para "${stats.horse}" na data ${results.date} já existe.`,
-                    // );
-                }
-                else {
+                // Inserir apenas se o resultado não existir
+                if (!existingResult || existingResult.length === 0) {
                     if (!results.position) {
                         continue;
                     }
@@ -83,14 +77,17 @@ const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, funct
                         prize: results.prize,
                     });
                     if (insertResultError) {
-                        throw new Error(`Erro inserindo resultado para "${stats.horse}" na data ${results.date}:`);
+                        throw new Error(`Erro inserindo resultado para "${stats.horse}" na data ${results.date}: ${insertResultError.message}`);
                     }
                 }
             }
+            // Marcar como não atualizado no MongoDB após processamento
             yield horseStatsHrModel_1.default.updateOne({ id_horse: stats.id_horse }, { $set: { updated: false } });
         }
+        console.log("População de estatísticas de cavalos concluída com sucesso.");
     }
     catch (error) {
+        console.error("Erro durante a população de estatísticas:", error);
         next(error);
     }
 });

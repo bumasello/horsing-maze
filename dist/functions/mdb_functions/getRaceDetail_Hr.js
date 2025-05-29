@@ -41,7 +41,7 @@ const getStoredRaceDetail_Hr = (id_race) => __awaiter(void 0, void 0, void 0, fu
 const getRaceDetailAndStore_Hr = (raceid) => __awaiter(void 0, void 0, void 0, function* () {
     const headers = new Headers();
     const url = `${process.env.HORSERACINGAPIURLRACEDETAILS}${raceid}` || "error";
-    headers.set("x-rapidapi-key", process.env.XRAPIDAPIKEY0 || "error");
+    headers.set("x-rapidapi-key", process.env.XRAPIDAPIKEY3 || "error");
     headers.set("x-rapidapi-host", process.env.XRAPIDAPIHOST || "error");
     try {
         const response = yield fetch(url, { method: "GET", headers });
