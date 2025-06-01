@@ -107,8 +107,8 @@ const spbUpdateRacecard = async (
 ) => {
   try {
     console.log("spbUpdateRacecard");
-    await updateRacecards_spb(next);
-    await updateHorseEntries_spb(next);
+    await updateRacecards_spb();
+    await updateHorseEntries_spb();
 
     res
       .status(200)
