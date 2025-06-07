@@ -26,11 +26,11 @@ const app = express();
 
 initBot();
 
-app.use("/mdb_data", mdb_dataRouter);
-app.use("/spb_data", spb_dataRouter);
-app.use("/tle_data", tle_dataRouter);
-app.use("/tsr_data", tsr_dataRouter);
-app.use("/upt_data", upt_dataRouter);
+// app.use("/mdb_data", mdb_dataRouter);
+// app.use("/spb_data", spb_dataRouter);
+// app.use("/tle_data", tle_dataRouter);
+// app.use("/tsr_data", tsr_dataRouter);
+// app.use("/upt_data", upt_dataRouter);
 
 app.use(
   (error: CustomError, _req: Request, res: Response, _next: NextFunction) => {
