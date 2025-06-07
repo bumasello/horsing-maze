@@ -14,6 +14,7 @@ const spb_DataRouter_1 = __importDefault(require("./router/spb_DataRouter"));
 const tle_DataRouter_2 = __importDefault(require("./router/tle_DataRouter"));
 const tsr_DataRouter_1 = __importDefault(require("./router/tsr_DataRouter"));
 const upt_DataRouter_1 = __importDefault(require("./router/upt_DataRouter"));
+const pipeline_1 = require("./pipeline/pipeline");
 dotenv_1.default.config();
 const port = process.env.PORT || 3000;
 const app = (0, express_1.default)();
@@ -34,6 +35,7 @@ exports.supabase = (0, supabase_js_1.createClient)(supabaseUrl, supabaseKey);
 const uri = process.env.MONGOOSE || "error";
 mongoose_1.default.connect(uri).then(() => {
     app.listen(port, () => {
+        (0, pipeline_1.setupCronJob)();
         console.log("api on air");
     });
 });
