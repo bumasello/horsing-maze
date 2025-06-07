@@ -6,7 +6,7 @@ import horseStatsHrModel from "../../../models/modelHr/horseStatsHrModel";
 import type { IHorseStats_HR } from "../../../models/modelHr/horseStatsHrModel";
 import type { NextFunction } from "express";
 
-const populateHorseStats_spb = async (next: NextFunction) => {
+export const populateHorseStats_spb = async () => {
   try {
     console.log(
       "Iniciando população de estatísticas de cavalos no Supabase...",
@@ -109,8 +109,5 @@ const populateHorseStats_spb = async (next: NextFunction) => {
     console.log("População de estatísticas de cavalos concluída com sucesso.");
   } catch (error) {
     console.error("Erro durante a população de estatísticas:", error);
-    next(error);
   }
 };
-
-export default populateHorseStats_spb;

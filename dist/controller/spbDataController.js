@@ -8,13 +8,10 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-const populateRaceCard_spb_1 = __importDefault(require("../functions/spb_functions/populate/populateRaceCard_spb"));
-const populateRaceDetail_spb_1 = __importDefault(require("../functions/spb_functions/populate/populateRaceDetail_spb"));
-const populateHorseStats_spb_1 = __importDefault(require("../functions/spb_functions/populate/populateHorseStats_spb"));
+const populateRaceCard_spb_1 = require("../functions/spb_functions/populate/populateRaceCard_spb");
+const populateRaceDetail_spb_1 = require("../functions/spb_functions/populate/populateRaceDetail_spb");
+const populateHorseStats_spb_1 = require("../functions/spb_functions/populate/populateHorseStats_spb");
 const updateRacecard_hr_1 = require("../functions/spb_functions/update/updateRacecard_hr");
 const updateLayPicks_1 = require("../functions/spb_functions/update/updateLayPicks");
 const checkHorseResultLength_1 = require("../functions/spb_functions/entries/checkHorseResultLength");
@@ -24,7 +21,7 @@ const updateCleanRacecard_1 = require("../functions/spb_functions/update/updateC
 const spbRaceCards = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbRaceCards");
-        yield (0, populateRaceCard_spb_1.default)(next);
+        yield (0, populateRaceCard_spb_1.populateRacecards_spb)();
         res
             .status(200)
             .json({ message: "Racecards carregados para supabase com sucesso." });
@@ -36,7 +33,7 @@ const spbRaceCards = (_req, res, next) => __awaiter(void 0, void 0, void 0, func
 const spbRaceDetail = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbRaceDetail");
-        yield (0, populateRaceDetail_spb_1.default)();
+        yield (0, populateRaceDetail_spb_1.populateRaceDetail_spb)();
     }
     catch (error) {
         next(error);
@@ -48,7 +45,7 @@ const spbRaceDetail = (_req, res, next) => __awaiter(void 0, void 0, void 0, fun
 const spbHorseStats = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbHorseStats");
-        yield (0, populateHorseStats_spb_1.default)(next);
+        yield (0, populateHorseStats_spb_1.populateHorseStats_spb)();
     }
     catch (error) {
         next(error);
@@ -76,7 +73,7 @@ const spbCheckCreateEntry = (_req, res, next) => __awaiter(void 0, void 0, void 
     try {
         console.log("spbCheckCreateEntry");
         yield (0, checkHorseResultLength_1.checkHorseResultLength)();
-        yield (0, updateCleanRacecard_1.updateCleanRacecard)(next);
+        yield (0, updateCleanRacecard_1.updateCleanRacecard)();
         res.status(200).json({
             message: "Corridas de cavalos com mais de 3 resultados selecionadas com sucesso.",
         });
@@ -88,8 +85,8 @@ const spbCheckCreateEntry = (_req, res, next) => __awaiter(void 0, void 0, void 
 const spbUpdateRacecard = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbUpdateRacecard");
-        yield (0, updateRacecard_hr_1.updateRacecards_spb)(next);
-        yield (0, updateLayPicks_1.updateHorseEntries_spb)(next);
+        yield (0, updateRacecard_hr_1.updateRacecards_spb)();
+        yield (0, updateLayPicks_1.updateHorseEntries_spb)();
         res
             .status(200)
             .json({ message: "Racecards atualizados no supabase com sucesso." });

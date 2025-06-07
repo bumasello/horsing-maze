@@ -16,7 +16,7 @@ exports.updateCleanRacecard = void 0;
 const __1 = require("../../..");
 const raceCardHrModel_1 = __importDefault(require("../../../models/modelHr/raceCardHrModel"));
 const raceDetailHrModel_1 = __importDefault(require("../../../models/modelHr/raceDetailHrModel"));
-const updateCleanRacecard = (next) => __awaiter(void 0, void 0, void 0, function* () {
+const updateCleanRacecard = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { data, error } = yield __1.supabase
             .from("racecards_hr")
@@ -35,8 +35,6 @@ const updateCleanRacecard = (next) => __awaiter(void 0, void 0, void 0, function
             yield __1.supabase.from("racecards_hr").delete().eq("id_race", rc.id_race);
         }
     }
-    catch (error) {
-        next(error);
-    }
+    catch (error) { }
 });
 exports.updateCleanRacecard = updateCleanRacecard;

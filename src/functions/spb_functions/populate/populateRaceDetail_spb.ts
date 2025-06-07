@@ -2,7 +2,7 @@ import { supabase } from "../../.."; // ajuste conforme sua estrutura
 import raceDetail from "../../mdb_functions/getRaceDetail_Hr";
 import type { IHorse_Hr } from "../../../models/modelHr/horseHrModel";
 
-const populateRaceDetail_spb = async () => {
+export const populateRaceDetail_spb = async () => {
   // Seleciona as racecards do Supabase para obter os ids e o id_race original
   const { data: racecards, error: racecardsError } = await supabase
     .from("racecards_hr")
@@ -144,5 +144,3 @@ const populateRaceDetail_spb = async () => {
     } // Fim do loop de detalhes
   } // Fim do loop para cada racecard
 };
-
-export default populateRaceDetail_spb;

@@ -3,7 +3,7 @@ import { supabase } from "../../..";
 import type { IRaceCard_Hr } from "../../../models/modelHr/raceCardHrModel";
 import type { NextFunction } from "express";
 
-const populateRacecards_spb = async (next: NextFunction) => {
+export const populateRacecards_spb = async () => {
   try {
     const racecards: IRaceCard_Hr[] =
       await raceCard.getUnfinishedRaceCard_Hr(true);
@@ -72,9 +72,5 @@ const populateRacecards_spb = async (next: NextFunction) => {
       }
       console.log(`Racecard ${id_race} inserido com sucesso.`);
     }
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) {}
 };
-
-export default populateRacecards_spb;

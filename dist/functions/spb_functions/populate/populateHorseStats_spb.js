@@ -12,10 +12,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.populateHorseStats_spb = void 0;
 const index_1 = require("../../../index");
 const getHorseResults_Hr_1 = __importDefault(require("../../mdb_functions/getHorseResults_Hr"));
 const horseStatsHrModel_1 = __importDefault(require("../../../models/modelHr/horseStatsHrModel"));
-const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
+const populateHorseStats_spb = () => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
         console.log("Iniciando população de estatísticas de cavalos no Supabase...");
@@ -88,7 +89,6 @@ const populateHorseStats_spb = (next) => __awaiter(void 0, void 0, void 0, funct
     }
     catch (error) {
         console.error("Erro durante a população de estatísticas:", error);
-        next(error);
     }
 });
-exports.default = populateHorseStats_spb;
+exports.populateHorseStats_spb = populateHorseStats_spb;

@@ -12,6 +12,7 @@ import tsr_dataRouter from "./router/tsr_DataRouter";
 import upt_dataRouter from "./router/upt_DataRouter";
 
 import type { Request, Response, NextFunction } from "express";
+import { setupCronJob } from "./pipeline/pipeline";
 
 interface CustomError extends Error {
   status?: number;
@@ -48,6 +49,7 @@ const uri = process.env.MONGOOSE || "error";
 
 mongoose.connect(uri).then(() => {
   app.listen(port, () => {
+    setupCronJob();
     console.log("api on air");
   });
 });

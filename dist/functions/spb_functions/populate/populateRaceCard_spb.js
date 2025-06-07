@@ -12,9 +12,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.populateRacecards_spb = void 0;
 const getRaceCard_Hr_1 = __importDefault(require("../../mdb_functions/getRaceCard_Hr"));
 const __1 = require("../../..");
-const populateRacecards_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
+const populateRacecards_spb = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const racecards = yield getRaceCard_Hr_1.default.getUnfinishedRaceCard_Hr(true);
         for (const rc of racecards) {
@@ -57,8 +58,6 @@ const populateRacecards_spb = (next) => __awaiter(void 0, void 0, void 0, functi
             console.log(`Racecard ${id_race} inserido com sucesso.`);
         }
     }
-    catch (error) {
-        next(error);
-    }
+    catch (error) { }
 });
-exports.default = populateRacecards_spb;
+exports.populateRacecards_spb = populateRacecards_spb;

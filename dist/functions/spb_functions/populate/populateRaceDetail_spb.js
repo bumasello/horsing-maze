@@ -12,6 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.populateRaceDetail_spb = void 0;
 const __1 = require("../../.."); // ajuste conforme sua estrutura
 const getRaceDetail_Hr_1 = __importDefault(require("../../mdb_functions/getRaceDetail_Hr"));
 const populateRaceDetail_spb = () => __awaiter(void 0, void 0, void 0, function* () {
@@ -130,4 +131,4 @@ const populateRaceDetail_spb = () => __awaiter(void 0, void 0, void 0, function*
         } // Fim do loop de detalhes
     } // Fim do loop para cada racecard
 });
-exports.default = populateRaceDetail_spb;
+exports.populateRaceDetail_spb = populateRaceDetail_spb;

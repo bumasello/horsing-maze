@@ -1,136 +1,549 @@
+/**
+ * Pipeline automatizado para atualização de dados de corridas
+ *
+ * Este script executa uma sequência de funções para atualizar dados de corridas,
+ * transferir dados entre MongoDB e Supabase, treinar modelos de ML e gerar previsões.
+ *
+ * Foi projetado para ser executado como um microsserviço agendado via Node Cron.
+ */
+
 import updateRacecard_mdb from "../functions/mdb_functions/updateRaceCard_Hr";
 import raceCards from "../functions/mdb_functions/getRaceCard_Hr";
 import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr";
 import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
 import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
 import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
+import { populateRacecards_spb } from "../functions/spb_functions/populate/populateRaceCard_spb";
+import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
+import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
+import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
+import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
+import { generateTrainingFeatures } from "../functions/spb_functions/features_v2/generateTrainingFeatures";
+import { generatePredictionFeatures } from "../functions/spb_functions/features_v2/generatePredictionFeatures";
+import { trainHorseData_v2 } from "../functions/tensor_functions/trainHorseData_v2";
+import { generatePredictions } from "../functions/spb_functions/features_v2/generatePredictions";
+import { generateHorseEntries } from "../functions/spb_functions/populate/populateHorseEntries";
 
-export const runPipeline_v1 = async () => {
-  try {
-    console.info("Iniciando pipeline de atualização de dados de corridas");
+/**
+ * Interface para o objeto de configuração do pipeline
+ */
+interface PipelineConfig {
+  batchProcessing: {
+    batchSize: number;
+    batchDelay: number;
+    requestDelay: number;
+  };
+  retry: {
+    maxRetries: number;
+    initialWaitTime: number;
+    backoffFactor: number;
+  };
+  dates: {
+    daysToAdd: number;
+  };
+}
 
-    // Parte 1: Funções do pipeline original
-    console.info("Iniciando atualização de Race Card HR");
+/**
+ * Interface para o resultado do pipeline
+ */
+interface PipelineResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Interface para o objeto de race card
+ */
+
+/**
+ * Interface para opções de processamento em lotes
+ */
+interface BatchProcessingOptions {
+  batchSize?: number;
+  batchDelay?: number;
+  requestDelay?: number;
+}
+
+/**
+ * Interface para opções de retry
+ */
+interface RetryOptions {
+  maxRetries?: number;
+  initialWaitTime?: number;
+  backoffFactor?: number;
+}
+
+/**
+ * Configurações centralizadas do pipeline
+ */
+const CONFIG: PipelineConfig = {
+  batchProcessing: {
+    batchSize: 10, // Número de requisições por lote
+    batchDelay: 60000, // 60 segundos de pausa entre lotes
+    requestDelay: 2000, // 2 segundos entre requisições individuais
+  },
+  retry: {
+    maxRetries: 3, // Número máximo de tentativas
+    initialWaitTime: 5000, // 5 segundos de espera inicial
+    backoffFactor: 2, // Fator de multiplicação para backoff exponencial
+  },
+  dates: {
+    daysToAdd: 0, // 0 = data atual, 1 = amanhã, etc.
+  },
+};
+
+/**
+ * Interface para o sistema de logging
+ */
+interface Logger {
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string, error?: Error): void;
+}
+
+/**
+ * Sistema de logging aprimorado
+ */
+const logger: Logger = {
+  info: (message: string): void => {
+    const timestamp = new Date().toISOString();
+    console.info(`[INFO] [${timestamp}] ${message}`);
+    // Aqui poderia ser adicionada integração com sistemas de log externos
+  },
+  warn: (message: string): void => {
+    const timestamp = new Date().toISOString();
+    console.warn(`[WARN] [${timestamp}] ${message}`);
+  },
+  error: (message: string, error?: Error): void => {
+    const timestamp = new Date().toISOString();
+    console.error(`[ERROR] [${timestamp}] ${message}`);
+    if (error?.stack) {
+      console.error(`[ERROR] [${timestamp}] Stack: ${error.stack}`);
+    }
+  },
+};
+
+/**
+ * Interface para o sistema de métricas
+ */
+interface Metrics {
+  startTimes: Record<string, number>;
+  start(label: string): void;
+  end(label: string): number | undefined;
+  measure<T>(label: string, fn: () => Promise<T>): Promise<T>;
+}
+
+/**
+ * Sistema de métricas para monitoramento de desempenho
+ */
+const metrics: Metrics = {
+  startTimes: {},
+
+  start: (label: string): void => {
+    metrics.startTimes[label] = Date.now();
+    logger.info(`Iniciando: ${label}`);
+  },
+
+  end: (label: string): number | undefined => {
+    const startTime = metrics.startTimes[label];
+    if (!startTime) {
+      logger.warn(`Métrica não iniciada para: ${label}`);
+      return undefined;
+    }
+
+    const duration = Date.now() - startTime;
+    logger.info(
+      `Concluído: ${label} - Duração: ${duration}ms (${(duration / 1000).toFixed(2)}s)`,
+    );
+    delete metrics.startTimes[label];
+    return duration;
+  },
+
+  // Método auxiliar para envolver uma função com métricas
+  async measure<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    metrics.start(label);
+    try {
+      return await fn();
+    } finally {
+      metrics.end(label);
+    }
+  },
+};
+
+/**
+ * Função utilitária para processamento em lotes
+ * @param items - Itens a serem processados
+ * @param processFn - Função de processamento para cada item
+ * @param options - Opções de configuração
+ */
+async function processBatch<T>(
+  items: T[],
+  processFn: (item: T, index: number, array: T[]) => Promise<void>,
+  options: BatchProcessingOptions = {},
+): Promise<void> {
+  const batchSize = options.batchSize || CONFIG.batchProcessing.batchSize;
+  const batchDelay = options.batchDelay || CONFIG.batchProcessing.batchDelay;
+  const requestDelay =
+    options.requestDelay || CONFIG.batchProcessing.requestDelay;
+
+  logger.info(
+    `Iniciando processamento em lotes de ${items.length} itens (tamanho do lote: ${batchSize})`,
+  );
+
+  for (let i = 0; i < items.length; i++) {
+    await processFn(items[i], i, items);
+
+    if (i < items.length - 1) {
+      // Espera normal entre requisições
+      await new Promise<void>((resolve) => setTimeout(resolve, requestDelay));
+
+      // Se estamos no final de um lote, faz uma pausa maior
+      if ((i + 1) % batchSize === 0) {
+        const currentBatch = Math.floor((i + 1) / batchSize);
+        const totalBatches = Math.ceil(items.length / batchSize);
+        logger.info(
+          `Completado lote ${currentBatch} de ${totalBatches}. Pausando por ${batchDelay / 1000} segundos...`,
+        );
+        await new Promise<void>((resolve) => setTimeout(resolve, batchDelay));
+      }
+    }
+  }
+
+  logger.info(`Processamento em lotes concluído para ${items.length} itens`);
+}
+
+/**
+ * Função utilitária para retry com backoff exponencial
+ * @param fn - Função a ser executada com retry
+ * @param options - Opções de configuração
+ * @param label - Rótulo para identificação nos logs
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: RetryOptions = {},
+  label = "operação",
+): Promise<T> {
+  const maxRetries = options.maxRetries || CONFIG.retry.maxRetries;
+  let waitTime = options.initialWaitTime || CONFIG.retry.initialWaitTime;
+  const backoffFactor = options.backoffFactor || CONFIG.retry.backoffFactor;
+
+  let success = false;
+  let retryCount = 0;
+  let result: T;
+
+  while (!success && retryCount < maxRetries) {
+    try {
+      result = await fn();
+      success = true;
+      return result;
+    } catch (error) {
+      retryCount++;
+      logger.error(
+        `Erro na ${label}, tentativa ${retryCount}: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+
+      if (retryCount < maxRetries) {
+        logger.info(
+          `Aguardando ${waitTime / 1000} segundos antes de tentar novamente...`,
+        );
+        await new Promise<void>((resolve) => setTimeout(resolve, waitTime));
+        waitTime *= backoffFactor; // Backoff exponencial
+      } else {
+        logger.error(`Falha após ${maxRetries} tentativas para ${label}`);
+        throw error; // Propaga o erro após esgotar as tentativas
+      }
+    }
+  }
+
+  // Esta linha nunca deve ser alcançada devido ao return dentro do try,
+  // mas é necessária para satisfazer o TypeScript
+  throw new Error("Falha inesperada no sistema de retry");
+}
+
+/**
+ * Etapa 1: Atualização de dados no MongoDB
+ */
+async function updateMongoDBData(): Promise<void> {
+  logger.info("Iniciando atualização de dados no MongoDB");
+
+  await metrics.measure("Atualização de Race Card HR", async () => {
     await updateRacecard_mdb.updateRaceCard_Hr();
-    console.info("Atualização de Race Card HR concluída com sucesso");
+    logger.info("Atualização de Race Card HR concluída com sucesso");
+  });
 
-    console.info("Iniciando atualização de Racecards SPB");
+  await metrics.measure("Atualização de Racecards SPB", async () => {
     await updateRacecards_spb();
-    console.info("Atualização de Racecards SPB concluída com sucesso");
+    logger.info("Atualização de Racecards SPB concluída com sucesso");
+  });
 
-    console.info("Iniciando atualização de Horse Entries SPB");
+  await metrics.measure("Atualização de Horse Entries SPB", async () => {
     await updateHorseEntries_spb();
-    console.info("Atualização de Horse Entries SPB concluída com sucesso");
+    logger.info("Atualização de Horse Entries SPB concluída com sucesso");
+  });
 
-    // Parte 2: Lógica extraída do controller
+  logger.info("Atualização de dados no MongoDB concluída com sucesso");
+}
 
-    // Lógica de getRaceCards
-    console.info("Iniciando obtenção de race cards");
-    const tomorrowDate = new Date();
-    tomorrowDate.setDate(tomorrowDate.getDate());
-    const formatted = tomorrowDate.toISOString().slice(0, 10);
+/**
+ * Etapa 2: Processamento de dados no MongoDB
+ */
+async function processMongoDBData(): Promise<void> {
+  logger.info("Iniciando processamento de dados no MongoDB");
 
-    console.info(`Obtendo race cards para a data: ${formatted}`);
+  // Obtenção de race cards
+  await metrics.measure("Obtenção de race cards", async () => {
+    const date = new Date();
+    date.setDate(date.getDate() + CONFIG.dates.daysToAdd);
+    const formatted = date.toISOString().slice(0, 10);
+
+    logger.info(`Obtendo race cards para a data: ${formatted}`);
     await raceCards.getRaceCardAndStore_Hr(formatted);
-    console.info("Race cards obtidos e armazenados com sucesso");
+    logger.info("Race cards obtidos e armazenados com sucesso");
+  });
 
-    // Lógica de getRaceCardsDetails
-    console.info("Iniciando obtenção de detalhes de race cards");
+  // Obtenção de detalhes de race cards
+  await metrics.measure("Obtenção de detalhes de race cards", async () => {
     const racecards = await raceCards.getUnfinishedRaceCard_Hr(false);
-    console.info(
+    logger.info(
       `Encontrados ${racecards.length} race cards não finalizados para processamento`,
     );
 
-    const BATCH_SIZE = 10; // Processar 10 requisições por lote
-    const BATCH_DELAY = 60000; // 60 segundos de pausa entre lotes
-    const REQUEST_DELAY = 2000; // 2 segundos entre requisições
-
-    for (let i = 0; i < racecards.length; i++) {
-      const rc = racecards[i];
-      let success = false;
-      let retryCount = 0;
-      const MAX_RETRIES = 3;
-      let waitTime = 5000; // Tempo inicial de espera para retry
-
-      while (!success && retryCount < MAX_RETRIES) {
-        try {
-          console.info(
-            `Processando detalhes para race card ${rc.id_race} (${i + 1}/${racecards.length})`,
-          );
-          await raceDetails.getRaceDetailAndStore_Hr(rc.id_race);
-          console.info(
-            `Detalhes para race card ${rc.id_race} atualizados com sucesso`,
-          );
-          success = true;
-        } catch (error) {
-          retryCount++;
-          console.error(
-            `Erro ao atualizar detalhes do race card ${rc.id_race}, tentativa ${retryCount}: ${error.message}`,
-          );
-
-          if (retryCount < MAX_RETRIES) {
-            console.info(
-              `Aguardando ${waitTime / 1000} segundos antes de tentar novamente...`,
-            );
-            await new Promise((resolve) => setTimeout(resolve, waitTime));
-            waitTime *= 2; // Backoff exponencial
-          } else {
-            console.error(
-              `Falha após ${MAX_RETRIES} tentativas para corrida ${rc.id_race}`,
-            );
-          }
-        }
-      }
-
-      if (i < racecards.length - 1) {
-        // Espera normal entre requisições
-        await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY));
-
-        // Se estamos no final de um lote, faz uma pausa maior
-        if ((i + 1) % BATCH_SIZE === 0) {
-          const currentBatch = Math.floor((i + 1) / BATCH_SIZE);
-          const totalBatches = Math.ceil(racecards.length / BATCH_SIZE);
-          console.info(
-            `Completado lote ${currentBatch} de ${totalBatches}. Pausando por ${BATCH_DELAY / 1000} segundos...`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
-        }
-      }
+    if (racecards.length === 0) {
+      logger.warn(
+        "Nenhum race card não finalizado encontrado para processamento",
+      );
+      return;
     }
 
-    console.info(
+    await processBatch(racecards, async (rc, index, array) => {
+      await withRetry(
+        async () => {
+          logger.info(
+            `Processando detalhes para race card ${rc.id_race} (${index + 1}/${array.length})`,
+          );
+          await raceDetails.getRaceDetailAndStore_Hr(rc.id_race);
+          logger.info(
+            `Detalhes para race card ${rc.id_race} atualizados com sucesso`,
+          );
+        },
+        {},
+        `race card ${rc.id_race}`,
+      );
+    });
+
+    logger.info(
       "Todos os detalhes de race cards foram processados com sucesso",
     );
+  });
 
-    // Lógica de getHorseStats
-    console.info("Iniciando obtenção de estatísticas de cavalos");
+  // Obtenção de estatísticas de cavalos
+  await metrics.measure("Obtenção de estatísticas de cavalos", async () => {
     const racecardsForStats = await raceCards.getUnfinishedRaceCard_Hr(true);
 
     if (!racecardsForStats || racecardsForStats.length === 0) {
-      console.warn(
+      logger.warn(
         "Não foram encontradas corridas não iniciadas para obtenção de estatísticas de cavalos",
       );
-    } else {
-      console.info(
-        `Encontrados ${racecardsForStats.length} race cards não iniciados para processamento de estatísticas de cavalos`,
-      );
-      await horseStats.getHorseStatsAndStore_hr(racecardsForStats);
-      console.info("Estatísticas de cavalos obtidas e armazenadas com sucesso");
+      return;
     }
 
-    console.info("Pipeline de atualização concluído com sucesso");
+    logger.info(
+      `Encontrados ${racecardsForStats.length} race cards não iniciados para processamento de estatísticas de cavalos`,
+    );
+    await horseStats.getHorseStatsAndStore_hr(racecardsForStats);
+    logger.info("Estatísticas de cavalos obtidas e armazenadas com sucesso");
+  });
+
+  logger.info("Processamento de dados no MongoDB concluído com sucesso");
+}
+
+/**
+ * Etapa 3: Transferência e preparação de dados no Supabase
+ */
+async function transferToSupabase(): Promise<void> {
+  logger.info("Iniciando transferência e preparação de dados no Supabase");
+
+  // Transferência de race cards
+  await metrics.measure(
+    "Transferência de race cards para Supabase",
+    async () => {
+      await populateRacecards_spb();
+      logger.info("Race cards transferidos para Supabase com sucesso");
+    },
+  );
+
+  // Transferência de detalhes de corridas
+  await metrics.measure(
+    "Transferência de detalhes de corridas para Supabase",
+    async () => {
+      await populateRaceDetail_spb();
+      logger.info(
+        "Detalhes de corridas transferidos para Supabase com sucesso",
+      );
+    },
+  );
+
+  // Transferência de estatísticas de cavalos
+  await metrics.measure(
+    "Transferência de estatísticas de cavalos para Supabase",
+    async () => {
+      await populateHorseStats_spb();
+      logger.info(
+        "Estatísticas de cavalos transferidas para Supabase com sucesso",
+      );
+    },
+  );
+
+  // Verificação de cavalos com resultados suficientes
+  await metrics.measure(
+    "Verificação de cavalos com resultados suficientes",
+    async () => {
+      await checkHorseResultLength();
+      logger.info("Verificação de resultados de cavalos concluída com sucesso");
+    },
+  );
+
+  // Atualização de race cards limpos
+  await metrics.measure("Atualização de race cards limpos", async () => {
+    await updateCleanRacecard();
+    logger.info("Race cards limpos atualizados com sucesso");
+  });
+
+  // Geração de features
+  await metrics.measure("Geração de features para treinamento", async () => {
+    await generateTrainingFeatures();
+    logger.info("Features para treinamento geradas com sucesso");
+  });
+
+  await metrics.measure("Geração de features para previsão", async () => {
+    await generatePredictionFeatures();
+    logger.info("Features para previsão geradas com sucesso");
+  });
+
+  logger.info(
+    "Transferência e preparação de dados no Supabase concluída com sucesso",
+  );
+}
+
+/**
+ * Etapa 4: Treinamento do modelo e geração de previsões
+ */
+async function trainAndPredict(): Promise<void> {
+  logger.info("Iniciando treinamento do modelo e geração de previsões");
+
+  // Treinamento do modelo
+  await metrics.measure("Treinamento do modelo", async () => {
+    await trainHorseData_v2();
+    logger.info("Treinamento do modelo concluído com sucesso");
+  });
+
+  // Geração de previsões
+  await metrics.measure("Geração de previsões", async () => {
+    await generatePredictions();
+    logger.info("Previsões geradas com sucesso");
+  });
+
+  // Inserção de previsões no banco de dados
+  await metrics.measure("Inserção de previsões no banco de dados", async () => {
+    await generateHorseEntries();
+    logger.info("Previsões inseridas no banco de dados com sucesso");
+  });
+
+  logger.info(
+    "Treinamento do modelo e geração de previsões concluídos com sucesso",
+  );
+}
+
+/**
+ * Função principal do pipeline que executa todas as etapas em sequência
+ */
+export const runPipeline = async (): Promise<PipelineResult> => {
+  try {
+    logger.info("Iniciando pipeline de atualização de dados de corridas");
+
+    await metrics.measure("Pipeline Completo", async () => {
+      // Etapa 1: Atualização de dados no MongoDB
+      await updateMongoDBData();
+
+      // Etapa 2: Processamento de dados no MongoDB
+      await processMongoDBData();
+
+      // Etapa 3: Transferência e preparação de dados no Supabase
+      await transferToSupabase();
+
+      // Etapa 4: Treinamento do modelo e geração de previsões
+      await trainAndPredict();
+    });
+
+    logger.info("Pipeline de atualização concluído com sucesso");
     return {
       success: true,
       message: "Pipeline de atualização concluído com sucesso",
     };
   } catch (error) {
     // Tratamento de erros centralizado
-    console.error(`Erro no pipeline de atualização: ${error.message}`, {
-      stack: error.stack,
-    });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(
+      `Erro no pipeline de atualização: ${errorMessage}`,
+      error instanceof Error ? error : new Error(errorMessage),
+    );
 
     // Aqui você pode adicionar notificações, alertas ou outras ações em caso de falha
 
-    return { success: false, error: error.message };
+    return {
+      success: false,
+      error: errorMessage,
+    };
   }
 };
+
+/**
+ * Configuração do Node Cron para execução automática
+ * Executa todos os dias às 22:00
+ */
+export function setupCronJob(): boolean {
+  try {
+    // Importação dinâmica para evitar dependência em ambientes onde node-cron não está disponível
+    const cron = require("node-cron");
+
+    // Expressão cron: "0 22 * * *" significa "às 22:00 todos os dias"
+    cron.schedule("0 22 * * *", async () => {
+      logger.info("Iniciando execução agendada do pipeline de atualização");
+      const result = await runPipeline();
+      logger.info(
+        `Resultado da execução agendada: ${result.success ? "Sucesso" : "Falha"}`,
+      );
+
+      if (!result.success) {
+        logger.error(`Falha na execução agendada: ${result.error}`);
+        // Aqui você pode adicionar notificações de falha
+      }
+    });
+
+    logger.info(
+      "Agendamento do pipeline configurado para execução diária às 22:00",
+    );
+    return true;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(
+      `Erro ao configurar agendamento: ${errorMessage}`,
+      error instanceof Error ? error : new Error(errorMessage),
+    );
+    return false;
+  }
+}
+
+/**
+ * Para iniciar o serviço, você pode usar:
+ *
+ * import { setupCronJob } from './updatePipelineOtimizado';
+ * setupCronJob();
+ *
+ * Ou para execução manual:
+ *
+ * import { runPipeline } from './updatePipelineOtimizado';
+ * runPipeline().then(result => console.log(result));
+ */

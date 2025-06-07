@@ -4,7 +4,7 @@ import type { NextFunction } from "express";
 import RaceCardModel_Hr from "../../../models/modelHr/raceCardHrModel";
 import RaceCardDetailModel_Hr from "../../../models/modelHr/raceDetailHrModel";
 
-export const updateCleanRacecard = async (next: NextFunction) => {
+export const updateCleanRacecard = async () => {
   try {
     const { data, error } = await supabase
       .from("racecards_hr")
@@ -24,7 +24,5 @@ export const updateCleanRacecard = async (next: NextFunction) => {
       await RaceCardDetailModel_Hr.deleteOne({ id_race: rc.id_race });
       await supabase.from("racecards_hr").delete().eq("id_race", rc.id_race);
     }
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) {}
 };
