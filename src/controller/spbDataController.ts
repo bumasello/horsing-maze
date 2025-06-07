@@ -1,6 +1,6 @@
-import populateRaceCard_spb from "../functions/spb_functions/populate/populateRaceCard_spb";
-import populateRaceDetail_spb from "../functions/spb_functions/populate/populateRaceDetail_spb";
-import populateHorseStats_spb from "../functions/spb_functions/populate/populateHorseStats_spb";
+import { populateRacecards_spb } from "../functions/spb_functions/populate/populateRaceCard_spb";
+import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
+import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
 
 import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
 import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
@@ -18,7 +18,7 @@ const spbRaceCards = async (
 ) => {
   try {
     console.log("spbRaceCards");
-    await populateRaceCard_spb(next);
+    await populateRacecards_spb();
 
     res
       .status(200)
@@ -51,7 +51,7 @@ const spbHorseStats = async (
 ) => {
   try {
     console.log("spbHorseStats");
-    await populateHorseStats_spb(next);
+    await populateHorseStats_spb();
   } catch (error) {
     next(error);
   }
@@ -90,7 +90,7 @@ const spbCheckCreateEntry = async (
   try {
     console.log("spbCheckCreateEntry");
     await checkHorseResultLength();
-    await updateCleanRacecard(next);
+    await updateCleanRacecard();
     res.status(200).json({
       message:
         "Corridas de cavalos com mais de 3 resultados selecionadas com sucesso.",
@@ -107,8 +107,8 @@ const spbUpdateRacecard = async (
 ) => {
   try {
     console.log("spbUpdateRacecard");
-    await updateRacecards_spb(next);
-    await updateHorseEntries_spb(next);
+    await updateRacecards_spb();
+    await updateHorseEntries_spb();
 
     res
       .status(200)
