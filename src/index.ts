@@ -26,6 +26,51 @@ const app = express();
 
 initBot();
 
+// Endpoint de health check para manter o serviço ativo
+app.get("/health", (_req: Request, res: Response) => {
+  const now = new Date();
+  console.log(`[HEALTH] Health check realizado às ${now.toISOString()}`);
+  res.status(200).json({
+    status: "OK",
+    timestamp: now.toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+// Endpoint para verificar o status do agendamento
+app.get("/cron-status", (_req: Request, res: Response) => {
+  const now = new Date();
+  console.log(
+    `[CRON] Status do agendamento verificado às ${now.toISOString()}`,
+  );
+  res.status(200).json({
+    status: "OK",
+    timestamp: now.toISOString(),
+    nextScheduledTime: getNextScheduledTime(),
+    timezone: {
+      serverTime: now.toISOString(),
+      utcOffset: now.getTimezoneOffset(),
+    },
+  });
+});
+
+// Função para calcular o próximo horário agendado (22:00 UTC)
+function getNextScheduledTime(): string {
+  const now = new Date();
+  const nextRun = new Date();
+
+  // Configurar para 22:00 UTC
+  nextRun.setUTCHours(22, 0, 0, 0);
+
+  // Se já passou das 22:00 UTC hoje, agendar para amanhã
+  if (now.getUTCHours() >= 22) {
+    nextRun.setUTCDate(nextRun.getUTCDate() + 1);
+  }
+
+  return nextRun.toISOString();
+}
+
+// Rotas da API (comentadas conforme seu código)
 // app.use("/mdb_data", mdb_dataRouter);
 // app.use("/spb_data", spb_dataRouter);
 // app.use("/tle_data", tle_dataRouter);
@@ -50,6 +95,30 @@ const uri = process.env.MONGOOSE || "error";
 mongoose.connect(uri).then(() => {
   app.listen(port, () => {
     setupCronJob();
-    console.log("api on air");
+    console.log(`API ativa na porta ${port} às ${new Date().toISOString()}`);
+
+    // Auto-ping para manter o serviço ativo (backup interno)
+    setInterval(() => {
+      const now = new Date();
+      console.log(`[AUTO-PING] Serviço mantido ativo às ${now.toISOString()}`);
+
+      // Opcional: fazer uma requisição HTTP para o próprio endpoint /health
+      try {
+        fetch(`http://localhost:${port}/health`)
+          .then((response) => response.json())
+          .then((data) =>
+            console.log(`[AUTO-PING] Resposta: ${JSON.stringify(data)}`),
+          )
+          .catch((err) =>
+            console.error(
+              `[AUTO-PING] Erro na auto-requisição: ${err.message}`,
+            ),
+          );
+      } catch (error) {
+        console.error(
+          `[AUTO-PING] Erro ao fazer auto-ping: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }, 840000); // 14 minutos (um pouco menos que o limite de 15 minutos do Render)
   });
 });
