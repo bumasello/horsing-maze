@@ -97,7 +97,7 @@ mongoose.connect(uri).then(() => {
     setupCronJob();
     console.log(`API ativa na porta ${port} às ${new Date().toISOString()}`);
 
-    // Auto-ping para manter o serviço ativo (backup interno)
+    // Auto-ping para manter o serviço ativo (a cada 5 minutos)
     setInterval(() => {
       const now = new Date();
       console.log(`[AUTO-PING] Serviço mantido ativo às ${now.toISOString()}`);
@@ -119,6 +119,6 @@ mongoose.connect(uri).then(() => {
           `[AUTO-PING] Erro ao fazer auto-ping: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-    }, 840000); // 14 minutos (um pouco menos que o limite de 15 minutos do Render)
+    }, 300000); // 5 minutos (300.000 ms)
   });
 });
