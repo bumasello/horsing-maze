@@ -12,7 +12,7 @@ import tsr_dataRouter from "./router/tsr_DataRouter";
 import upt_dataRouter from "./router/upt_DataRouter";
 
 import type { Request, Response, NextFunction } from "express";
-import { setupCronJob } from "./pipeline/pipeline";
+import { runPipeline, setupCronJob } from "./pipeline/pipeline";
 
 interface CustomError extends Error {
   status?: number;
@@ -94,31 +94,9 @@ const uri = process.env.MONGOOSE || "error";
 
 mongoose.connect(uri).then(() => {
   app.listen(port, () => {
-    setupCronJob();
     console.log(`API ativa na porta ${port} às ${new Date().toISOString()}`);
-
-    // Auto-ping para manter o serviço ativo (a cada 5 minutos)
-    setInterval(() => {
-      const now = new Date();
-      console.log(`[AUTO-PING] Serviço mantido ativo às ${now.toISOString()}`);
-
-      // Opcional: fazer uma requisição HTTP para o próprio endpoint /health
-      try {
-        fetch(`http://localhost:${port}/health`)
-          .then((response) => response.json())
-          .then((data) =>
-            console.log(`[AUTO-PING] Resposta: ${JSON.stringify(data)}`),
-          )
-          .catch((err) =>
-            console.error(
-              `[AUTO-PING] Erro na auto-requisição: ${err.message}`,
-            ),
-          );
-      } catch (error) {
-        console.error(
-          `[AUTO-PING] Erro ao fazer auto-ping: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }, 300000); // 5 minutos (300.000 ms)
+    runPipeline().then((result) => {
+      console.log(result);
+    });
   });
 });
