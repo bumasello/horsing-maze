@@ -89,7 +89,7 @@ const CONFIG: PipelineConfig = {
     backoffFactor: 2, // Fator de multiplicação para backoff exponencial
   },
   dates: {
-    daysToAdd: 1, // 0 = data atual, 1 = amanhã, etc.
+    daysToAdd: 0, // 0 = data atual, 1 = amanhã, etc.
   },
 };
 
