@@ -8,12 +8,15 @@ const express_1 = __importDefault(require("express"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const supabase_js_1 = require("@supabase/supabase-js");
-const tle_DataRouter_1 = require("./router/tle_DataRouter");
-const pipeline_1 = require("./pipeline/pipeline");
+const mdb_DataRouter_1 = __importDefault(require("./router/mdb_DataRouter"));
+const spb_DataRouter_1 = __importDefault(require("./router/spb_DataRouter"));
+const tle_DataRouter_1 = __importDefault(require("./router/tle_DataRouter"));
+const tsr_DataRouter_1 = __importDefault(require("./router/tsr_DataRouter"));
+const upt_DataRouter_1 = __importDefault(require("./router/upt_DataRouter"));
 dotenv_1.default.config();
 const port = process.env.PORT || 3000;
 const app = (0, express_1.default)();
-(0, tle_DataRouter_1.initBot)();
+// initBot();
 // Endpoint de health check para manter o serviço ativo
 app.get("/health", (_req, res) => {
     const now = new Date();
@@ -51,11 +54,11 @@ function getNextScheduledTime() {
     return nextRun.toISOString();
 }
 // Rotas da API (comentadas conforme seu código)
-// app.use("/mdb_data", mdb_dataRouter);
-// app.use("/spb_data", spb_dataRouter);
-// app.use("/tle_data", tle_dataRouter);
-// app.use("/tsr_data", tsr_dataRouter);
-// app.use("/upt_data", upt_dataRouter);
+app.use("/mdb_data", mdb_DataRouter_1.default);
+app.use("/spb_data", spb_DataRouter_1.default);
+app.use("/tle_data", tle_DataRouter_1.default);
+app.use("/tsr_data", tsr_DataRouter_1.default);
+app.use("/upt_data", upt_DataRouter_1.default);
 app.use((error, _req, res, _next) => {
     const status = error.status || 500;
     console.error(error);
@@ -68,8 +71,8 @@ const uri = process.env.MONGOOSE || "error";
 mongoose_1.default.connect(uri).then(() => {
     app.listen(port, () => {
         console.log(`API ativa na porta ${port} às ${new Date().toISOString()}`);
-        (0, pipeline_1.runPipeline)().then((result) => {
-            console.log(result);
-        });
+        // runPipeline().then((result) => {
+        //   console.log(result);
+        // });
     });
 });

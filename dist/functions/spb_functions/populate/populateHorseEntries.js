@@ -36,7 +36,8 @@ const generateHorseEntries = () => __awaiter(void 0, void 0, void 0, function* (
         console.log(`Buscando informações para ${raceIds.length} corridas e ${horseIds.length} cavalos...`);
         // 3. Buscar informações das corridas
         const { data: races, error: racesError } = yield __1.supabase
-            .from("racecards_hr")
+            .schema("hml")
+            .from("racecards_hr_view")
             .select("*")
             .in("id", raceIds)
             .eq("finished", "0")

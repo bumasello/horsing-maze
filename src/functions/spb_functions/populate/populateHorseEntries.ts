@@ -48,7 +48,8 @@ export const generateHorseEntries = async () => {
 
     // 3. Buscar informações das corridas
     const { data: races, error: racesError } = await supabase
-      .from("racecards_hr")
+      .schema("hml")
+      .from("racecards_hr_view")
       .select("*")
       .in("id", raceIds)
       .eq("finished", "0")
