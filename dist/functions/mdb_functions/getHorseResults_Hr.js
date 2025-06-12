@@ -22,11 +22,14 @@ const getStoredHorseStats_Hr = () => __awaiter(void 0, void 0, void 0, function*
 });
 const getHorseStatsAndStore_hr = (racecard) => __awaiter(void 0, void 0, void 0, function* () {
     const apiKeys = [
-        process.env.XRAPIDAPIKEY0,
-        process.env.XRAPIDAPIKEY1,
-        process.env.XRAPIDAPIKEY2,
-        process.env.XRAPIDAPIKEY3,
-        process.env.XRAPIDAPIKEY4,
+        // process.env.XRAPIDAPIKEY0,
+        // process.env.XRAPIDAPIKEY1,
+        // process.env.XRAPIDAPIKEY2,
+        // process.env.XRAPIDAPIKEY3,
+        // process.env.XRAPIDAPIKEY4,
+        process.env.XRAPIDAPIKEY5,
+        process.env.XRAPIDAPIKEY6,
+        process.env.XRAPIDAPIKEY7,
     ].filter((key) => Boolean(key));
     if (apiKeys.length === 0) {
         throw new Error("Nenhuma api key no array.");
