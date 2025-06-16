@@ -43,6 +43,9 @@ const getUnfinishedRaceCard_Hr = (bool) => __awaiter(void 0, void 0, void 0, fun
     return racecards;
 });
 const getRaceCardAndStore_Hr = (date) => __awaiter(void 0, void 0, void 0, function* () {
+    yield new Promise((resolve) => {
+        setTimeout(resolve, 2000);
+    });
     const headers = new Headers();
     const url = `${process.env.HORSERACINGAPIURLRACECARDS}${date}` || "error";
     headers.set("x-rapidapi-key", `${process.env.XRAPIDAPIKEY4}`);

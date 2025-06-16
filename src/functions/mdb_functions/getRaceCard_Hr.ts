@@ -43,6 +43,10 @@ const getUnfinishedRaceCard_Hr = async (
 };
 
 const getRaceCardAndStore_Hr = async (date: string) => {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 2000);
+  });
+
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACECARDS}${date}` || "error";
 
