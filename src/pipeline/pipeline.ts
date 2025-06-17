@@ -235,6 +235,7 @@ async function withRetry<T>(
   while (!success && retryCount < maxRetries) {
     try {
       result = await fn();
+
       success = true;
       return result;
     } catch (error) {
