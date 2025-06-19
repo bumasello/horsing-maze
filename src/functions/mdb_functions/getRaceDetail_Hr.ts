@@ -25,7 +25,7 @@ const getStoredRaceDetail_Hr = async (id_race: number) => {
 const getRaceDetailAndStore_Hr = async (raceid: number) => {
   const headers = new Headers();
   const url = `${process.env.HORSERACINGAPIURLRACEDETAILS}${raceid}` || "error";
-  headers.set("x-rapidapi-key", process.env.XRAPIDAPIKEY7 || "error");
+  headers.set("x-rapidapi-key", process.env.XRAPIDAPIKEY6 || "error");
   headers.set("x-rapidapi-host", process.env.XRAPIDAPIHOST || "error");
 
   await new Promise((resolve) => {
