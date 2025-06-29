@@ -43,7 +43,7 @@ const generatePredictionFeatures = () => __awaiter(void 0, void 0, void 0, funct
                 // 5. Buscar histórico do cavalo até a data atual
                 const horseHistory = yield (0, fetchHorseForRace_1.fetchHorseHistoryBeforeDate)(horse.id_horse || 0, new Date());
                 // 6. Calcular features históricas
-                const historicalFeatures = (0, calculateHistorialFeatures_1.calculateHistoricalFeatures)(horseHistory, race);
+                const historicalFeatures = (0, calculateHistorialFeatures_1.calculateHistoricalFeatures)(horseHistory, race, horse.id_horse || 0);
                 // 7. Calcular features do jóquei
                 const jockeyFeatures = yield (0, calculateJockeyFeatures_1.calculateJockeyFeatures)(horse.jockey || "", horse.id_horse || 0, race);
                 // 8. Combinar todas as features

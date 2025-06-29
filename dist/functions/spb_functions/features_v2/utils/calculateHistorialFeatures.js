@@ -1,8 +1,18 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.calculateHistoricalFeatures = void 0;
 const auxFunctions_1 = require("../../../utils/auxFunctions");
-const calculateHistoricalFeatures = (historicalResults, race) => {
+const fetchLastRaceDate_1 = require("../aux/fetchLastRaceDate");
+const calculateHistoricalFeatures = (historicalResults, race, horseId) => __awaiter(void 0, void 0, void 0, function* () {
     // Valores padrão caso não haja histórico suficiente
     const defaultValues = {
         avg_position: 0,
@@ -14,10 +24,67 @@ const calculateHistoricalFeatures = (historicalResults, race) => {
         going_performance: 0,
         distance_performance: 0,
         recent_form: 0,
+        days_since_last_run: 0,
     };
     // Se não houver resultados históricos, retorna valores padrão
     if (!historicalResults || historicalResults.length === 0) {
+        console.log(`[AVISO] Sem histórico para cavalo ${horseId}, retornando valores padrão`);
         return defaultValues;
+    }
+    // Buscar a data da última corrida diretamente via SQL
+    let days_since_last_run = 0;
+    try {
+        console.log(`\n[INFO] Calculando days_since_last_run para cavalo ${horseId}`);
+        // Verificar se temos uma data de corrida válida
+        if (!race.date || typeof race.date !== "string") {
+            console.log(`[ERRO] Data da corrida inválida para cavalo ${horseId}: ${race.date}`);
+            days_since_last_run = 0;
+        }
+        else {
+            console.log(`[DEBUG] Histórico disponível: ${historicalResults.length} corridas anteriores`);
+            // Estratégia 1: Buscar via função SQL (usando stats_id)
+            console.log(`[DEBUG] Estratégia 1: Buscando via função SQL get_last_race_date`);
+            let lastRaceDate = yield (0, fetchLastRaceDate_1.fetchLastRaceDate)(horseId, race.date);
+            // Estratégia 2: Se não encontrou via SQL, tenta diretamente na tabela
+            if (!lastRaceDate) {
+                console.log(`[DEBUG] Estratégia 2: Buscando diretamente na tabela horse_results_hr`);
+                lastRaceDate = yield (0, fetchLastRaceDate_1.checkDirectHorseResults)(horseId, race.date);
+            }
+            // Estratégia 3: Se ainda não encontrou, usa o histórico local
+            if (!lastRaceDate &&
+                historicalResults.length > 0 &&
+                historicalResults[0].date) {
+                console.log(`[DEBUG] Estratégia 3: Usando histórico local`);
+                // Verificar formato da data no histórico local
+                const localDate = historicalResults[0].date;
+                console.log(`[DEBUG] Data do histórico local: ${localDate}`);
+                // Tentar converter para formato YYYY-MM-DD se estiver em outro formato
+                if (localDate.includes("/")) {
+                    const parts = localDate.split("/");
+                    if (parts.length === 3) {
+                        lastRaceDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                        console.log(`[DEBUG] Data local convertida: ${lastRaceDate}`);
+                    }
+                }
+                else {
+                    lastRaceDate = localDate;
+                }
+            }
+            // Calcular a diferença em dias
+            if (lastRaceDate) {
+                days_since_last_run = (0, fetchLastRaceDate_1.calculateDaysBetween)(lastRaceDate, race.date);
+                console.log(`[INFO] Cavalo ${horseId}: Última corrida em ${lastRaceDate}, dias desde então: ${days_since_last_run}`);
+            }
+            else {
+                console.log(`[AVISO] Cavalo ${horseId}: Nenhuma corrida anterior encontrada após todas as estratégias`);
+                days_since_last_run = 0;
+            }
+        }
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[ERRO] Erro ao calcular days_since_last_run para cavalo ${horseId}: ${errorMessage}`);
+        days_since_last_run = 0;
     }
     // Extrair posições e filtrar valores inválidos
     const positions = historicalResults
@@ -25,7 +92,8 @@ const calculateHistoricalFeatures = (historicalResults, race) => {
         .filter((p) => p !== null && p !== undefined && !Number.isNaN(p));
     // Se não houver posições válidas, retorna valores padrão
     if (positions.length === 0) {
-        return defaultValues;
+        console.log(`[AVISO] Sem posições válidas para cavalo ${horseId}, retornando valores padrão`);
+        return Object.assign(Object.assign({}, defaultValues), { days_since_last_run });
     }
     // Calcular média de posições
     const avg_position = positions.reduce((sum, pos) => sum + pos, 0) / positions.length;
@@ -89,6 +157,7 @@ const calculateHistoricalFeatures = (historicalResults, race) => {
         going_performance,
         distance_performance,
         recent_form,
+        days_since_last_run,
     };
-};
+});
 exports.calculateHistoricalFeatures = calculateHistoricalFeatures;

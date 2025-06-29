@@ -52,6 +52,7 @@ export const generateTrainingFeatures = async (): Promise<void> => {
         const historicalFeatures = calculateHistoricalFeatures(
           horseHistory,
           race,
+          horse.id_horse || 0,
         );
 
         // 7. Calcular features do jóquei
