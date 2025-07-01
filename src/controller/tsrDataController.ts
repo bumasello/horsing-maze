@@ -8,6 +8,7 @@ import { generatePredictions } from "../functions/spb_functions/features_v2/gene
 import { generateHorseEntries } from "../functions/spb_functions/populate/populateHorseEntries";
 
 import type { Request, Response, NextFunction } from "express";
+import { trainHorseData_v3 } from "../functions/tensor_functions/trainHorseData_v3";
 
 const getTraining = async (
   _req: Request,
@@ -18,7 +19,8 @@ const getTraining = async (
   try {
     // await cl_trainData();
     // await trainHorseData();
-    await trainHorseData_v2();
+    // await trainHorseData_v2();
+    await trainHorseData_v3();
 
     res
       .status(200)

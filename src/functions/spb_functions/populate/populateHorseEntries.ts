@@ -16,12 +16,38 @@ export const generateHorseEntries = async () => {
   try {
     console.log("Iniciando geração de entradas de cavalos com previsões...");
 
-    // 1. Buscar previsões de cavalos
-    console.log("Buscando previsões de cavalos...");
+    // 1. Buscar IDs das corridas não finalizadas e não canceladas
+    console.log("Buscando IDs de corridas pendentes...");
+    const { data: pendingRaces, error: pendingRacesError } = await supabase
+      .schema("hml")
+      .from("racecards_hr_view")
+      .select("id")
+      .eq("finished", "0")
+      .eq("canceled", "0");
+
+    if (pendingRacesError) {
+      throw new Error(
+        `Erro ao buscar corridas pendentes: ${pendingRacesError.message}`,
+      );
+    }
+
+    if (!pendingRaces || pendingRaces.length === 0) {
+      console.log(
+        "Nenhuma corrida pendente encontrada. Nenhuma entrada será gerada.",
+      );
+      return;
+    }
+
+    const pendingRaceIds = pendingRaces.map((race) => race.id);
+    console.log(`Encontradas ${pendingRaceIds.length} corridas pendentes.`);
+
+    // 2. Buscar previsões de cavalos APENAS para as corridas pendentes
+    console.log("Buscando previsões de cavalos para corridas pendentes...");
     const { data: predictions, error: predictionsError } = await supabase
       .schema("hml")
       .from("horse_predictions")
       .select("*")
+      .in("racecard_id", pendingRaceIds)
       .order("racecard_id", { ascending: true })
       .order("probability", { ascending: false });
 
@@ -30,60 +56,53 @@ export const generateHorseEntries = async () => {
     }
 
     if (!predictions || predictions.length === 0) {
-      console.log("Nenhuma previsão disponível.");
+      console.log("Nenhuma previsão disponível para as corridas pendentes.");
       return;
     }
 
     console.log(
-      `Encontradas ${predictions.length} previsões para processamento.`,
+      `Encontradas ${predictions.length} previsões para corridas pendentes.`,
     );
 
-    // 2. Extrair IDs únicos de corridas e cavalos
+    // 3. Extrair IDs únicos de corridas e cavalos das previsões filtradas
     const raceIds = [...new Set(predictions.map((p) => p.racecard_id))];
     const horseIds = [...new Set(predictions.map((p) => p.race_horse_id))];
 
     console.log(
-      `Buscando informações para ${raceIds.length} corridas e ${horseIds.length} cavalos...`,
+      `Buscando informações detalhadas para ${raceIds.length} corridas e ${horseIds.length} cavalos...`,
     );
 
-    // 3. Buscar informações das corridas
+    // 4. Buscar informações detalhadas das corridas (apenas as pendentes)
     const { data: races, error: racesError } = await supabase
       .schema("hml")
       .from("racecards_hr_view")
       .select("*")
-      .in("id", raceIds)
-      .eq("finished", "0")
-      .eq("canceled", "0");
+      .in("id", raceIds);
 
     if (racesError) {
-      throw new Error(`Erro ao buscar corridas: ${racesError.message}`);
+      throw new Error(
+        `Erro ao buscar detalhes das corridas: ${racesError.message}`,
+      );
     }
 
-    if (!races || races.length === 0) {
-      console.log("Nenhuma corrida pendente encontrada.");
-      return;
-    }
-
-    console.log(`Encontradas ${races.length} corridas pendentes.`);
-
-    // 4. Buscar informações dos cavalos
+    // 5. Buscar informações detalhadas dos cavalos (apenas os envolvidos nas previsões filtradas)
     const { data: horses, error: horsesError } = await supabase
       .from("race_horses_hr")
       .select("*")
       .in("id", horseIds);
 
     if (horsesError) {
-      throw new Error(`Erro ao buscar cavalos: ${horsesError.message}`);
+      throw new Error(
+        `Erro ao buscar detalhes dos cavalos: ${horsesError.message}`,
+      );
     }
 
-    if (!horses || horses.length === 0) {
-      console.log("Nenhuma informação de cavalo encontrada.");
+    if (!races || races.length === 0 || !horses || horses.length === 0) {
+      console.log("Dados de corrida ou cavalo incompletos após filtragem.");
       return;
     }
 
-    console.log(`Encontradas informações para ${horses.length} cavalos.`);
-
-    // 5. Combinar os resultados
+    // 6. Combinar os resultados
     const preds: Pick[] = [];
 
     for (const prediction of predictions) {
@@ -92,7 +111,7 @@ export const generateHorseEntries = async () => {
 
       if (!race || !horse) {
         console.warn(
-          `! Dados incompletos para racecard_id ${prediction.racecard_id}, race_horse_id ${prediction.race_horse_id}`,
+          `! Dados incompletos para racecard_id ${prediction.racecard_id}, race_horse_id ${prediction.race_horse_id}. Pulando.`,
         );
         continue;
       }
@@ -112,7 +131,7 @@ export const generateHorseEntries = async () => {
 
     console.log(`Combinados ${preds.length} registros com dados completos.`);
 
-    // 6. Agrupar por corrida
+    // 7. Agrupar por corrida
     const byRace = new Map<number, Pick[]>();
     for (const p of preds) {
       const arr = byRace.get(p.racecard_id) || [];
@@ -122,7 +141,7 @@ export const generateHorseEntries = async () => {
 
     console.log(`Agrupados em ${byRace.size} corridas distintas.`);
 
-    // 7. Para cada grupo, só insere se tiver exatamente 1 top-pick
+    // 8. Para cada grupo, só insere se tiver exatamente 1 top-pick
     let successCount = 0;
     let skipCount = 0;
     let errorCount = 0;

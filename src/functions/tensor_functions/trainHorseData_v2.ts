@@ -89,7 +89,7 @@ async function ensureDir(dirPath: string) {
   }
 }
 
-async function getLatestModelPathFromSupabase(): Promise<ModelPaths | null> {
+export async function getLatestModelPathFromSupabase(): Promise<ModelPaths | null> {
   console.log(`Buscando modelos em ${BUCKET_NAME}/${MODEL_BASE_NAME}/`);
   const { data, error } = await supabase.storage
     .from(BUCKET_NAME)

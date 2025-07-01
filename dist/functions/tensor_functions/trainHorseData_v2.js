@@ -43,6 +43,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.trainHorseData_v2 = void 0;
+exports.getLatestModelPathFromSupabase = getLatestModelPathFromSupabase;
 const tf = __importStar(require("@tensorflow/tfjs-node"));
 const __1 = require("../.."); // Ajuste o caminho conforme necessário
 const fs = __importStar(require("node:fs"));

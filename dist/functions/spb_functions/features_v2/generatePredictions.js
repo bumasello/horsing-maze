@@ -46,7 +46,7 @@ exports.generatePredictions = void 0;
 exports.normalizeFeatures = normalizeFeatures;
 const tf = __importStar(require("@tensorflow/tfjs-node"));
 const __1 = require("../../..");
-const trainHorseData_1 = require("../../tensor_functions/trainHorseData");
+const trainHorseData_v2_1 = require("../../tensor_functions/trainHorseData_v2");
 // Função normalizeFeatures corrigida para usar todos os parâmetros
 function normalizeFeatures(xTensor, normalization) {
     const xMean = tf.tensor1d(normalization.mean);
@@ -64,7 +64,7 @@ function loadModelAndNormalization() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             // Obter os caminhos do modelo e dos parâmetros de normalização
-            const modelPaths = yield (0, trainHorseData_1.getLatestModelPathFromSupabase)();
+            const modelPaths = yield (0, trainHorseData_v2_1.getLatestModelPathFromSupabase)();
             if (!modelPaths) {
                 console.log("Nenhum modelo encontrado no Supabase.");
                 return null;
@@ -157,6 +157,7 @@ const generatePredictions = () => __awaiter(void 0, void 0, void 0, function* ()
             return;
         }
         console.log(`Encontradas ${predictionFeatures.length} features de previsão para processamento.`);
+        console.log("LOG: predictionFeatures (primeiros 5):", predictionFeatures.slice(0, 5));
         // 3. Agrupar features por corrida
         const featuresByRace = {};
         for (const feature of predictionFeatures) {
@@ -179,20 +180,46 @@ const generatePredictions = () => __awaiter(void 0, void 0, void 0, function* ()
                 const value = e[k];
                 return value === null || value === undefined ? 0 : value;
             }));
+            console.log("LOG: xs (primeiros 5, antes da normalização):", xs.slice(0, 5));
             // Normalizar os dados (usando as mesmas estatísticas do treinamento)
             const xsArray = xs.map((arr) => arr.map((val) => (Number.isNaN(val) ? 0 : val)));
             const xTensor = tf.tensor2d(xsArray);
             // Aplicar a mesma normalização usada no treinamento
             const normalizedInput = normalizeFeatures(xTensor, normalization);
+            console.log("LOG: normalizedInput (após normalização):", normalizedInput.arraySync());
             // Fazer previsões com o modelo
             const probsTensor = model.predict(normalizedInput);
             const probArr = Array.from(probsTensor.dataSync());
+            console.log("LOG: probsTensor (após previsão):", probsTensor.arraySync());
+            console.log("LOG: probArr (após previsão):", probArr);
+            // Verificar se TODAS as probabilidades são EXATAMENTE 1
+            const allExactlyOne = probArr.every((p) => p === 1);
+            console.log("LOG: allExactlyOne:", allExactlyOne);
+            // Apenas se todas as probabilidades forem exatamente 1, aplicar a lógica alternativa
+            if (allExactlyOne) {
+                console.warn("ALERTA: Todas as probabilidades são exatamente 1. Aplicando lógica alternativa.");
+                // Usar OR rating para diferenciar os cavalos apenas neste caso extremo
+                const orRatings = raceFeatures.map((f) => f.or_rating || 0);
+                const maxRating = Math.max(...orRatings);
+                const minRating = Math.min(...orRatings);
+                if (maxRating > minRating) {
+                    for (let i = 0; i < probArr.length; i++) {
+                        // Inverter a escala (maior OR rating = menor probabilidade de perder)
+                        const normalizedRating = (orRatings[i] - minRating) / (maxRating - minRating);
+                        // Ajustar probabilidade para estar entre 0.9 e 0.99
+                        probArr[i] = 0.9 + normalizedRating * 0.09;
+                    }
+                    console.log("Probabilidades ajustadas com base no OR rating devido a erro no modelo.");
+                    console.log("LOG: probArr (após lógica alternativa):", probArr);
+                }
+            }
             // Preparar resultados para salvar
             const predictions = raceFeatures.map((feature, i) => ({
                 racecard_id: Number.parseInt(raceId),
                 race_horse_id: feature.race_horse_id,
                 probability: probArr[i],
             }));
+            console.log("LOG: predictions (antes de salvar no Supabase):", predictions);
             // Limpar previsões existentes para esta corrida
             const { error: deleteError } = yield __1.supabase
                 .schema("hml")
@@ -214,7 +241,7 @@ const generatePredictions = () => __awaiter(void 0, void 0, void 0, function* ()
             const maxIdx = probArr.indexOf(Math.max(...probArr));
             const loser = raceFeatures[maxIdx];
             console.log(`Corrida ${raceId} (${raceFeatures.length} candidatos):` +
-                ` cavalo '${loser.race_horse_id}' com prob. ${(probArr[maxIdx] * 100).toFixed(1)}% de NÃO vencer.`);
+                ` cavalo \'${loser.race_horse_id}\' com prob. ${(probArr[maxIdx] * 100).toFixed(1)}% de NÃO vencer.`);
             // Limpar tensores
             tf.dispose([xTensor, normalizedInput, probsTensor]);
         }

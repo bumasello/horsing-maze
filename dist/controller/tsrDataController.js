@@ -9,15 +9,16 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const trainHorseData_v2_1 = require("../functions/tensor_functions/trainHorseData_v2");
 const generatePredictions_1 = require("../functions/spb_functions/features_v2/generatePredictions");
 const populateHorseEntries_1 = require("../functions/spb_functions/populate/populateHorseEntries");
+const trainHorseData_v3_1 = require("../functions/tensor_functions/trainHorseData_v3");
 const getTraining = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrTrainData");
     try {
         // await cl_trainData();
         // await trainHorseData();
-        yield (0, trainHorseData_v2_1.trainHorseData_v2)();
+        // await trainHorseData_v2();
+        yield (0, trainHorseData_v3_1.trainHorseData_v3)();
         res
             .status(200)
             .json({ message: "Treinamento do modelo executado com sucesso." });
