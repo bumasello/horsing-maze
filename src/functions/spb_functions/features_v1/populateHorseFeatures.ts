@@ -20,7 +20,7 @@ import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb";
 import type { IHorseFeatureEntry_Spb } from "../../../models/modelSpb/horseFeatureEntry_Spb";
 import type { NextFunction } from "express";
 
-const populateHorseFeature_spb = async (next: NextFunction) => {
+const populateHorseFeature_spb = async () => {
   try {
     const racecards = await fetchRacecards();
 
@@ -171,7 +171,7 @@ const populateHorseFeature_spb = async (next: NextFunction) => {
       }
     }
   } catch (error) {
-    next(error);
+    console.error(error);
   }
 };
 

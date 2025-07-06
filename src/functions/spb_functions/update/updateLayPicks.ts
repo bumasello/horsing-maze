@@ -2,7 +2,7 @@ import { supabase } from "../../..";
 
 import type { NextFunction } from "express";
 
-export const updateLayPicks_spb = async (next: NextFunction) => {
+export const updateLayPicks_spb = async () => {
   try {
     const { data: unFinished, error } = await supabase
       .from("lay_picks")
@@ -62,6 +62,6 @@ export const updateLayPicks_spb = async (next: NextFunction) => {
       // console.log(`LayPick ID: ${lay.id}, Position: ${position}`);
     }
   } catch (error) {
-    next(error);
+    console.error(error);
   }
 };

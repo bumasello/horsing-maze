@@ -73,7 +73,7 @@ const spbHorseFeatures = async (
     // await generateTrainingFeatures();
     // await generatePredictionFeatures();
 
-    await populateHorseFeature_spb(next);
+    await populateHorseFeature_spb();
     // await debugPopulateHorseFeature_spb(256536, next);
 
     res
@@ -109,8 +109,8 @@ const spbUpdateRacecard = async (
 ) => {
   try {
     console.log("spbUpdateRacecard");
-    await updateRacecards_spb(next);
-    await updateLayPicks_spb(next);
+    await updateRacecards_spb();
+    await updateLayPicks_spb();
 
     res
       .status(200)

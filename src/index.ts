@@ -12,6 +12,12 @@ import tsr_dataRouter from "./router/tsr_DataRouter";
 import upt_dataRouter from "./router/upt_DataRouter";
 
 import type { Request, Response, NextFunction } from "express";
+import { updateRacecards_spb } from "./functions/spb_functions/update/updateRacecard_hr";
+import { updateLayPicks_spb } from "./functions/spb_functions/update/updateLayPicks";
+import populateHorseFeature_spb from "./functions/spb_functions/features_v1/populateHorseFeatures";
+import { cl_trainData } from "./functions/tensor_functions/claude_trainData";
+import populateLayPicks from "./functions/spb_functions/populate/populateLayPicks";
+import { message } from "./controller/tleController";
 
 interface CustomError extends Error {
   status?: number;
@@ -46,8 +52,30 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 const uri = process.env.MONGOOSE || "error";
 
+const execPipeline = async () => {
+  try {
+    await updateRacecards_spb();
+    await updateLayPicks_spb();
+    await populateHorseFeature_spb();
+    await cl_trainData();
+    await populateLayPicks.generateLayPicks();
+
+    return {
+      success: true,
+      message: "Pipeline executado com sucesso.",
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      success: false,
+      message: "Erro ao executar pipeline.",
+    };
+  }
+};
+
 mongoose.connect(uri).then(() => {
   app.listen(port, () => {
     console.log("api on air");
+    execPipeline();
   });
 });

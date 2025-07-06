@@ -7,7 +7,7 @@ import type { NextFunction } from "express";
 import type { IRaceCard_Spb } from "../../../models/modelSpb/raceCard_Spb";
 import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb";
 
-export const updateRacecards_spb = async (next: NextFunction) => {
+export const updateRacecards_spb = async () => {
   try {
     const { data: unFinished, error } = await supabase
       .from("racecards_hr")
@@ -123,6 +123,6 @@ export const updateRacecards_spb = async (next: NextFunction) => {
       }
     }
   } catch (error) {
-    next(error);
+    console.error(error);
   }
 };
