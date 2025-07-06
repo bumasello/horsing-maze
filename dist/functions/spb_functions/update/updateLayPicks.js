@@ -11,7 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateLayPicks_spb = void 0;
 const __1 = require("../../..");
-const updateLayPicks_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
+const updateLayPicks_spb = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { data: unFinished, error } = yield __1.supabase
             .from("lay_picks")
@@ -70,7 +70,7 @@ const updateLayPicks_spb = (next) => __awaiter(void 0, void 0, void 0, function*
         }
     }
     catch (error) {
-        next(error);
+        console.error(error);
     }
 });
 exports.updateLayPicks_spb = updateLayPicks_spb;

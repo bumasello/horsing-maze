@@ -61,7 +61,7 @@ const spbHorseFeatures = (_req, res, next) => __awaiter(void 0, void 0, void 0, 
         console.log("spbHorseFeatures");
         // await generateTrainingFeatures();
         // await generatePredictionFeatures();
-        yield (0, populateHorseFeatures_1.default)(next);
+        yield (0, populateHorseFeatures_1.default)();
         // await debugPopulateHorseFeature_spb(256536, next);
         res
             .status(200)
@@ -87,8 +87,8 @@ const spbCheckCreateEntry = (_req, res, next) => __awaiter(void 0, void 0, void 
 const spbUpdateRacecard = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbUpdateRacecard");
-        yield (0, updateRacecard_hr_1.updateRacecards_spb)(next);
-        yield (0, updateLayPicks_1.updateLayPicks_spb)(next);
+        yield (0, updateRacecard_hr_1.updateRacecards_spb)();
+        yield (0, updateLayPicks_1.updateLayPicks_spb)();
         res
             .status(200)
             .json({ message: "Racecards atualizados no supabase com sucesso." });

@@ -16,7 +16,7 @@ exports.updateRacecards_spb = void 0;
 const __1 = require("../../..");
 const getRaceCard_Hr_1 = __importDefault(require("../../mdb_functions/getRaceCard_Hr"));
 const getRaceDetail_Hr_1 = __importDefault(require("../../mdb_functions/getRaceDetail_Hr"));
-const updateRacecards_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
+const updateRacecards_spb = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { data: unFinished, error } = yield __1.supabase
             .from("racecards_hr")
@@ -111,7 +111,7 @@ const updateRacecards_spb = (next) => __awaiter(void 0, void 0, void 0, function
         }
     }
     catch (error) {
-        next(error);
+        console.error(error);
     }
 });
 exports.updateRacecards_spb = updateRacecards_spb;

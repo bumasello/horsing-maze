@@ -29,7 +29,7 @@ const port = process.env.PORT || 3000;
 
 const app = express();
 
-initBot();
+// initBot();
 
 app.use("/mdb_data", mdb_dataRouter);
 app.use("/spb_data", spb_dataRouter);
@@ -53,19 +53,35 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 const uri = process.env.MONGOOSE || "error";
 
 const execPipeline = async () => {
+  console.log("🔁 Executando pipeline...");
+
   try {
+    console.log("🔁 Executando updateRacecards_spb...");
     await updateRacecards_spb();
+    console.log("✅ updateRacecards_spb concluído");
+
+    console.log("🔁 Executando updateLayPicks_spb...");
     await updateLayPicks_spb();
+    console.log("✅ updateLayPicks_spb concluído");
+
+    console.log("🔁 Executando populateHorseFeature_spb...");
     await populateHorseFeature_spb();
+    console.log("✅ populateHorseFeature_spb concluído");
+
+    console.log("🔁 Executando cl_trainData...");
     await cl_trainData();
+    console.log("✅ cl_trainData concluído");
+
+    console.log("🔁 Executando generateLayPicks...");
     await populateLayPicks.generateLayPicks();
+    console.log("✅ generateLayPicks concluído");
 
     return {
       success: true,
       message: "Pipeline executado com sucesso.",
     };
   } catch (error) {
-    console.log(error);
+    console.error("❌ Erro ao executar pipeline:", error);
     return {
       success: false,
       message: "Erro ao executar pipeline.",
@@ -73,9 +89,16 @@ const execPipeline = async () => {
   }
 };
 
-mongoose.connect(uri).then(() => {
-  app.listen(port, () => {
-    console.log("api on air");
-    execPipeline();
+mongoose
+  .connect(uri)
+  .then(() => {
+    app.listen(port, async () => {
+      console.log("api on air");
+      execPipeline().then((result) => {
+        console.log(result);
+      });
+    });
+  })
+  .catch((error) => {
+    console.error("Erro ao conectar ao MongoDB:", error);
   });
-});

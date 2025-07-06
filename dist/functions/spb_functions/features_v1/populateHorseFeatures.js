@@ -18,7 +18,7 @@ const raceCardService_1 = require("./services/raceCardService");
 const horseHistoryService_1 = require("./services/horseHistoryService");
 const jockeyService_1 = require("./services/jockeyService");
 const auxFunctions_1 = require("../../utils/auxFunctions");
-const populateHorseFeature_spb = (next) => __awaiter(void 0, void 0, void 0, function* () {
+const populateHorseFeature_spb = () => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
         const racecards = yield (0, raceCardService_1.fetchRacecards)();
@@ -118,7 +118,7 @@ const populateHorseFeature_spb = (next) => __awaiter(void 0, void 0, void 0, fun
         }
     }
     catch (error) {
-        next(error);
+        console.error(error);
     }
 });
 exports.default = populateHorseFeature_spb;
