@@ -48,14 +48,19 @@ const uri = process.env.MONGOOSE || "error";
 const execPipeline = () => __awaiter(void 0, void 0, void 0, function* () {
     console.log("🔁 Executando pipeline...");
     try {
+        console.log("🔁 Executando updateRacecards_spb...");
         yield (0, updateRacecard_hr_1.updateRacecards_spb)();
         console.log("✅ updateRacecards_spb concluído");
+        console.log("🔁 Executando updateLayPicks_spb...");
         yield (0, updateLayPicks_1.updateLayPicks_spb)();
         console.log("✅ updateLayPicks_spb concluído");
+        console.log("🔁 Executando populateHorseFeature_spb...");
         yield (0, populateHorseFeatures_1.default)();
         console.log("✅ populateHorseFeature_spb concluído");
+        console.log("🔁 Executando cl_trainData...");
         yield (0, claude_trainData_1.cl_trainData)();
         console.log("✅ cl_trainData concluído");
+        console.log("🔁 Executando generateLayPicks...");
         yield populateLayPicks_1.default.generateLayPicks();
         console.log("✅ generateLayPicks concluído");
         return {
