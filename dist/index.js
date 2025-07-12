@@ -16,6 +16,7 @@ exports.supabase = void 0;
 const express_1 = __importDefault(require("express"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const node_cron_1 = __importDefault(require("node-cron"));
 const supabase_js_1 = require("@supabase/supabase-js");
 const mdb_DataRouter_1 = __importDefault(require("./router/mdb_DataRouter"));
 const spb_DataRouter_1 = __importDefault(require("./router/spb_DataRouter"));
@@ -76,14 +77,31 @@ const execPipeline = () => __awaiter(void 0, void 0, void 0, function* () {
         };
     }
 });
+const setupPipelineScheduler = () => {
+    // Expressão cron: "0 23 * * *" significa "às 23:00 todos os dias"
+    // Ajuste o horário conforme necessário para não conflitar com o outro processo.
+    const cronExpression = "30 1 * * *";
+    console.log(`[Scheduler] Agendando pipeline para rodar diariamente às ${cronExpression}`);
+    node_cron_1.default.schedule(cronExpression, () => __awaiter(void 0, void 0, void 0, function* () {
+        console.log(`[Scheduler] Horário atingido! Iniciando execução agendada do pipeline às ${new Date().toISOString()}`);
+        // Chama a sua função de pipeline existente
+        const result = yield execPipeline();
+        console.log(`[Scheduler] Execução agendada concluída. Resultado: ${result.success ? "Sucesso" : "Falha"}`);
+        if (!result.success) {
+            console.error(`[Scheduler] Erro detalhado da execução agendada: ${result.message}`);
+            // Aqui você pode adicionar lógicas de notificação de falha, se desejar.
+        }
+    }));
+};
 mongoose_1.default
     .connect(uri)
     .then(() => {
     app.listen(port, () => __awaiter(void 0, void 0, void 0, function* () {
         console.log("api on air");
-        execPipeline().then((result) => {
-            console.log(result);
-        });
+        setupPipelineScheduler();
+        // execPipeline().then((result) => {
+        //   console.log(result);
+        // });
     }));
 })
     .catch((error) => {
