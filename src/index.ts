@@ -1,6 +1,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import cron from "node-cron";
 import { createClient } from "@supabase/supabase-js";
 
 import { initBot } from "./router/tle_DataRouter";
@@ -88,15 +89,44 @@ const execPipeline = async () => {
     };
   }
 };
+const setupPipelineScheduler = () => {
+  // Expressão cron: "0 23 * * *" significa "às 23:00 todos os dias"
+  // Ajuste o horário conforme necessário para não conflitar com o outro processo.
+  const cronExpression = "30 1 * * *";
 
+  console.log(
+    `[Scheduler] Agendando pipeline para rodar diariamente às ${cronExpression}`,
+  );
+
+  cron.schedule(cronExpression, async () => {
+    console.log(
+      `[Scheduler] Horário atingido! Iniciando execução agendada do pipeline às ${new Date().toISOString()}`,
+    );
+
+    // Chama a sua função de pipeline existente
+    const result = await execPipeline();
+
+    console.log(
+      `[Scheduler] Execução agendada concluída. Resultado: ${result.success ? "Sucesso" : "Falha"}`,
+    );
+
+    if (!result.success) {
+      console.error(
+        `[Scheduler] Erro detalhado da execução agendada: ${result.message}`,
+      );
+      // Aqui você pode adicionar lógicas de notificação de falha, se desejar.
+    }
+  });
+};
 mongoose
   .connect(uri)
   .then(() => {
     app.listen(port, async () => {
       console.log("api on air");
-      execPipeline().then((result) => {
-        console.log(result);
-      });
+      setupPipelineScheduler();
+      // execPipeline().then((result) => {
+      //   console.log(result);
+      // });
     });
   })
   .catch((error) => {
