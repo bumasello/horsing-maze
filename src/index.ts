@@ -73,7 +73,7 @@ function getNextScheduledTime(): string {
 // Rotas da API (comentadas conforme seu código)
 app.use("/mdb_data", mdb_dataRouter);
 app.use("/spb_data", spb_dataRouter);
-app.use("/tle_data", tle_dataRouter);
+// app.use("/tle_data", tle_dataRouter);
 app.use("/tsr_data", tsr_dataRouter);
 app.use("/upt_data", upt_dataRouter);
 
@@ -95,7 +95,7 @@ const uri = process.env.MONGOOSE || "error";
 mongoose.connect(uri).then(() => {
   app.listen(port, () => {
     console.log(`API ativa na porta ${port} às ${new Date().toISOString()}`);
-    setupCronJob();
+    // setupCronJob();
     // runPipeline().then((result) => {
     //   console.log(result);
     // });

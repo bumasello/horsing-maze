@@ -71,9 +71,6 @@ const spbHorseFeatures = async (
     await generateTrainingFeatures();
     await generatePredictionFeatures();
 
-    // await populateHorseFeature_spb(next);
-    // await debugPopulateHorseFeature_spb(256536, next);
-
     res
       .status(200)
       .json({ message: "HorseFeatures carregados para supabase com sucesso." });

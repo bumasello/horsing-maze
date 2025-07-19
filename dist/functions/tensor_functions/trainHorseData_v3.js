@@ -62,6 +62,7 @@ function loadTrainingData() {
         if (!trainingFeatures || trainingFeatures.length === 0) {
             throw new Error("Nenhuma feature de treinamento encontrada.");
         }
+        const typedTrainingFeatures = trainingFeatures;
         // Calcular contagem de classes para pesos
         const classCounts = trainingFeatures.reduce((acc, feature) => {
             acc[feature.target] = (acc[feature.target] || 0) + 1;
@@ -99,11 +100,11 @@ function loadTrainingData() {
             "jockey_course_win_rate",
             "recent_form",
         ];
-        const xs = trainingFeatures.map((f) => featureKeys.map((key) => {
+        const xs = typedTrainingFeatures.map((f) => featureKeys.map((key) => {
             const value = f[key];
             return value === null || value === undefined ? 0 : value;
         }));
-        const ys = trainingFeatures.map((f) => f.target);
+        const ys = typedTrainingFeatures.map((f) => f.target);
         const xTensor = tf.tensor2d(xs);
         const yTensor = tf.tensor2d(ys, [ys.length, 1]);
         // Calcular normalização (mean e std) dos dados de treinamento usando tf.moments
@@ -133,14 +134,18 @@ const trainHorseData_v3 = () => __awaiter(void 0, void 0, void 0, function* () {
         const model = tf.sequential({
             layers: [
                 tf.layers.dense({
-                    units: 64,
+                    units: 128,
                     activation: "relu",
                     inputShape: [xs.shape[1]],
                 }),
-                tf.layers.dropout({ rate: 0.2 }),
+                tf.layers.batchNormalization(),
+                tf.layers.dropout({ rate: 0.3 }),
+                tf.layers.dense({ units: 64, activation: "relu" }),
+                tf.layers.batchNormalization(),
+                tf.layers.dropout({ rate: 0.3 }),
                 tf.layers.dense({ units: 32, activation: "relu" }),
                 tf.layers.dropout({ rate: 0.2 }),
-                tf.layers.dense({ units: 1, activation: "sigmoid" }), // Saída para probabilidade de perda
+                tf.layers.dense({ units: 1, activation: "sigmoid" }),
             ],
         });
         // Compilar o modelo com otimizador e função de perda
@@ -152,31 +157,44 @@ const trainHorseData_v3 = () => __awaiter(void 0, void 0, void 0, function* () {
         // Treinar o modelo com pesos de classe
         console.log("Treinando o modelo...");
         yield model.fit(xs, ys, {
-            epochs: 50, // Ajuste conforme necessário
+            epochs: 100, // Ajuste conforme necessário
             batchSize: 32, // Ajuste conforme necessário
             validationSplit: 0.2, // Usar 20% dos dados para validação
             callbacks: tf.callbacks.earlyStopping({
                 monitor: "val_loss",
-                patience: 5,
+                patience: 10,
+                mode: "min",
             }),
             classWeight: classWeights, // Aplicar pesos de classe aqui
         });
         console.log("Treinamento concluído. Salvando modelo e normalização...");
         // Salvar o modelo localmente
-        const modelDir = "./src/functions/tensor_functions/temp_model_save";
-        const modelSavePath = `file://${modelDir}`;
+        const AGENT_MODEL_NAME = "GEMINI_1_5_PRO"; // Substitua pelo nome do seu modelo/agente
+        const timestamp = new Date()
+            .toISOString()
+            .replace(/\.\d{3}Z$/, "Z")
+            .replace(/[:.-]/g, "");
+        const modelVersionDir = `./src/functions/tensor_functions/${AGENT_MODEL_NAME}/${timestamp}`;
+        if (!node_fs_1.default.existsSync(modelVersionDir)) {
+            node_fs_1.default.mkdirSync(modelVersionDir, { recursive: true });
+        }
+        const modelSavePath = `file://${modelVersionDir}`;
         yield model.save(modelSavePath);
         console.log(`Modelo salvo localmente em: ${modelSavePath}`);
         // Salvar os parâmetros de normalização localmente
-        const normalizationSavePath = `${modelDir}/normalization.json`;
+        const normalizationSavePath = `${modelVersionDir}/normalization.json`;
         node_fs_1.default.writeFileSync(normalizationSavePath, JSON.stringify(normalization));
         console.log(`Parâmetros de normalização salvos localmente em: ${normalizationSavePath}`);
         console.log("Iniciando upload do modelo e normalização para Supabase Storage...");
+        // Caminhos para upload no Supabase Storage
+        const supabaseModelPath = `horse_probability_model/${AGENT_MODEL_NAME}/${timestamp}/model.json`;
+        const supabaseWeightsPath = `horse_probability_model/${AGENT_MODEL_NAME}/${timestamp}/weights.bin`;
+        const supabaseNormalizationPath = `horse_probability_model/${AGENT_MODEL_NAME}/${timestamp}/normalization.json`;
         // Upload do model.json
-        const modelJsonContent = node_fs_1.default.readFileSync(`${modelDir}/model.json`);
+        const modelJsonContent = node_fs_1.default.readFileSync(`${modelVersionDir}/model.json`);
         const { error: modelUploadError } = yield __1.supabase.storage
             .from("modelos-tfjs-publicos")
-            .upload("horse_probability_model/model.json", modelJsonContent, {
+            .upload(supabaseModelPath, modelJsonContent, {
             upsert: true,
         });
         if (modelUploadError) {
@@ -184,10 +202,10 @@ const trainHorseData_v3 = () => __awaiter(void 0, void 0, void 0, function* () {
         }
         console.log("model.json uploaded to Supabase Storage.");
         // Upload do weights.bin
-        const weightsBinContent = node_fs_1.default.readFileSync(`${modelDir}/weights.bin`);
+        const weightsBinContent = node_fs_1.default.readFileSync(`${modelVersionDir}/weights.bin`);
         const { error: weightsUploadError } = yield __1.supabase.storage
             .from("modelos-tfjs-publicos")
-            .upload("horse_probability_model/weights.bin", weightsBinContent, {
+            .upload(supabaseWeightsPath, weightsBinContent, {
             upsert: true,
         });
         if (weightsUploadError) {
@@ -198,7 +216,9 @@ const trainHorseData_v3 = () => __awaiter(void 0, void 0, void 0, function* () {
         const normalizationContent = node_fs_1.default.readFileSync(normalizationSavePath);
         const { error: normUploadError } = yield __1.supabase.storage
             .from("modelos-tfjs-publicos")
-            .upload("horse_probability_model/normalization.json", normalizationContent, { upsert: true });
+            .upload(supabaseNormalizationPath, normalizationContent, {
+            upsert: true,
+        });
         if (normUploadError) {
             throw new Error(`Erro ao fazer upload de normalization.json: ${normUploadError.message}`);
         }

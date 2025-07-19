@@ -59,8 +59,6 @@ const spbHorseFeatures = (_req, res, next) => __awaiter(void 0, void 0, void 0, 
         console.log("spbHorseFeatures");
         yield (0, generateTrainingFeatures_1.generateTrainingFeatures)();
         yield (0, generatePredictionFeatures_1.generatePredictionFeatures)();
-        // await populateHorseFeature_spb(next);
-        // await debugPopulateHorseFeature_spb(256536, next);
         res
             .status(200)
             .json({ message: "HorseFeatures carregados para supabase com sucesso." });

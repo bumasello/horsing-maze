@@ -1,6 +1,5 @@
 import { supabase } from "../../..";
 
-import type { NextFunction } from "express";
 import RaceCardModel_Hr from "../../../models/modelHr/raceCardHrModel";
 import RaceCardDetailModel_Hr from "../../../models/modelHr/raceDetailHrModel";
 

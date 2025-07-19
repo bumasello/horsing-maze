@@ -35,8 +35,8 @@ const checkHorseResultLength_1 = require("../functions/spb_functions/entries/che
 const updateCleanRacecard_1 = require("../functions/spb_functions/update/updateCleanRacecard");
 const generateTrainingFeatures_1 = require("../functions/spb_functions/features_v2/generateTrainingFeatures");
 const generatePredictionFeatures_1 = require("../functions/spb_functions/features_v2/generatePredictionFeatures");
-const trainHorseData_v2_1 = require("../functions/tensor_functions/trainHorseData_v2");
-const generatePredictions_1 = require("../functions/spb_functions/features_v2/generatePredictions");
+const trainHorseData_v3_1 = require("../functions/tensor_functions/trainHorseData_v3");
+const generatePredictions_v3_1 = require("../functions/spb_functions/features_v3/generatePredictions_v3");
 const populateHorseEntries_1 = require("../functions/spb_functions/populate/populateHorseEntries");
 /**
  * Configurações centralizadas do pipeline
@@ -296,17 +296,17 @@ function trainAndPredict() {
         logger.info("Iniciando treinamento do modelo e geração de previsões");
         // Treinamento do modelo
         yield metrics.measure("Treinamento do modelo", () => __awaiter(this, void 0, void 0, function* () {
-            yield (0, trainHorseData_v2_1.trainHorseData_v2)();
+            yield (0, trainHorseData_v3_1.trainHorseData_v3)();
             logger.info("Treinamento do modelo concluído com sucesso");
         }));
         // Geração de previsões
         yield metrics.measure("Geração de previsões", () => __awaiter(this, void 0, void 0, function* () {
-            yield (0, generatePredictions_1.generatePredictions)();
+            yield (0, generatePredictions_v3_1.generatePredictions_v3)();
             logger.info("Previsões geradas com sucesso");
         }));
         // Inserção de previsões no banco de dados
         yield metrics.measure("Inserção de previsões no banco de dados", () => __awaiter(this, void 0, void 0, function* () {
-            yield (0, populateHorseEntries_1.generateHorseEntries)();
+            yield (0, populateHorseEntries_1.generateHorseEntries_v3)();
             logger.info("Previsões inseridas no banco de dados com sucesso");
         }));
         logger.info("Treinamento do modelo e geração de previsões concluídos com sucesso");

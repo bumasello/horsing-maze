@@ -1,14 +1,8 @@
-import { cl_trainData } from "../functions/tensor_functions/claude_trainData";
-import populateLayPicks from "../functions/spb_functions/populate/populateLayPicks";
-
-import { trainHorseData } from "../functions/tensor_functions/trainHorseData";
-import { trainHorseData_v2 } from "../functions/tensor_functions/trainHorseData_v2";
-
-import { generatePredictions } from "../functions/spb_functions/features_v2/generatePredictions";
-import { generateHorseEntries } from "../functions/spb_functions/populate/populateHorseEntries";
+import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
+import { trainHorseData_v3 } from "../functions/tensor_functions/trainHorseData_v3";
+import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
 
 import type { Request, Response, NextFunction } from "express";
-import { trainHorseData_v3 } from "../functions/tensor_functions/trainHorseData_v3";
 
 const getTraining = async (
   _req: Request,
@@ -17,9 +11,6 @@ const getTraining = async (
 ) => {
   console.log("tsrTrainData");
   try {
-    // await cl_trainData();
-    // await trainHorseData();
-    // await trainHorseData_v2();
     await trainHorseData_v3();
 
     res
@@ -37,7 +28,7 @@ const getGeneratePredictions = async (
 ) => {
   console.log("tsrGeneratePredictions");
 
-  await generatePredictions();
+  await generatePredictions_v3();
 
   try {
     res.status(200).json({ message: "Previsões geradas com suscesso." });
@@ -53,8 +44,8 @@ const getInsertPredictions = async (
 ) => {
   console.log("tsrGetInsertPredictions");
   try {
-    // await populateLayPicks.generateLayPicks();
-    await generateHorseEntries();
+    await generateHorseEntries_v3();
+
     res.status(200).json({ message: "Previsões armazendas com suscesso." });
   } catch (error) {
     next(error);

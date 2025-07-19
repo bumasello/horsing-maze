@@ -12,7 +12,7 @@ interface Pick {
   number: number;
 }
 
-export const generateHorseEntries = async () => {
+export const generateHorseEntries_v3 = async () => {
   try {
     console.log("Iniciando geração de entradas de cavalos com previsões...");
 
@@ -87,7 +87,8 @@ export const generateHorseEntries = async () => {
 
     // 5. Buscar informações detalhadas dos cavalos (apenas os envolvidos nas previsões filtradas)
     const { data: horses, error: horsesError } = await supabase
-      .from("race_horses_hr")
+      .schema("hml")
+      .from("race_horses_hr_view")
       .select("*")
       .in("id", horseIds);
 
@@ -143,22 +144,11 @@ export const generateHorseEntries = async () => {
 
     // 8. Para cada grupo, só insere se tiver exatamente 1 top-pick
     let successCount = 0;
-    let skipCount = 0;
     let errorCount = 0;
 
     for (const [racecard_id, group] of byRace.entries()) {
-      const topProb = group[0].probability;
-      const topGroup = group.filter((p) => p.probability === topProb);
+      const pick = group[0];
 
-      if (topGroup.length !== 1) {
-        console.log(
-          `! Corrida ${racecard_id} ignorada por empate (${topGroup.length}).`,
-        );
-        skipCount++;
-        continue;
-      }
-
-      const pick = topGroup[0];
       const { error: upErr } = await supabase
         .schema("hml")
         .from("horse_entries")
@@ -196,7 +186,6 @@ export const generateHorseEntries = async () => {
     console.log("\nResumo da geração de entradas:");
     console.log(`- Total de corridas processadas: ${byRace.size}`);
     console.log(`- Entradas inseridas com sucesso: ${successCount}`);
-    console.log(`- Corridas ignoradas por empate: ${skipCount}`);
     console.log(`- Erros de inserção: ${errorCount}`);
     console.log("Geração de entradas concluída.");
   } catch (error) {

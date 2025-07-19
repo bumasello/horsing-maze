@@ -20,9 +20,9 @@ import { checkHorseResultLength } from "../functions/spb_functions/entries/check
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
 import { generateTrainingFeatures } from "../functions/spb_functions/features_v2/generateTrainingFeatures";
 import { generatePredictionFeatures } from "../functions/spb_functions/features_v2/generatePredictionFeatures";
-import { trainHorseData_v2 } from "../functions/tensor_functions/trainHorseData_v2";
-import { generatePredictions } from "../functions/spb_functions/features_v2/generatePredictions";
-import { generateHorseEntries } from "../functions/spb_functions/populate/populateHorseEntries";
+import { trainHorseData_v3 } from "../functions/tensor_functions/trainHorseData_v3";
+import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
+import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
 
 /**
  * Interface para o objeto de configuração do pipeline
@@ -436,19 +436,19 @@ async function trainAndPredict(): Promise<void> {
 
   // Treinamento do modelo
   await metrics.measure("Treinamento do modelo", async () => {
-    await trainHorseData_v2();
+    await trainHorseData_v3();
     logger.info("Treinamento do modelo concluído com sucesso");
   });
 
   // Geração de previsões
   await metrics.measure("Geração de previsões", async () => {
-    await generatePredictions();
+    await generatePredictions_v3();
     logger.info("Previsões geradas com sucesso");
   });
 
   // Inserção de previsões no banco de dados
   await metrics.measure("Inserção de previsões no banco de dados", async () => {
-    await generateHorseEntries();
+    await generateHorseEntries_v3();
     logger.info("Previsões inseridas no banco de dados com sucesso");
   });
 

@@ -9,15 +9,12 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const generatePredictions_1 = require("../functions/spb_functions/features_v2/generatePredictions");
 const populateHorseEntries_1 = require("../functions/spb_functions/populate/populateHorseEntries");
 const trainHorseData_v3_1 = require("../functions/tensor_functions/trainHorseData_v3");
+const generatePredictions_v3_1 = require("../functions/spb_functions/features_v3/generatePredictions_v3");
 const getTraining = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrTrainData");
     try {
-        // await cl_trainData();
-        // await trainHorseData();
-        // await trainHorseData_v2();
         yield (0, trainHorseData_v3_1.trainHorseData_v3)();
         res
             .status(200)
@@ -29,7 +26,7 @@ const getTraining = (_req, res, next) => __awaiter(void 0, void 0, void 0, funct
 });
 const getGeneratePredictions = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrGeneratePredictions");
-    yield (0, generatePredictions_1.generatePredictions)();
+    yield (0, generatePredictions_v3_1.generatePredictions_v3)();
     try {
         res.status(200).json({ message: "Previsões geradas com suscesso." });
     }
@@ -40,8 +37,7 @@ const getGeneratePredictions = (_req, res, next) => __awaiter(void 0, void 0, vo
 const getInsertPredictions = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     console.log("tsrGetInsertPredictions");
     try {
-        // await populateLayPicks.generateLayPicks();
-        yield (0, populateHorseEntries_1.generateHorseEntries)();
+        yield (0, populateHorseEntries_1.generateHorseEntries_v3)();
         res.status(200).json({ message: "Previsões armazendas com suscesso." });
     }
     catch (error) {

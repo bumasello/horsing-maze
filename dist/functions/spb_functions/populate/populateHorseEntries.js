@@ -9,16 +9,16 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateHorseEntries = void 0;
+exports.generateHorseEntries_v3 = void 0;
 const __1 = require("../../..");
-const generateHorseEntries = () => __awaiter(void 0, void 0, void 0, function* () {
+const generateHorseEntries_v3 = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("Iniciando geração de entradas de cavalos com previsões...");
         // 1. Buscar IDs das corridas não finalizadas e não canceladas
         console.log("Buscando IDs de corridas pendentes...");
         const { data: pendingRaces, error: pendingRacesError } = yield __1.supabase
-            .schema("hml")
-            .from("racecards_hr_view")
+            .schema("dev")
+            .from("manus_racecards_hr")
             .select("id")
             .eq("finished", "0")
             .eq("canceled", "0");
@@ -34,8 +34,8 @@ const generateHorseEntries = () => __awaiter(void 0, void 0, void 0, function* (
         // 2. Buscar previsões de cavalos APENAS para as corridas pendentes
         console.log("Buscando previsões de cavalos para corridas pendentes...");
         const { data: predictions, error: predictionsError } = yield __1.supabase
-            .schema("hml")
-            .from("horse_predictions")
+            .schema("dev")
+            .from("manus_horse_predictions")
             .select("*")
             .in("racecard_id", pendingRaceIds)
             .order("racecard_id", { ascending: true })
@@ -54,8 +54,8 @@ const generateHorseEntries = () => __awaiter(void 0, void 0, void 0, function* (
         console.log(`Buscando informações detalhadas para ${raceIds.length} corridas e ${horseIds.length} cavalos...`);
         // 4. Buscar informações detalhadas das corridas (apenas as pendentes)
         const { data: races, error: racesError } = yield __1.supabase
-            .schema("hml")
-            .from("racecards_hr_view")
+            .schema("dev")
+            .from("manus_racecards_hr")
             .select("*")
             .in("id", raceIds);
         if (racesError) {
@@ -63,7 +63,8 @@ const generateHorseEntries = () => __awaiter(void 0, void 0, void 0, function* (
         }
         // 5. Buscar informações detalhadas dos cavalos (apenas os envolvidos nas previsões filtradas)
         const { data: horses, error: horsesError } = yield __1.supabase
-            .from("race_horses_hr")
+            .schema("dev")
+            .from("manus_race_horses_hr")
             .select("*")
             .in("id", horseIds);
         if (horsesError) {
@@ -108,17 +109,10 @@ const generateHorseEntries = () => __awaiter(void 0, void 0, void 0, function* (
         let skipCount = 0;
         let errorCount = 0;
         for (const [racecard_id, group] of byRace.entries()) {
-            const topProb = group[0].probability;
-            const topGroup = group.filter((p) => p.probability === topProb);
-            if (topGroup.length !== 1) {
-                console.log(`! Corrida ${racecard_id} ignorada por empate (${topGroup.length}).`);
-                skipCount++;
-                continue;
-            }
-            const pick = topGroup[0];
+            const pick = group[0];
             const { error: upErr } = yield __1.supabase
-                .schema("hml")
-                .from("horse_entries")
+                .schema("dev")
+                .from("manus_horse_entries")
                 .upsert([
                 {
                     racecard_id: pick.racecard_id,
@@ -153,4 +147,4 @@ const generateHorseEntries = () => __awaiter(void 0, void 0, void 0, function* (
         throw error;
     }
 });
-exports.generateHorseEntries = generateHorseEntries;
+exports.generateHorseEntries_v3 = generateHorseEntries_v3;
