@@ -207,16 +207,16 @@ const generatePredictions_v3 = () => __awaiter(void 0, void 0, void 0, function*
                 probability: adjustedProbArr[i],
             }));
             const { error: deleteError } = yield __1.supabase
-                .schema("dev")
-                .from("manus_horse_predictions")
+                .schema("hml")
+                .from("horse_predictions")
                 .delete()
                 .eq("racecard_id", raceId);
             if (deleteError) {
                 console.error(`Erro ao limpar previsões existentes: ${deleteError.message}`);
             }
             const { error: insertError } = yield __1.supabase
-                .schema("dev")
-                .from("manus_horse_predictions")
+                .schema("hml")
+                .from("horse_predictions")
                 .insert(predictions);
             if (insertError) {
                 throw new Error(`Erro salvando previsões para corrida ${raceId}: ${insertError.message}`);

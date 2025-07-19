@@ -17,8 +17,8 @@ const generateHorseEntries_v3 = () => __awaiter(void 0, void 0, void 0, function
         // 1. Buscar IDs das corridas não finalizadas e não canceladas
         console.log("Buscando IDs de corridas pendentes...");
         const { data: pendingRaces, error: pendingRacesError } = yield __1.supabase
-            .schema("dev")
-            .from("manus_racecards_hr")
+            .schema("hml")
+            .from("racecards_hr_view")
             .select("id")
             .eq("finished", "0")
             .eq("canceled", "0");
@@ -34,8 +34,8 @@ const generateHorseEntries_v3 = () => __awaiter(void 0, void 0, void 0, function
         // 2. Buscar previsões de cavalos APENAS para as corridas pendentes
         console.log("Buscando previsões de cavalos para corridas pendentes...");
         const { data: predictions, error: predictionsError } = yield __1.supabase
-            .schema("dev")
-            .from("manus_horse_predictions")
+            .schema("hml")
+            .from("horse_predictions")
             .select("*")
             .in("racecard_id", pendingRaceIds)
             .order("racecard_id", { ascending: true })
@@ -54,8 +54,8 @@ const generateHorseEntries_v3 = () => __awaiter(void 0, void 0, void 0, function
         console.log(`Buscando informações detalhadas para ${raceIds.length} corridas e ${horseIds.length} cavalos...`);
         // 4. Buscar informações detalhadas das corridas (apenas as pendentes)
         const { data: races, error: racesError } = yield __1.supabase
-            .schema("dev")
-            .from("manus_racecards_hr")
+            .schema("hml")
+            .from("racecards_hr_view")
             .select("*")
             .in("id", raceIds);
         if (racesError) {
@@ -63,8 +63,8 @@ const generateHorseEntries_v3 = () => __awaiter(void 0, void 0, void 0, function
         }
         // 5. Buscar informações detalhadas dos cavalos (apenas os envolvidos nas previsões filtradas)
         const { data: horses, error: horsesError } = yield __1.supabase
-            .schema("dev")
-            .from("manus_race_horses_hr")
+            .schema("hml")
+            .from("race_horses_hr_view")
             .select("*")
             .in("id", horseIds);
         if (horsesError) {
@@ -106,13 +106,12 @@ const generateHorseEntries_v3 = () => __awaiter(void 0, void 0, void 0, function
         console.log(`Agrupados em ${byRace.size} corridas distintas.`);
         // 8. Para cada grupo, só insere se tiver exatamente 1 top-pick
         let successCount = 0;
-        let skipCount = 0;
         let errorCount = 0;
         for (const [racecard_id, group] of byRace.entries()) {
             const pick = group[0];
             const { error: upErr } = yield __1.supabase
-                .schema("dev")
-                .from("manus_horse_entries")
+                .schema("hml")
+                .from("horse_entries")
                 .upsert([
                 {
                     racecard_id: pick.racecard_id,
@@ -138,7 +137,6 @@ const generateHorseEntries_v3 = () => __awaiter(void 0, void 0, void 0, function
         console.log("\nResumo da geração de entradas:");
         console.log(`- Total de corridas processadas: ${byRace.size}`);
         console.log(`- Entradas inseridas com sucesso: ${successCount}`);
-        console.log(`- Corridas ignoradas por empate: ${skipCount}`);
         console.log(`- Erros de inserção: ${errorCount}`);
         console.log("Geração de entradas concluída.");
     }
