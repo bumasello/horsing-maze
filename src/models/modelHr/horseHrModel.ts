@@ -20,8 +20,8 @@ export interface IHorse_Hr extends Document {
   last_ran_days_ago: number;
   non_runner: number;
   form: string;
-  position: string;
-  distance_beaten: string;
+  position: string | null;
+  distance_beaten: string | null;
   owner: string;
   sire: string;
   dam: string;

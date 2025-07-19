@@ -6,6 +6,12 @@ import Horse from "../../models/modelHr/horseHrModel";
 import type { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
 import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 
+// Lista de siglas que indicam que o cavalo participou mas não terminou (Green para Lay)
+const didNotFinishCodes = ["PU", "UR", "F", "BD", "RO", "DSQ", "SU", "REF"];
+
+// Lista de siglas que indicam void/anulação
+const voidCodes = ["VO", "NR"];
+
 dotenv.config();
 
 const getAllStoredRaceDetail_Hr = async (): Promise<IRaceDetail_Hr[]> => {
@@ -121,36 +127,22 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         const incomingHorseIds: number[] = [];
 
         for (const hr of horses as IHorse_Hr[]) {
-          // Verifica se id_horse é um número válido, caso contrário marca como non-runner
-          if (hr.non_runner === 1) {
-            hr.position = "0";
-            hr.distance_beaten = "0";
-          }
+          processHorsePosition(hr, data.id_race);
 
-          if (Number.isNaN(Number(hr.position))) {
-            hr.position = "0"; // Define como 0 se não for um número válido
-            hr.non_runner = 1; // Marca como non-runner
-            hr.distance_beaten = "0";
-          }
-
-          hr.distance_beaten = hr.distance_beaten || "0";
-          hr.position = hr.position || "0";
           hr.sp = hr.sp || "0";
+          // hr.position = hr.position || "0";
 
           incomingHorseIds.push(hr.id_horse);
           hr.id_race = data.id_race;
 
-          // remove o _id do hr antes de atualizar
           const { _id: hid, ...horseSansId } = hr as IHorse_Hr;
 
-          // Salva o cavalo no banco de dados
           const savedHorse = await Horse.HorseModel_Hr.findOneAndUpdate(
             { id_horse: hr.id_horse, id_race: hr.id_race },
             horseSansId,
             { upsert: true, new: true, setDefaultsOnInsert: true },
           );
 
-          // Adiciona o cavalo processado ao array
           processedHorses.push(savedHorse);
         }
 
@@ -208,6 +200,43 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         );
       }
     }
+  }
+};
+
+const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
+  // Se já é non_runner, manter como está
+  if (hr.non_runner === 1) {
+    hr.position = null;
+    hr.distance_beaten = null;
+    return;
+  }
+
+  // Se position é um número válido, garantir que não seja non_runner
+  if (!Number.isNaN(Number(hr.position))) {
+    hr.non_runner = 0;
+    hr.distance_beaten = hr.distance_beaten || "0";
+    return;
+  }
+
+  // Tratar siglas
+  const positionUpper = String(hr.position).toUpperCase().trim();
+
+  if (didNotFinishCodes.includes(positionUpper)) {
+    hr.position = "99"; // Posição alta para indicar que não terminou (mas participou)
+    hr.non_runner = 0; // NÃO é non_runner, pois participou
+    hr.distance_beaten = hr.distance_beaten || "DNF"; // "Did Not Finish"
+  } else if (voidCodes.includes(positionUpper)) {
+    hr.position = null; // ou null, dependendo da sua preferência
+    hr.non_runner = 1; // É considerado non_runner para efeitos de void
+    hr.distance_beaten = hr.distance_beaten || "DNF";
+  } else {
+    // Para qualquer outra sigla não reconhecida, tratar como não terminou
+    hr.position = "99";
+    hr.non_runner = 0;
+    hr.distance_beaten = hr.distance_beaten || "DNF";
+    console.warn(
+      `Sigla de posição não reconhecida: ${positionUpper} para cavalo ${hr.id_horse} na corrida ${raceId}`,
+    );
   }
 };
 
