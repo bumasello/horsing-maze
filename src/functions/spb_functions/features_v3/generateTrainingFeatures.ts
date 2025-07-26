@@ -50,7 +50,7 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
         );
 
         // 6. Calcular features históricas
-        const historicalFeatures = calculateHistoricalFeatures(
+        const historicalFeatures = await calculateHistoricalFeatures(
           horseHistory,
           race,
           horse.id_horse || 0,
@@ -81,7 +81,6 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
           horse_age: horse.age || 0,
           weight_kg: convertHorseWeightToKg(horse.weight || ""),
           or_rating: horse.or_rating || 0,
-
           // Features históricas
           ...historicalFeatures,
 
@@ -91,6 +90,8 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
           // Target
           target: target,
         };
+
+        console.log(featureEntry);
 
         // 10. Salvar na tabela de features de treinamento
         await saveTrainingFeature(featureEntry);

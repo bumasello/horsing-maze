@@ -8,8 +8,8 @@ import { updateHorseEntries_spb } from "../functions/spb_functions/update/update
 import type { Request, Response, NextFunction } from "express";
 import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
 import { generatePredictionFeatures } from "../functions/spb_functions/features_v2/generatePredictionFeatures";
-import { generateTrainingFeatures } from "../functions/spb_functions/features_v2/generateTrainingFeatures";
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
+import { generateTrainingFeatures_v3 } from "../functions/spb_functions/features_v3/generateTrainingFeatures";
 
 const spbRaceCards = async (
   _req: Request,
@@ -68,7 +68,7 @@ const spbHorseFeatures = async (
   try {
     console.log("spbHorseFeatures");
 
-    await generateTrainingFeatures();
+    await generateTrainingFeatures_v3();
     await generatePredictionFeatures();
 
     res

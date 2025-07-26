@@ -51,7 +51,7 @@ export const generatePredictionFeatures = async () => {
         );
 
         // 6. Calcular features históricas
-        const historicalFeatures = calculateHistoricalFeatures(
+        const historicalFeatures = await calculateHistoricalFeatures(
           horseHistory,
           race,
           horse.id_horse || 0,

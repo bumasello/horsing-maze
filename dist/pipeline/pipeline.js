@@ -355,7 +355,7 @@ function setupCronJob() {
         // Importação dinâmica para evitar dependência em ambientes onde node-cron não está disponível
         const cron = require("node-cron");
         // Expressão cron: "0 22 * * *" significa "às 22:00 todos os dias"
-        cron.schedule("0 22 * * *", () => __awaiter(this, void 0, void 0, function* () {
+        cron.schedule("30 22 * * *", () => __awaiter(this, void 0, void 0, function* () {
             logger.info("Iniciando execução agendada do pipeline de atualização");
             const result = yield (0, exports.runPipeline)();
             logger.info(`Resultado da execução agendada: ${result.success ? "Sucesso" : "Falha"}`);

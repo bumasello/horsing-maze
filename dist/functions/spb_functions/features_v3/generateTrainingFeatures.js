@@ -42,7 +42,7 @@ const generateTrainingFeatures_v3 = () => __awaiter(void 0, void 0, void 0, func
                 // 5. Buscar histórico do cavalo até a data da corrida
                 const horseHistory = yield (0, fetchHorseForRace_1.fetchHorseHistoryBeforeDate)(horse.id_horse || 0, race.date);
                 // 6. Calcular features históricas
-                const historicalFeatures = (0, calculateHistorialFeatures_1.calculateHistoricalFeatures)(horseHistory, race, horse.id_horse || 0);
+                const historicalFeatures = yield (0, calculateHistorialFeatures_1.calculateHistoricalFeatures)(horseHistory, race, horse.id_horse || 0);
                 // 7. Calcular features do jóquei
                 const jockeyFeatures = yield (0, calculateJockeyFeatures_1.calculateJockeyFeatures)(horse.jockey || "", horse.id_horse || 0, race);
                 // 8. Definir target (0 se venceu, 1 se não venceu)
@@ -55,6 +55,7 @@ const generateTrainingFeatures_v3 = () => __awaiter(void 0, void 0, void 0, func
                     horse_age: horse.age || 0, weight_kg: (0, auxFunctions_2.convertHorseWeightToKg)(horse.weight || ""), or_rating: horse.or_rating || 0 }, historicalFeatures), jockeyFeatures), { 
                     // Target
                     target: target });
+                console.log(featureEntry);
                 // 10. Salvar na tabela de features de treinamento
                 yield (0, saveTrainingFeature_1.saveTrainingFeature)(featureEntry);
                 featuresCount++;

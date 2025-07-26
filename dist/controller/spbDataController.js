@@ -16,7 +16,6 @@ const updateRacecard_hr_1 = require("../functions/spb_functions/update/updateRac
 const updateLayPicks_1 = require("../functions/spb_functions/update/updateLayPicks");
 const checkHorseResultLength_1 = require("../functions/spb_functions/entries/checkHorseResultLength");
 const generatePredictionFeatures_1 = require("../functions/spb_functions/features_v2/generatePredictionFeatures");
-const generateTrainingFeatures_1 = require("../functions/spb_functions/features_v2/generateTrainingFeatures");
 const updateCleanRacecard_1 = require("../functions/spb_functions/update/updateCleanRacecard");
 const spbRaceCards = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -57,7 +56,7 @@ const spbHorseStats = (_req, res, next) => __awaiter(void 0, void 0, void 0, fun
 const spbHorseFeatures = (_req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("spbHorseFeatures");
-        yield (0, generateTrainingFeatures_1.generateTrainingFeatures)();
+        // await generateTrainingFeatures_v3();
         yield (0, generatePredictionFeatures_1.generatePredictionFeatures)();
         res
             .status(200)

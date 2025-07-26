@@ -13,7 +13,6 @@ exports.calculateHistoricalFeatures = void 0;
 const auxFunctions_1 = require("../../../utils/auxFunctions");
 const fetchLastRaceDate_1 = require("../aux/fetchLastRaceDate");
 const calculateHistoricalFeatures = (historicalResults, race, horseId) => __awaiter(void 0, void 0, void 0, function* () {
-    // Valores padrão caso não haja histórico suficiente
     const defaultValues = {
         avg_position: 0,
         position_variance: 0,
@@ -26,80 +25,90 @@ const calculateHistoricalFeatures = (historicalResults, race, horseId) => __awai
         recent_form: 0,
         days_since_last_run: 0,
     };
-    // Se não houver resultados históricos, retorna valores padrão
-    if (!historicalResults || historicalResults.length === 0) {
-        console.log(`[AVISO] Sem histórico para cavalo ${horseId}, retornando valores padrão`);
+    // 1. Validação de Entrada: Exigir um mínimo de 3 corridas históricas
+    if (!historicalResults || historicalResults.length < 3) {
+        // console.log(
+        //   `[AVISO] Histórico insuficiente (menos de 3 corridas) para cavalo ${horseId}, retornando valores padrão`,
+        // );
         return defaultValues;
     }
-    // Buscar a data da última corrida diretamente via SQL
-    let days_since_last_run = 0;
-    try {
-        console.log(`\n[INFO] Calculando days_since_last_run para cavalo ${horseId}`);
-        // Verificar se temos uma data de corrida válida
-        if (!race.date || typeof race.date !== "string") {
-            console.log(`[ERRO] Data da corrida inválida para cavalo ${horseId}: ${race.date}`);
-            days_since_last_run = 0;
+    // 2. Pré-processamento de Posições: Tratar strings e nulos
+    const positions = historicalResults
+        .map((r) => {
+        if (typeof r.position === "string") {
+            const posNum = parseInt(r.position, 10);
+            return Number.isNaN(posNum) ? null : posNum;
         }
-        else {
-            console.log(`[DEBUG] Histórico disponível: ${historicalResults.length} corridas anteriores`);
-            // Estratégia 1: Buscar via função SQL (usando stats_id)
-            console.log(`[DEBUG] Estratégia 1: Buscando via função SQL get_last_race_date`);
-            let lastRaceDate = yield (0, fetchLastRaceDate_1.fetchLastRaceDate)(horseId, race.date);
-            // Estratégia 2: Se não encontrou via SQL, tenta diretamente na tabela
-            if (!lastRaceDate) {
-                console.log(`[DEBUG] Estratégia 2: Buscando diretamente na tabela horse_results_hr`);
-                lastRaceDate = yield (0, fetchLastRaceDate_1.checkDirectHorseResults)(horseId, race.date);
-            }
-            // Estratégia 3: Se ainda não encontrou, usa o histórico local
-            if (!lastRaceDate &&
-                historicalResults.length > 0 &&
-                historicalResults[0].date) {
-                console.log(`[DEBUG] Estratégia 3: Usando histórico local`);
-                // Verificar formato da data no histórico local
-                const localDate = historicalResults[0].date;
-                console.log(`[DEBUG] Data do histórico local: ${localDate}`);
-                // Tentar converter para formato YYYY-MM-DD se estiver em outro formato
-                if (localDate.includes("/")) {
-                    const parts = localDate.split("/");
-                    if (parts.length === 3) {
-                        lastRaceDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-                        console.log(`[DEBUG] Data local convertida: ${lastRaceDate}`);
-                    }
+        else if (typeof r.position === "number") {
+            return r.position;
+        }
+        return null;
+    })
+        .filter((p) => p !== null);
+    // Se após o pré-processamento ainda houver menos de 3 posições válidas
+    if (positions.length < 3) {
+        // console.log(
+        //   `[AVISO] Menos de 3 posições válidas após pré-processamento para cavalo ${horseId}, retornando valores padrão`,
+        // );
+        // Calcular days_since_last_run mesmo que outras features sejam padrão
+        let days_since_last_run_val = 0;
+        if (race.date && typeof race.date === "string") {
+            try {
+                let lastRaceDate = yield (0, fetchLastRaceDate_1.fetchLastRaceDate)(horseId, race.date);
+                if (!lastRaceDate) {
+                    lastRaceDate = yield (0, fetchLastRaceDate_1.checkDirectHorseResults)(horseId, race.date);
+                }
+                if (lastRaceDate) {
+                    days_since_last_run_val = (0, fetchLastRaceDate_1.calculateDaysBetween)(lastRaceDate, race.date);
                 }
                 else {
-                    lastRaceDate = localDate;
+                    // console.log(
+                    //   `[AVISO] Cavalo ${horseId}: Nenhuma corrida anterior encontrada para days_since_last_run.`,
+                    // );
                 }
             }
-            // Calcular a diferença em dias
-            if (lastRaceDate) {
-                days_since_last_run = (0, fetchLastRaceDate_1.calculateDaysBetween)(lastRaceDate, race.date);
-                console.log(`[INFO] Cavalo ${horseId}: Última corrida em ${lastRaceDate}, dias desde então: ${days_since_last_run}`);
-            }
-            else {
-                console.log(`[AVISO] Cavalo ${horseId}: Nenhuma corrida anterior encontrada após todas as estratégias`);
-                days_since_last_run = 0;
+            catch (error) {
+                // console.error(
+                //   `[ERRO] Erro ao calcular days_since_last_run para cavalo ${horseId}:`,
+                //   error,
+                // );
             }
         }
+        return Object.assign(Object.assign({}, defaultValues), { days_since_last_run: days_since_last_run_val });
     }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`[ERRO] Erro ao calcular days_since_last_run para cavalo ${horseId}: ${errorMessage}`);
-        days_since_last_run = 0;
+    // 3. Cálculo de days_since_last_run (manter a lógica existente, mas garantir que a data da corrida seja válida)
+    let days_since_last_run = 0;
+    if (race.date && typeof race.date === "string") {
+        try {
+            let lastRaceDate = yield (0, fetchLastRaceDate_1.fetchLastRaceDate)(horseId, race.date);
+            if (!lastRaceDate) {
+                lastRaceDate = yield (0, fetchLastRaceDate_1.checkDirectHorseResults)(horseId, race.date);
+            }
+            if (lastRaceDate) {
+                days_since_last_run = (0, fetchLastRaceDate_1.calculateDaysBetween)(lastRaceDate, race.date);
+            }
+            else {
+                // console.log(
+                //   `[AVISO] Cavalo ${horseId}: Nenhuma corrida anterior encontrada para days_since_last_run.`,
+                // );
+            }
+        }
+        catch (error) {
+            // console.error(
+            //   `[ERRO] Erro ao calcular days_since_last_run para cavalo ${horseId}:`,
+            //   error,
+            // );
+        }
     }
-    // Extrair posições e filtrar valores inválidos
-    const positions = historicalResults
-        .map((r) => r.position)
-        .filter((p) => p !== null && p !== undefined && !Number.isNaN(p));
-    // Se não houver posições válidas, retorna valores padrão
-    if (positions.length === 0) {
-        console.log(`[AVISO] Sem posições válidas para cavalo ${horseId}, retornando valores padrão`);
-        return Object.assign(Object.assign({}, defaultValues), { days_since_last_run });
+    else {
+        // console.error(
+        //   `[ERRO] Data da corrida inválida para cavalo ${horseId}: ${race.date}`,
+        // );
     }
     // Calcular média de posições
     const avg_position = positions.reduce((sum, pos) => sum + pos, 0) / positions.length;
     // Calcular variância das posições
-    const position_variance = positions.reduce((sum, pos) => sum + Math.pow(pos - avg_position, 2), 0) /
-        positions.length;
+    const position_variance = positions.length;
     // Calcular taxa de vitórias e colocações
     const totalResults = positions.length;
     const win_rate = positions.filter((pos) => pos === 1).length / totalResults;
