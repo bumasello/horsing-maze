@@ -1,13 +1,15 @@
-import { fetchFinishedRaces } from "./utils/fetchFinishedRaces";
-import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
-import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
+import {
+  convertFurlongsToMeters,
+  convertHorseWeightToKg,
+} from "../../utils/auxFunctions";
+import { encodeGoing } from "./aux/encodeGoing";
 import { calculateHistoricalFeatures } from "./utils/calculateHistorialFeatures";
 import { calculateJockeyFeatures } from "./utils/calculateJockeyFeatures";
-import { convertFurlongsToMeters } from "../../utils/auxFunctions";
-import { convertHorseWeightToKg } from "../../utils/auxFunctions";
+import { calculateTrainerFeatures } from "./utils/calculateTrainerFeatures";
+import { fetchFinishedRaces } from "./utils/fetchFinishedRaces";
+import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
+import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
 import { saveTrainingFeature } from "./utils/saveTrainingFeature";
-import { encodeGoing } from "./aux/encodeGoing";
-import { Race } from "../../tensor_functions/interfaces";
 
 export const generateTrainingFeatures_v3 = async (): Promise<void> => {
   try {
@@ -33,6 +35,26 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
         `Encontrados ${horses.length} cavalos para a corrida ${race.id}.`,
       );
 
+      const runningHorsesWithOR = horses
+        .filter((h) => h.non_runner !== 1 && typeof h.or_rating === "number")
+        .map((h) => ({ id: h.id, or_rating: h.or_rating as number }));
+
+      const oppositionRatingsMap = new Map<number, number>();
+
+      if (runningHorsesWithOR.length > 1) {
+        const totalOrSum = runningHorsesWithOR.reduce(
+          (sum, h) => sum + h.or_rating,
+          0,
+        );
+
+        for (const horse of runningHorsesWithOR) {
+          const oppositionOrSum = totalOrSum - horse.or_rating;
+          const oppositionCount = runningHorsesWithOR.length - 1;
+          const avg_or_rating_opposition = oppositionOrSum / oppositionCount;
+          oppositionRatingsMap.set(horse.id, avg_or_rating_opposition);
+        }
+      }
+
       // 4. Para cada cavalo
       for (const horse of horses) {
         // Pular cavalos que não correram
@@ -54,6 +76,8 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
           horseHistory,
           race,
           horse.id_horse || 0,
+          horse.jockey,
+          horse.or_rating,
         );
 
         // 7. Calcular features do jóquei
@@ -63,8 +87,21 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
           race,
         );
 
+        const trainerFeatures = await calculateTrainerFeatures(
+          horse.trainer,
+          horse.jockey,
+          race,
+        );
+
         // 8. Definir target (0 se venceu, 1 se não venceu)
         const target = horse.position === 1 ? 0 : 1;
+
+        const avg_or_rating_opposition =
+          oppositionRatingsMap.get(horse.id) ||
+          (runningHorsesWithOR.length > 0
+            ? runningHorsesWithOR.reduce((s, h) => s + h.or_rating, 0) /
+              runningHorsesWithOR.length
+            : 0);
 
         // 9. Combinar todas as features
         const featureEntry = {
@@ -74,7 +111,7 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
           // Features da corrida
           going_encoded: encodeGoing(race.going || ""),
           distance_meters: convertFurlongsToMeters(race.distance || ""),
-          field_size: horses.length,
+          field_size: horses.filter((h) => h.non_runner !== 1).length,
           race_class: race.class || 0,
 
           // Features do cavalo
@@ -86,6 +123,9 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
 
           // Features do jóquei
           ...jockeyFeatures,
+
+          ...trainerFeatures,
+          avg_or_rating_opposition: avg_or_rating_opposition,
 
           // Target
           target: target,

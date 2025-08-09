@@ -1,10 +1,12 @@
-import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
-import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
+import {
+  convertFurlongsToMeters,
+  convertHorseWeightToKg,
+} from "../../utils/auxFunctions";
+import { encodeGoing } from "./aux/encodeGoing";
 import { calculateHistoricalFeatures } from "./utils/calculateHistorialFeatures";
 import { calculateJockeyFeatures } from "./utils/calculateJockeyFeatures";
-import { convertFurlongsToMeters } from "../../utils/auxFunctions";
-import { convertHorseWeightToKg } from "../../utils/auxFunctions";
-import { encodeGoing } from "./aux/encodeGoing";
+import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
+import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
 import { fetchUpcoming, fetchUpcomingEntrie } from "./utils/fetchUpcomingRaces";
 import { savePredictionFeature } from "./utils/savePredictionFeatures";
 
@@ -47,7 +49,7 @@ export const generatePredictionFeatures = async () => {
         // 5. Buscar histórico do cavalo até a data atual
         const horseHistory = await fetchHorseHistoryBeforeDate(
           horse.id_horse || 0,
-          new Date(),
+          race.date,
         );
 
         // 6. Calcular features históricas

@@ -7,9 +7,9 @@ import { updateHorseEntries_spb } from "../functions/spb_functions/update/update
 
 import type { Request, Response, NextFunction } from "express";
 import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
-import { generatePredictionFeatures } from "../functions/spb_functions/features_v2/generatePredictionFeatures";
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
 import { generateTrainingFeatures_v3 } from "../functions/spb_functions/features_v3/generateTrainingFeatures";
+import { generatePredictionFeatures_v3 } from "../functions/spb_functions/features_v3/generatePredictionFeatures";
 
 const spbRaceCards = async (
   _req: Request,
@@ -69,7 +69,7 @@ const spbHorseFeatures = async (
     console.log("spbHorseFeatures");
 
     await generateTrainingFeatures_v3();
-    await generatePredictionFeatures();
+    await generatePredictionFeatures_v3();
 
     res
       .status(200)

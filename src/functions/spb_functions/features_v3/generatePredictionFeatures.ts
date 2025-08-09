@@ -9,8 +9,9 @@ import { fetchUpcoming, fetchUpcomingEntrie } from "./utils/fetchUpcomingRaces";
 import { savePredictionFeature } from "./utils/savePredictionFeatures";
 
 import type { PredictionFeature } from "../../tensor_functions/interfaces";
+import { calculateTrainerFeatures } from "./utils/calculateTrainerFeatures";
 
-export const generatePredictionFeatures = async () => {
+export const generatePredictionFeatures_v3 = async () => {
   try {
     console.log("Iniciando geração de features para previsão...");
 
@@ -34,6 +35,26 @@ export const generatePredictionFeatures = async () => {
         `Encontrados ${horses.length} cavalos para a corrida ${race.id}.`,
       );
 
+      const runningHorsesWithOR = horses
+        .filter((h) => h.non_runner !== 1 && typeof h.or_rating === "number")
+        .map((h) => ({ id: h.id, or_rating: h.or_rating as number }));
+
+      const oppositionRatingsMap = new Map<number, number>();
+
+      if (runningHorsesWithOR.length > 1) {
+        const totalOrSum = runningHorsesWithOR.reduce(
+          (sum, h) => sum + h.or_rating,
+          0,
+        );
+
+        for (const horse of runningHorsesWithOR) {
+          const oppositionOrSum = totalOrSum - horse.or_rating;
+          const oppositionCount = runningHorsesWithOR.length - 1;
+          const avg_or_rating_opposition = oppositionOrSum / oppositionCount;
+          oppositionRatingsMap.set(horse.id, avg_or_rating_opposition);
+        }
+      }
+
       const racePredictionFeatures: any[] = [];
 
       // 4. Para cada cavalo
@@ -49,14 +70,16 @@ export const generatePredictionFeatures = async () => {
         // 5. Buscar histórico do cavalo até a data atual
         const horseHistory = await fetchHorseHistoryBeforeDate(
           horse.id_horse || 0,
-          new Date(),
+          race.date,
         );
 
         // 6. Calcular features históricas
-        const historicalFeatures = calculateHistoricalFeatures(
+        const historicalFeatures = await calculateHistoricalFeatures(
           horseHistory,
           race,
           horse.id_horse || 0,
+          horse.jockey,
+          horse.or_rating,
         );
 
         // 7. Calcular features do jóquei
@@ -64,6 +87,16 @@ export const generatePredictionFeatures = async () => {
           horse.jockey || "",
           horse.id_horse || 0,
           race,
+        );
+
+        const trainerFeatures = await calculateTrainerFeatures(
+          horse.trainer,
+          horse.jockey,
+          race,
+        );
+
+        const avg_or_rating_opposition = oppositionRatingsMap.get(
+          horse.id || 0,
         );
 
         // 8. Combinar todas as features
@@ -74,7 +107,7 @@ export const generatePredictionFeatures = async () => {
           // Features da corrida
           going_encoded: encodeGoing(race.going || ""),
           distance_meters: convertFurlongsToMeters(race.distance || ""),
-          field_size: horses.length,
+          field_size: horses.filter((h) => h.non_runner !== 1).length,
           race_class: race.class || 0,
 
           // Features do cavalo
@@ -87,6 +120,9 @@ export const generatePredictionFeatures = async () => {
 
           // Features do jóquei
           ...jockeyFeatures,
+
+          ...trainerFeatures,
+          avg_or_rating_opposition: avg_or_rating_opposition,
         };
 
         // 9. Salvar na tabela de features de previsão

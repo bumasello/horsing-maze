@@ -1,18 +1,14 @@
+import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
+import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
-import { createClient } from "@supabase/supabase-js";
-
-import { initBot } from "./router/tle_DataRouter";
-
+import { runPipeline, setupCronJob } from "./pipeline/pipeline";
 import mdb_dataRouter from "./router/mdb_DataRouter";
 import spb_dataRouter from "./router/spb_DataRouter";
-import tle_dataRouter from "./router/tle_DataRouter";
+import tle_dataRouter, { initBot } from "./router/tle_DataRouter";
 import tsr_dataRouter from "./router/tsr_DataRouter";
 import upt_dataRouter from "./router/upt_DataRouter";
-
-import type { Request, Response, NextFunction } from "express";
-import { runPipeline, setupCronJob } from "./pipeline/pipeline";
 
 interface CustomError extends Error {
   status?: number;
