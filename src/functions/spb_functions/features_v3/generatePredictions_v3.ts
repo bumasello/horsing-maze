@@ -96,12 +96,37 @@ export const generatePredictions_v3 = async (): Promise<void> => {
 
     const { model, normalization } = loadedModel;
 
+    const { data: racecardIdsData, error: racecardIdsError } = await supabase
+      .schema("public")
+      .from("racecards_hr")
+      .select("id")
+      .eq("finished", 0)
+      .eq("canceled", 0);
+
+    if (racecardIdsError) {
+      throw new Error(
+        `Erro ao buscar ids de corrida para previsão: ${JSON.stringify(racecardIdsError)}`,
+      );
+    }
+
+    if (!racecardIdsData || racecardIdsData.length === 0) {
+      console.log(
+        "Nenhum racecard_id encontrado em racecards_hr com finished = 0 e canceled = 0.",
+      );
+      return;
+    }
+    const racecardIds = racecardIdsData.map((row) => row.id);
+    console.log(
+      `Encontrados ${racecardIds.length} racecard_ids para processamento.`,
+    );
+
     // 2. Buscar features de previsão da tabela
     console.log("Buscando features de previsão...");
     const { data: predictionFeatures, error: featuresError } = await supabase
       .schema("hml")
       .from("prediction_horse_features")
-      .select("*");
+      .select("*")
+      .in("race_id", racecardIds);
 
     if (featuresError) {
       throw new Error(
