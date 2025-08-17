@@ -1,21 +1,24 @@
-import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
-import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
+import {
+  convertFurlongsToMeters,
+  convertHorseWeightToKg,
+} from "../../utils/auxFunctions";
+import { encodeGoing } from "./aux/encodeGoing";
+// Ajuste o caminho para suas funções de utilitários
+import { getAverageOdd } from "./utils/bettingLogic";
 import { calculateHistoricalFeatures } from "./utils/calculateHistorialFeatures";
 import { calculateJockeyFeatures } from "./utils/calculateJockeyFeatures";
-import { convertFurlongsToMeters } from "../../utils/auxFunctions";
-import { convertHorseWeightToKg } from "../../utils/auxFunctions";
-import { encodeGoing } from "./aux/encodeGoing";
-import { fetchUpcoming, fetchUpcomingEntrie } from "./utils/fetchUpcomingRaces";
-import { savePredictionFeature } from "./utils/savePredictionFeatures";
-
-import type { PredictionFeature } from "../../tensor_functions/interfaces";
 import { calculateTrainerFeatures } from "./utils/calculateTrainerFeatures";
+import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
+import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
+import { fetchUpcomingEntrie } from "./utils/fetchUpcomingRaces";
+import { savePredictionFeature } from "./utils/savePredictionFeatures";
 
 export const generatePredictionFeatures_v3 = async () => {
   try {
-    console.log("Iniciando geração de features para previsão...");
+    console.log(
+      "Iniciando geração de features para previsão (com Prob. de Mercado e Sanitização)...",
+    );
 
-    // 1. Buscar corridas não finalizadas
     const upcomingRaces = await fetchUpcomingEntrie();
     console.log(
       `Encontradas ${upcomingRaces.length} corridas pendentes para previsão.`,
@@ -23,17 +26,12 @@ export const generatePredictionFeatures_v3 = async () => {
 
     const allPredictionFeatures: any[] = [];
 
-    // 2. Para cada corrida
     for (const race of upcomingRaces) {
       console.log(
         `Processando corrida ${race.id} (${race.course}, ${race.date})...`,
       );
 
-      // 3. Buscar todos os cavalos da corrida
       const horses = await fetchHorsesForRace(race.id);
-      console.log(
-        `Encontrados ${horses.length} cavalos para a corrida ${race.id}.`,
-      );
 
       const runningHorsesWithOR = horses
         .filter((h) => h.non_runner !== 1 && typeof h.or_rating === "number")
@@ -46,7 +44,6 @@ export const generatePredictionFeatures_v3 = async () => {
           (sum, h) => sum + h.or_rating,
           0,
         );
-
         for (const horse of runningHorsesWithOR) {
           const oppositionOrSum = totalOrSum - horse.or_rating;
           const oppositionCount = runningHorsesWithOR.length - 1;
@@ -57,9 +54,7 @@ export const generatePredictionFeatures_v3 = async () => {
 
       const racePredictionFeatures: any[] = [];
 
-      // 4. Para cada cavalo
       for (const horse of horses) {
-        // Pular cavalos que não vão correr
         if (horse.non_runner === 1) {
           console.log(
             `Cavalo ${horse.id} (${horse.horse}) não vai correr, pulando.`,
@@ -67,13 +62,16 @@ export const generatePredictionFeatures_v3 = async () => {
           continue;
         }
 
-        // 5. Buscar histórico do cavalo até a data atual
+        let market_implied_probability = 0;
+        const averageOdd = await getAverageOdd(horse.id);
+        if (averageOdd && averageOdd > 1) {
+          market_implied_probability = 1 / averageOdd;
+        }
+
         const horseHistory = await fetchHorseHistoryBeforeDate(
           horse.id_horse || 0,
           race.date,
         );
-
-        // 6. Calcular features históricas
         const historicalFeatures = await calculateHistoricalFeatures(
           horseHistory,
           race,
@@ -81,53 +79,66 @@ export const generatePredictionFeatures_v3 = async () => {
           horse.jockey,
           horse.or_rating,
         );
-
-        // 7. Calcular features do jóquei
         const jockeyFeatures = await calculateJockeyFeatures(
           horse.jockey || "",
           horse.id_horse || 0,
           race,
         );
-
         const trainerFeatures = await calculateTrainerFeatures(
           horse.trainer,
           horse.jockey,
           race,
         );
+        const avg_or_rating_opposition = oppositionRatingsMap.get(horse.id);
 
-        const avg_or_rating_opposition = oppositionRatingsMap.get(
-          horse.id || 0,
-        );
-
-        // 8. Combinar todas as features
+        // --- LÓGICA DE CONSTRUÇÃO E SANITIZAÇÃO ROBUSTA ---
         const featureEntry = {
           race_horse_id: horse.id,
           race_id: race.id,
 
           // Features da corrida
-          going_encoded: encodeGoing(race.going || ""),
-          distance_meters: convertFurlongsToMeters(race.distance || ""),
-          field_size: horses.filter((h) => h.non_runner !== 1).length,
-          race_class: race.class || 0,
+          going_encoded: encodeGoing(race.going || "") ?? 0,
+          distance_meters: convertFurlongsToMeters(race.distance || "") ?? 0,
+          field_size: horses.filter((h) => h.non_runner !== 1).length ?? 0,
+          race_class: race.class ?? 0,
 
           // Features do cavalo
-          horse_age: horse.age || 0,
-          weight_kg: convertHorseWeightToKg(horse.weight || ""),
-          or_rating: horse.or_rating || 0,
+          horse_age: horse.age ?? 0,
+          weight_kg: convertHorseWeightToKg(horse.weight || "") ?? 0,
+          or_rating: horse.or_rating ?? 0,
 
           // Features históricas
-          ...historicalFeatures,
+          avg_position: historicalFeatures.avg_position ?? 99,
+          position_variance: historicalFeatures.position_variance ?? 0,
+          win_rate: historicalFeatures.win_rate ?? 0,
+          place_rate: historicalFeatures.place_rate ?? 0,
+          avg_or_rating: historicalFeatures.avg_or_rating ?? 0,
+          or_trend: historicalFeatures.or_trend ?? 0,
+          going_performance: historicalFeatures.going_performance ?? 99,
+          distance_performance: historicalFeatures.distance_performance ?? 99,
+          recent_form: historicalFeatures.recent_form ?? 99,
+          days_since_last_run: historicalFeatures.days_since_last_run ?? 999,
+          course_win_rate: historicalFeatures.course_win_rate ?? 0,
+          first_time_out: historicalFeatures.first_time_out ?? 1,
+          first_time_jockey: historicalFeatures.first_time_jockey ?? 1,
+          first_time_course: historicalFeatures.first_time_course ?? 1,
 
           // Features do jóquei
-          ...jockeyFeatures,
+          jockey_win_rate: jockeyFeatures.jockey_win_rate ?? 0,
+          jockey_horse_win_rate: jockeyFeatures.jockey_horse_win_rate ?? 0,
+          jockey_course_win_rate: jockeyFeatures.jockey_course_win_rate ?? 0,
 
-          ...trainerFeatures,
-          avg_or_rating_opposition: avg_or_rating_opposition,
+          // Features do treinador
+          trainer_win_rate: trainerFeatures.trainer_win_rate ?? 0,
+          trainer_course_win_rate: trainerFeatures.trainer_course_win_rate ?? 0,
+          jockey_trainer_win_rate: trainerFeatures.jockey_trainer_win_rate ?? 0,
+
+          // Outras features
+          avg_or_rating_opposition: avg_or_rating_opposition ?? 0,
+          market_implied_probability: market_implied_probability ?? 0,
         };
 
-        // 9. Salvar na tabela de features de previsão
         await savePredictionFeature(featureEntry);
-
         racePredictionFeatures.push(featureEntry);
       }
 
@@ -138,7 +149,7 @@ export const generatePredictionFeatures_v3 = async () => {
     }
 
     console.log(
-      `Geração de features para previsão concluída. Total de ${allPredictionFeatures.length} corridas processadas.`,
+      `\nGeração de features para previsão concluída. Total de ${allPredictionFeatures.length} corridas processadas.`,
     );
     // return allPredictionFeatures;
   } catch (error) {
