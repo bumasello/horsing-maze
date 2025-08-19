@@ -1,13 +1,27 @@
+import type { IHorseResult_Spb } from "../../../../models/modelSpb/horseResult_Spb";
 import type { IRaceCard_Spb } from "../../../../models/modelSpb/raceCard_Spb";
+import type { IRaceHorse_Spb } from "../../../../models/modelSpb/raceHorse_Spb";
 import { convertFurlongsToMeters } from "../../../utils/auxFunctions";
-import {
-  calculateDaysBetween,
-  checkDirectHorseResults,
-  fetchLastRaceDate,
-} from "../aux/fetchLastRaceDate";
+import { calculateDaysBetween } from "../aux/fetchLastRaceDate";
 
+// Definindo a interface para o histórico combinado para clareza
+interface ICombinedHistory {
+  date: string | null;
+  position: number | null;
+  course: string | null;
+  distance: string | null;
+  jockey: string | null;
+  // O OR Rating é enriquecido: usa o do dia da corrida se existir, senão o do resultado.
+  or_rating: number | null;
+  // Adicione outros campos enriquecidos que queira usar no futuro
+  // form: string | null;
+  // distance_beaten: string | null;
+}
+
+// A assinatura da função agora inclui o novo parâmetro 'enrichedHistoryMap'
 export const calculateHistoricalFeatures = async (
-  historicalResults: any[] | undefined,
+  basicHistory: IHorseResult_Spb[],
+  enrichedHistoryMap: Map<string, IRaceHorse_Spb>,
   race: IRaceCard_Spb,
   horseId: number,
   currentJockey: string | null,
@@ -19,7 +33,7 @@ export const calculateHistoricalFeatures = async (
   place_rate: number;
   avg_or_rating: number;
   or_trend: number;
-  going_performance: number;
+  course_avg_position: number; // Renomeado de 'going_performance' para clareza
   distance_performance: number;
   recent_form: number;
   days_since_last_run: number;
@@ -35,27 +49,47 @@ export const calculateHistoricalFeatures = async (
     place_rate: 0,
     avg_or_rating: 0,
     or_trend: 0,
-    going_performance: 99,
+    course_avg_position: 99,
     distance_performance: 99,
     recent_form: 99,
     days_since_last_run: 999,
     course_win_rate: 0,
-    first_time_out: 1, // Assume que é a primeira vez por padrão
+    first_time_out: 1,
     first_time_jockey: 1,
     first_time_course: 1,
   };
 
-  if (!historicalResults || historicalResults.length === 0) {
+  if (!basicHistory || basicHistory.length === 0) {
     return defaultValues;
   }
 
-  // --- Cálculo dos flags "Primeira Vez" ---
+  // --- ETAPA 1: ENRIQUECIMENTO PROGRESSIVO DOS DADOS ---
+  const combinedHistory: ICombinedHistory[] = basicHistory.map(
+    (basicResult) => {
+      const enrichedData = basicResult.date
+        ? enrichedHistoryMap.get(basicResult.date)
+        : undefined;
+      return {
+        date: basicResult.date,
+        position: basicResult.position,
+        course: basicResult.course,
+        distance: basicResult.distance,
+        jockey: basicResult.jockey,
+        // Lógica de enriquecimento: usa o dado rico se existir, senão o fallback do dado básico.
+        or_rating: enrichedData?.or_rating ?? basicResult.or_rating,
+      };
+    },
+  );
+
+  // --- ETAPA 2: CÁLCULO DAS FEATURES USANDO O HISTÓRICO COMBINADO ---
+
+  // --- Flags "Primeira Vez" ---
   const first_time_out = 0;
-  const hasRacedOnCourse = historicalResults.some(
+  const hasRacedOnCourse = combinedHistory.some(
     (r) => r.course === race.course,
   );
   const first_time_course = hasRacedOnCourse ? 0 : 1;
-  const hasRacedWithJockey = historicalResults.some(
+  const hasRacedWithJockey = combinedHistory.some(
     (r) =>
       r.jockey &&
       currentJockey &&
@@ -63,13 +97,14 @@ export const calculateHistoricalFeatures = async (
   );
   const first_time_jockey = hasRacedWithJockey ? 0 : 1;
 
-  const lastRace = historicalResults[0];
+  const lastRace = combinedHistory[0];
   const days_since_last_run =
     race.date && lastRace && lastRace.date
       ? calculateDaysBetween(lastRace.date, race.date)
       : 999;
 
-  if (historicalResults.length < 3) {
+  // Validação de quantidade mínima de corridas
+  if (combinedHistory.length < 3) {
     return {
       ...defaultValues,
       days_since_last_run,
@@ -79,12 +114,9 @@ export const calculateHistoricalFeatures = async (
     };
   }
 
-  const positions = historicalResults
-    .map((r) => {
-      const posNum = parseInt(r.position, 10);
-      return Number.isNaN(posNum) ? null : posNum;
-    })
-    .filter((p): p is number => p !== null);
+  const positions = combinedHistory
+    .map((r) => r.position)
+    .filter((p): p is number => p !== null && !Number.isNaN(p));
 
   if (positions.length < 3) {
     return {
@@ -96,7 +128,7 @@ export const calculateHistoricalFeatures = async (
     };
   }
 
-  // --- CÁLCULOS DE FEATURES GERAIS ---
+  // --- Cálculos de Features Gerais ---
   const totalResults = positions.length;
   const avg_position =
     positions.reduce((sum, pos) => sum + pos, 0) / totalResults;
@@ -106,22 +138,21 @@ export const calculateHistoricalFeatures = async (
   const win_rate = positions.filter((pos) => pos === 1).length / totalResults;
   const place_rate = positions.filter((pos) => pos <= 3).length / totalResults;
 
-  const orRatings = historicalResults
+  // --- Cálculo de OR (Official Rating) com dados enriquecidos ---
+  const historicalOrRatings = combinedHistory
     .map((r) => r.or_rating)
     .filter((r): r is number => r !== null);
   const avg_or_rating =
-    orRatings.length > 0
-      ? orRatings.reduce((sum, r) => sum + r, 0) / orRatings.length
+    historicalOrRatings.length > 0
+      ? historicalOrRatings.reduce((sum, r) => sum + r, 0) /
+        historicalOrRatings.length
       : 0;
   const or_trend = (currentOrRating || avg_or_rating) - avg_or_rating;
 
-  // --- LÓGICA DE PERFORMANCE NA PISTA (COURSE) ---
-  const courseHistory = historicalResults.filter(
-    (r) => r.course === race.course,
-  );
+  // --- Lógica de Performance na Pista (Course) ---
+  const courseHistory = combinedHistory.filter((r) => r.course === race.course);
   let course_win_rate = 0;
   let course_avg_position = 99;
-
   if (courseHistory.length > 0) {
     const coursePositions = courseHistory
       .map((r) => r.position)
@@ -134,9 +165,9 @@ export const calculateHistoricalFeatures = async (
     }
   }
 
-  // --- LÓGICA EXISTENTE (Distância e Forma) ---
+  // --- Lógica de Distância e Forma ---
   const currentDistanceMeters = convertFurlongsToMeters(race.distance || "");
-  const distanceResults = historicalResults.filter((r) => {
+  const distanceResults = combinedHistory.filter((r) => {
     const rMeters = convertFurlongsToMeters(r.distance || "");
     return (
       currentDistanceMeters > 0 &&
@@ -162,7 +193,7 @@ export const calculateHistoricalFeatures = async (
   );
   const recent_form = weightSum > 0 ? weightedSum / weightSum : 99;
 
-  // --- OBJETO DE RETORNO FINAL E CORRIGIDO ---
+  // --- Objeto de Retorno Final ---
   return {
     avg_position,
     position_variance,
@@ -174,7 +205,7 @@ export const calculateHistoricalFeatures = async (
     recent_form,
     days_since_last_run,
     course_win_rate,
-    going_performance: course_avg_position, // Mantendo a lógica que é possível com seus dados
+    course_avg_position, // Nome corrigido e consistente
     first_time_out,
     first_time_jockey,
     first_time_course,

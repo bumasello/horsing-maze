@@ -11,6 +11,7 @@ import { fetchFinishedRaces } from "./utils/fetchFinishedRaces";
 import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
 import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
 import { saveTrainingFeature } from "./utils/saveTrainingFeature";
+import { fetchEnrichedHistory } from "./utils/fetchEnrichedHistory";
 
 export const generateTrainingFeatures_v3 = async (): Promise<void> => {
   try {
@@ -74,8 +75,14 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
           horse.id_horse || 0,
           race.date,
         );
+
+        const enrichedHistoryMap = await fetchEnrichedHistory(
+          horse.id_horse || 0,
+        );
+
         const historicalFeatures = await calculateHistoricalFeatures(
-          horseHistory,
+          horseHistory || [],
+          enrichedHistoryMap,
           race,
           horse.id_horse || 0,
           horse.jockey,
@@ -128,7 +135,7 @@ export const generateTrainingFeatures_v3 = async (): Promise<void> => {
           place_rate: historicalFeatures.place_rate ?? 0,
           avg_or_rating: historicalFeatures.avg_or_rating ?? 0,
           or_trend: historicalFeatures.or_trend ?? 0,
-          going_performance: historicalFeatures.going_performance ?? 99,
+          course_avg_position: historicalFeatures.course_avg_position ?? 99,
           distance_performance: historicalFeatures.distance_performance ?? 99,
           recent_form: historicalFeatures.recent_form ?? 99,
           days_since_last_run: historicalFeatures.days_since_last_run ?? 999,
