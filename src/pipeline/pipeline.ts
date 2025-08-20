@@ -7,22 +7,22 @@
  * Foi projetado para ser executado como um microsserviço agendado via Node Cron.
  */
 
-import updateRacecard_mdb from "../functions/mdb_functions/updateRaceCard_Hr";
+import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
 import raceCards from "../functions/mdb_functions/getRaceCard_Hr";
 import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr";
-import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
-import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
-import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
+import updateRacecard_mdb from "../functions/mdb_functions/updateRaceCard_Hr";
+import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
+import { generatePredictionFeatures_v3 } from "../functions/spb_functions/features_v3/generatePredictionFeatures";
+import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
+import { generateTrainingFeatures_v3 } from "../functions/spb_functions/features_v3/generateTrainingFeatures";
+import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
+import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
 import { populateRacecards_spb } from "../functions/spb_functions/populate/populateRaceCard_spb";
 import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
-import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
-import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
-import { generateTrainingFeatures } from "../functions/spb_functions/features_v2/generateTrainingFeatures";
-import { generatePredictionFeatures } from "../functions/spb_functions/features_v2/generatePredictionFeatures";
+import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
+import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
 import { trainHorseData_v3 } from "../functions/tensor_functions/trainHorseData_v3";
-import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
-import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
 
 /**
  * Interface para o objeto de configuração do pipeline
@@ -414,12 +414,12 @@ async function transferToSupabase(): Promise<void> {
 
   // Geração de features
   await metrics.measure("Geração de features para treinamento", async () => {
-    await generateTrainingFeatures();
+    await generateTrainingFeatures_v3();
     logger.info("Features para treinamento geradas com sucesso");
   });
 
   await metrics.measure("Geração de features para previsão", async () => {
-    await generatePredictionFeatures();
+    await generatePredictionFeatures_v3();
     logger.info("Features para previsão geradas com sucesso");
   });
 
