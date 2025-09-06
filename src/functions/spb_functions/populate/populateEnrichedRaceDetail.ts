@@ -42,12 +42,11 @@ export const populateEnrichedRaceDetail_spb = async () => {
 
     for (const horse of raceDetail as UnfinishedRacesHorse[]) {
       // console.log(horse.id_horse);
-    }
-  }
-  const raceIds = await getHistoryRaceDetailId(247372);
-  console.log(raceIds);
+      const raceIds = await getHistoryRaceDetailId(horse.id_horse);
 
-  for (const raceId of raceIds) {
-    await insertEnrichedRaceDetail(+raceId);
+      for (const raceId of raceIds) {
+        await insertEnrichedRaceDetail(+raceId);
+      }
+    }
   }
 };

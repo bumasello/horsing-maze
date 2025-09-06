@@ -15,9 +15,11 @@ import { checkHorseResultLength } from "../functions/spb_functions/entries/check
 import { generatePredictionFeatures_v3 } from "../functions/spb_functions/features_v3/generatePredictionFeatures";
 import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
 import { generateTrainingFeatures_v3 } from "../functions/spb_functions/features_v3/generateTrainingFeatures";
+import { populateEnrichedRaceDetail_spb } from "../functions/spb_functions/populate/populateEnrichedRaceDetail";
 import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
 import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
 import { populateRacecards_spb } from "../functions/spb_functions/populate/populateRaceCard_spb";
+import { populateRacecardsEnriched_spb } from "../functions/spb_functions/populate/populateRaceCard_spb_enriched";
 import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
 import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
@@ -370,7 +372,7 @@ async function transferToSupabase(): Promise<void> {
   await metrics.measure(
     "Transferência de race cards para Supabase",
     async () => {
-      await populateRacecards_spb();
+      await populateRacecardsEnriched_spb();
       logger.info("Race cards transferidos para Supabase com sucesso");
     },
   );
@@ -379,7 +381,7 @@ async function transferToSupabase(): Promise<void> {
   await metrics.measure(
     "Transferência de detalhes de corridas para Supabase",
     async () => {
-      await populateRaceDetail_spb();
+      await populateEnrichedRaceDetail_spb();
       logger.info(
         "Detalhes de corridas transferidos para Supabase com sucesso",
       );
@@ -390,7 +392,7 @@ async function transferToSupabase(): Promise<void> {
   await metrics.measure(
     "Transferência de estatísticas de cavalos para Supabase",
     async () => {
-      await populateHorseStats_spb();
+      // await populateHorseStats_spb();
       logger.info(
         "Estatísticas de cavalos transferidas para Supabase com sucesso",
       );
@@ -466,7 +468,7 @@ export const runPipeline = async (): Promise<PipelineResult> => {
 
     await metrics.measure("Pipeline Completo", async () => {
       // Etapa 1: Atualização de dados no MongoDB
-      await updateMongoDBData();
+      // await updateMongoDBData();
 
       // Etapa 2: Processamento de dados no MongoDB
       await processMongoDBData();
