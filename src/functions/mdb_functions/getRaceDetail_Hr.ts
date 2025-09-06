@@ -48,6 +48,26 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
     process.env.XRAPIDAPIKEY10,
     process.env.XRAPIDAPIKEY11,
     process.env.XRAPIDAPIKEY12,
+    process.env.XRAPIDAPIKEY13,
+    process.env.XRAPIDAPIKEY14,
+    process.env.XRAPIDAPIKEY15,
+    process.env.XRAPIDAPIKEY16,
+    process.env.XRAPIDAPIKEY17,
+    process.env.XRAPIDAPIKEY18,
+    process.env.XRAPIDAPIKEY19,
+    process.env.XRAPIDAPIKEY20,
+    process.env.XRAPIDAPIKEY21,
+    process.env.XRAPIDAPIKEY22,
+    process.env.XRAPIDAPIKEY23,
+    process.env.XRAPIDAPIKEY24,
+    process.env.XRAPIDAPIKEY25,
+    process.env.XRAPIDAPIKEY26,
+    process.env.XRAPIDAPIKEY27,
+    process.env.XRAPIDAPIKEY28,
+    process.env.XRAPIDAPIKEY29,
+    process.env.XRAPIDAPIKEY30,
+    process.env.XRAPIDAPIKEY31,
+    process.env.XRAPIDAPIKEY32,
   ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {
@@ -114,7 +134,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         ...raceCardFields
       } = dataSansId;
 
-      if (horses.length > 8 && horses.length <= 15) {
+      if (horses.length > 9 && horses.length <= 16) {
         // 1) Atualiza RaceCard (só campos que interessam + checked_detail)
         await RaceCard.findOneAndUpdate(
           { id_race: data.id_race },
