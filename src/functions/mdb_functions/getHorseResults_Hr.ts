@@ -51,6 +51,11 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
     process.env.XRAPIDAPIKEY30,
     process.env.XRAPIDAPIKEY31,
     process.env.XRAPIDAPIKEY32,
+    process.env.XRAPIDAPIKEY33,
+    process.env.XRAPIDAPIKEY34,
+    process.env.XRAPIDAPIKEY35,
+    process.env.XRAPIDAPIKEY36,
+    process.env.XRAPIDAPIKEY37,
   ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {

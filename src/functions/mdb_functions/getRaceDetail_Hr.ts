@@ -68,6 +68,11 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
     process.env.XRAPIDAPIKEY30,
     process.env.XRAPIDAPIKEY31,
     process.env.XRAPIDAPIKEY32,
+    process.env.XRAPIDAPIKEY33,
+    process.env.XRAPIDAPIKEY34,
+    process.env.XRAPIDAPIKEY35,
+    process.env.XRAPIDAPIKEY36,
+    process.env.XRAPIDAPIKEY37,
   ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {
@@ -230,9 +235,9 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
 
 const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
   // Se já é non_runner, manter como está
-  if (hr.non_runner === 1) {
+  if (hr.non_runner === "1") {
     hr.position = null;
-    hr.distance_beaten = null;
+    hr.distance_beaten = "VOID";
     return;
   }
 
@@ -253,12 +258,12 @@ const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
   } else if (voidCodes.includes(positionUpper)) {
     hr.position = null; // ou null, dependendo da sua preferência
     hr.non_runner = 1; // É considerado non_runner para efeitos de void
-    hr.distance_beaten = hr.distance_beaten || "DNF";
+    hr.distance_beaten = hr.distance_beaten || "VOID";
   } else {
     // Para qualquer outra sigla não reconhecida, tratar como não terminou
     hr.position = "99";
     hr.non_runner = 0;
-    hr.distance_beaten = hr.distance_beaten || "DNF";
+    hr.distance_beaten = hr.distance_beaten || "UNK";
     console.warn(
       `Sigla de posição não reconhecida: ${positionUpper} para cavalo ${hr.id_horse} na corrida ${raceId}`,
     );
