@@ -211,7 +211,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
 const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
   // Se já é non_runner, manter como está
   if (hr.non_runner === 1) {
-    hr.position = null;
+    hr.position = 0;
     hr.distance_beaten = null;
     return;
   }
@@ -231,7 +231,7 @@ const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
     hr.non_runner = 0; // NÃO é non_runner, pois participou
     hr.distance_beaten = hr.distance_beaten || "DNF"; // "Did Not Finish"
   } else if (voidCodes.includes(positionUpper)) {
-    hr.position = null; // ou null, dependendo da sua preferência
+    hr.position = 0; // ou null, dependendo da sua preferência
     hr.non_runner = 1; // É considerado non_runner para efeitos de void
     hr.distance_beaten = hr.distance_beaten || "DNF";
   } else {

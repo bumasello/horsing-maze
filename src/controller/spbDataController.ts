@@ -10,6 +10,8 @@ import { checkHorseResultLength } from "../functions/spb_functions/entries/check
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
 import { generateTrainingFeatures_v3 } from "../functions/spb_functions/features_v3/generateTrainingFeatures";
 import { generatePredictionFeatures_v3 } from "../functions/spb_functions/features_v3/generatePredictionFeatures";
+import { populateRacecardsEnriched_spb } from "../functions/spb_functions/populate/populateRaceCard_spb_enriched";
+import { populateEnrichedRaceDetail_spb } from "../functions/spb_functions/populate/populateEnrichedRaceDetail";
 
 const spbRaceCards = async (
   _req: Request,
@@ -18,7 +20,7 @@ const spbRaceCards = async (
 ) => {
   try {
     console.log("spbRaceCards");
-    await populateRacecards_spb();
+    await populateRacecardsEnriched_spb();
 
     res
       .status(200)
@@ -35,7 +37,8 @@ const spbRaceDetail = async (
 ) => {
   try {
     console.log("spbRaceDetail");
-    await populateRaceDetail_spb();
+    // await populateRaceDetail_spb();
+    await populateEnrichedRaceDetail_spb();
   } catch (error) {
     next(error);
   }
@@ -51,7 +54,7 @@ const spbHorseStats = async (
 ) => {
   try {
     console.log("spbHorseStats");
-    await populateHorseStats_spb();
+    // await populateHorseStats_spb();
   } catch (error) {
     next(error);
   }
@@ -105,7 +108,7 @@ const spbUpdateRacecard = async (
   try {
     console.log("spbUpdateRacecard");
     await updateRacecards_spb();
-    await updateHorseEntries_spb();
+    // await updateHorseEntries_spb();
 
     res
       .status(200)

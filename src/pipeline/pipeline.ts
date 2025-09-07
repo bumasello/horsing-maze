@@ -381,7 +381,7 @@ async function transferToSupabase(): Promise<void> {
   await metrics.measure(
     "Transferência de detalhes de corridas para Supabase",
     async () => {
-      await populateEnrichedRaceDetail_spb();
+      await populateRaceDetail_spb();
       logger.info(
         "Detalhes de corridas transferidos para Supabase com sucesso",
       );
@@ -392,7 +392,7 @@ async function transferToSupabase(): Promise<void> {
   await metrics.measure(
     "Transferência de estatísticas de cavalos para Supabase",
     async () => {
-      // await populateHorseStats_spb();
+      await populateEnrichedRaceDetail_spb();
       logger.info(
         "Estatísticas de cavalos transferidas para Supabase com sucesso",
       );

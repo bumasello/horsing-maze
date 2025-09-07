@@ -3,13 +3,13 @@ import { supabase } from "../../..";
 import mdbFunctions_RaceCard from "../../mdb_functions/getRaceCard_Hr";
 import mdbFunctions_RaceDetail from "../../mdb_functions/getRaceDetail_Hr";
 
-import type { NextFunction } from "express";
 import type { IRaceCard_Spb } from "../../../models/modelSpb/raceCard_Spb";
 import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb";
 
 export const updateRacecards_spb = async () => {
   const { data: unFinished, error } = await supabase
-    .from("racecards_hr")
+    .schema("hml")
+    .from("racecards_hr_enriched")
     .select("id,id_race")
     .eq("finished", "0");
 
@@ -28,7 +28,8 @@ export const updateRacecards_spb = async () => {
 
     if (!mdbRacecard || !mdbRacedetail) {
       const { error } = await supabase
-        .from("racecards_hr")
+        .schema("hml")
+        .from("racecards_hr_enriched")
         .delete()
         .eq("id_race", idRace.id_race);
 
@@ -53,7 +54,8 @@ export const updateRacecards_spb = async () => {
     };
 
     const { data: upsertData, error: upsertError } = await supabase
-      .from("racecards_hr")
+      .schema("hml")
+      .from("racecards_hr_enriched")
       .upsert(updatedRacecard, { onConflict: "id" });
 
     if (upsertError) {
@@ -66,7 +68,8 @@ export const updateRacecards_spb = async () => {
     for (const detail of mdbRacedetail) {
       for (const horse of detail.horses) {
         const { data: idDetail, error } = await supabase
-          .from("race_horses_hr")
+          .schema("hml")
+          .from("race_horses_hr_enriched")
           .select("id")
           .eq("racecard_id", idRace.id)
           .eq("id_horse", horse.id_horse);
@@ -109,7 +112,8 @@ export const updateRacecards_spb = async () => {
             weight: horse.weight,
           };
           const { data: upsertHorse, error: upsertError } = await supabase
-            .from("race_horses_hr")
+            .schema("hml")
+            .from("race_horses_hr_enriched")
             .upsert(updatedHorse, { onConflict: "id" });
 
           if (upsertError) {

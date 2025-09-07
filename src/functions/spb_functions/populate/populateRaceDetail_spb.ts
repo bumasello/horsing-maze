@@ -5,8 +5,11 @@ import type { IHorse_Hr } from "../../../models/modelHr/horseHrModel";
 export const populateRaceDetail_spb = async () => {
   // Seleciona as racecards do Supabase para obter os ids e o id_race original
   const { data: racecards, error: racecardsError } = await supabase
-    .from("racecards_hr")
-    .select("id, id_race");
+    .schema("hml")
+    .from("racecards_hr_enriched")
+    .select("id, id_race")
+    .eq("finished", "0")
+    .eq("canceled", "0");
 
   if (racecardsError) {
     console.error("Erro ao selecionar racecards_hr: ", racecardsError);
@@ -32,7 +35,8 @@ export const populateRaceDetail_spb = async () => {
       for (const h of horses) {
         // Verifica se o cavalo já foi inserido para esse racecard, pelo par (racecard_id, id_horse)
         const { data: existingHorse, error: checkHorseError } = await supabase
-          .from("race_horses_hr")
+          .schema("hml")
+          .from("race_horses_hr_enriched")
           .select("id")
           .eq("racecard_id", race.id)
           .eq("id_horse", h.id_horse);
@@ -56,7 +60,8 @@ export const populateRaceDetail_spb = async () => {
           // Insere o cavalo e captura o id gerado
           const { data: insertedHorse, error: insertHorseError } =
             await supabase
-              .from("race_horses_hr")
+              .schema("hml")
+              .from("race_horses_hr_enriched")
               .insert({
                 racecard_id: race.id,
                 horse: h.horse || null,
@@ -96,7 +101,8 @@ export const populateRaceDetail_spb = async () => {
           // Para cada odds, verificar se já existe (por exemplo, usando bookie e last_update como chave)
           for (const o of h.odds) {
             const { data: existingOdd, error: checkOddError } = await supabase
-              .from("odds_hr")
+              .schema("hml")
+              .from("odds_enriched")
               .select("id")
               .eq("race_horse_id", raceHorseId)
               .eq("bookie", o.bookie)
@@ -115,7 +121,8 @@ export const populateRaceDetail_spb = async () => {
               continue;
             } else {
               const { error: insertOddError } = await supabase
-                .from("odds_hr")
+                .schema("hml")
+                .from("odds_enriched")
                 .insert({
                   race_horse_id: raceHorseId,
                   bookie: o.bookie || null,

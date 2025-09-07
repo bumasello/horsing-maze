@@ -43,6 +43,17 @@ export const getHistoryRaceDetailId = async (
     process.env.XRAPIDAPIKEY20,
     process.env.XRAPIDAPIKEY21,
     process.env.XRAPIDAPIKEY22,
+    process.env.XRAPIDAPIKEY23,
+    process.env.XRAPIDAPIKEY24,
+    process.env.XRAPIDAPIKEY25,
+    process.env.XRAPIDAPIKEY26,
+    process.env.XRAPIDAPIKEY27,
+    process.env.XRAPIDAPIKEY28,
+    process.env.XRAPIDAPIKEY29,
+    process.env.XRAPIDAPIKEY30,
+    process.env.XRAPIDAPIKEY31,
+    process.env.XRAPIDAPIKEY32,
+    process.env.XRAPIDAPIKEY33,
   ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {
@@ -133,7 +144,9 @@ export const getHistoryRaceDetailId = async (
     }
 
     // Se chegou aqui, todas as tentativas falharam
-    throw new Error(`Falha na requisição após ${MAX_RETRIES} tentativas para cavalo ${horseId}`);
+    throw new Error(
+      `Falha na requisição após ${MAX_RETRIES} tentativas para cavalo ${horseId}`,
+    );
   };
 
   // Array para armazenar todos os id_race
