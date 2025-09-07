@@ -73,6 +73,15 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
     process.env.XRAPIDAPIKEY35,
     process.env.XRAPIDAPIKEY36,
     process.env.XRAPIDAPIKEY37,
+    process.env.XRAPIDAPIKEY38,
+    process.env.XRAPIDAPIKEY39,
+    process.env.XRAPIDAPIKEY40,
+    process.env.XRAPIDAPIKEY41,
+    process.env.XRAPIDAPIKEY42,
+    process.env.XRAPIDAPIKEY43,
+    process.env.XRAPIDAPIKEY44,
+    process.env.XRAPIDAPIKEY45,
+    process.env.XRAPIDAPIKEY46,
   ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {
