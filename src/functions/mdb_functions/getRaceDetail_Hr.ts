@@ -2,9 +2,11 @@ import dotenv from "dotenv";
 import RaceCard from "../../models/modelHr/raceCardHrModel";
 import RaceCardDetail from "../../models/modelHr/raceDetailHrModel";
 import Horse from "../../models/modelHr/horseHrModel";
+import { apiKeys } from "../../config/apiKeys";
 
 import type { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
 import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
+import { processHorsePosition } from "../utils/processHorsePosition";
 
 // Lista de siglas que indicam que o cavalo participou mas não terminou (Green para Lay)
 const didNotFinishCodes = ["PU", "UR", "F", "BD", "RO", "DSQ", "SU", "REF"];
@@ -34,21 +36,6 @@ const getStoredRaceDetail_Hr = async (id_race: number) => {
  */
 const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
   // Array de API keys disponíveis, filtradas para remover valores undefined/null
-  const apiKeys = [
-    process.env.XRAPIDAPIKEY0,
-    process.env.XRAPIDAPIKEY1,
-    process.env.XRAPIDAPIKEY2,
-    process.env.XRAPIDAPIKEY3,
-    process.env.XRAPIDAPIKEY4,
-    process.env.XRAPIDAPIKEY5,
-    process.env.XRAPIDAPIKEY6,
-    process.env.XRAPIDAPIKEY7,
-    process.env.XRAPIDAPIKEY8,
-    process.env.XRAPIDAPIKEY9,
-    process.env.XRAPIDAPIKEY10,
-    process.env.XRAPIDAPIKEY11,
-    process.env.XRAPIDAPIKEY12,
-  ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {
     throw new Error("Nenhuma API key disponível no array.");
@@ -205,43 +192,6 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         );
       }
     }
-  }
-};
-
-const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
-  // Se já é non_runner, manter como está
-  if (hr.non_runner === 1) {
-    hr.position = 0;
-    hr.distance_beaten = null;
-    return;
-  }
-
-  // Se position é um número válido, garantir que não seja non_runner
-  if (!Number.isNaN(Number(hr.position))) {
-    hr.non_runner = 0;
-    hr.distance_beaten = hr.distance_beaten || "0";
-    return;
-  }
-
-  // Tratar siglas
-  const positionUpper = String(hr.position).toUpperCase().trim();
-
-  if (didNotFinishCodes.includes(positionUpper)) {
-    hr.position = "99"; // Posição alta para indicar que não terminou (mas participou)
-    hr.non_runner = 0; // NÃO é non_runner, pois participou
-    hr.distance_beaten = hr.distance_beaten || "DNF"; // "Did Not Finish"
-  } else if (voidCodes.includes(positionUpper)) {
-    hr.position = 0; // ou null, dependendo da sua preferência
-    hr.non_runner = 1; // É considerado non_runner para efeitos de void
-    hr.distance_beaten = hr.distance_beaten || "DNF";
-  } else {
-    // Para qualquer outra sigla não reconhecida, tratar como não terminou
-    hr.position = "99";
-    hr.non_runner = 0;
-    hr.distance_beaten = hr.distance_beaten || "DNF";
-    console.warn(
-      `Sigla de posição não reconhecida: ${positionUpper} para cavalo ${hr.id_horse} na corrida ${raceId}`,
-    );
   }
 };
 

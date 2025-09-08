@@ -1,12 +1,12 @@
-import HorseStatsHrModel from "../../models/modelHr/horseStatsHrModel";
-import raceDetail from "./getRaceDetail_Hr";
-
-import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
+import { apiKeys } from "../../config/apiKeys";
+import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 import type {
   IHorseStats_HR,
   IResults_Hr,
 } from "../../models/modelHr/horseStatsHrModel";
-import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
+import HorseStatsHrModel from "../../models/modelHr/horseStatsHrModel";
+import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
+import raceDetail from "./getRaceDetail_Hr";
 
 const getStoredHorseStats_Hr = async () => {
   const horseStats = await HorseStatsHrModel.find<IHorseStats_HR>({
@@ -17,22 +17,6 @@ const getStoredHorseStats_Hr = async () => {
 };
 
 const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
-  const apiKeys = [
-    process.env.XRAPIDAPIKEY0,
-    process.env.XRAPIDAPIKEY1,
-    process.env.XRAPIDAPIKEY2,
-    process.env.XRAPIDAPIKEY3,
-    process.env.XRAPIDAPIKEY4,
-    process.env.XRAPIDAPIKEY5,
-    process.env.XRAPIDAPIKEY6,
-    process.env.XRAPIDAPIKEY7,
-    process.env.XRAPIDAPIKEY8,
-    process.env.XRAPIDAPIKEY9,
-    process.env.XRAPIDAPIKEY10,
-    process.env.XRAPIDAPIKEY11,
-    process.env.XRAPIDAPIKEY12,
-  ].filter((key): key is string => Boolean(key));
-
   if (apiKeys.length === 0) {
     throw new Error("Nenhuma api key no array.");
   }

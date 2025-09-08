@@ -1,3 +1,5 @@
+import { apiKeys } from "../../config/apiKeys";
+
 interface QueryRaces {
   id_race: string;
   name: string;
@@ -19,43 +21,6 @@ interface SummaryRaces {
 export const getHistoryRaceDetailId = async (
   horseId: number,
 ): Promise<string[]> => {
-  const apiKeys = [
-    process.env.XRAPIDAPIKEY0,
-    process.env.XRAPIDAPIKEY1,
-    process.env.XRAPIDAPIKEY2,
-    process.env.XRAPIDAPIKEY3,
-    process.env.XRAPIDAPIKEY4,
-    process.env.XRAPIDAPIKEY5,
-    process.env.XRAPIDAPIKEY6,
-    process.env.XRAPIDAPIKEY7,
-    process.env.XRAPIDAPIKEY8,
-    process.env.XRAPIDAPIKEY9,
-    process.env.XRAPIDAPIKEY10,
-    process.env.XRAPIDAPIKEY11,
-    process.env.XRAPIDAPIKEY12,
-    process.env.XRAPIDAPIKEY13,
-    process.env.XRAPIDAPIKEY14,
-    process.env.XRAPIDAPIKEY15,
-    process.env.XRAPIDAPIKEY16,
-    process.env.XRAPIDAPIKEY17,
-    process.env.XRAPIDAPIKEY18,
-    process.env.XRAPIDAPIKEY19,
-    process.env.XRAPIDAPIKEY20,
-    process.env.XRAPIDAPIKEY21,
-    process.env.XRAPIDAPIKEY22,
-    process.env.XRAPIDAPIKEY23,
-    process.env.XRAPIDAPIKEY24,
-    process.env.XRAPIDAPIKEY25,
-    process.env.XRAPIDAPIKEY26,
-    process.env.XRAPIDAPIKEY27,
-    process.env.XRAPIDAPIKEY28,
-    process.env.XRAPIDAPIKEY29,
-    process.env.XRAPIDAPIKEY30,
-    process.env.XRAPIDAPIKEY31,
-    process.env.XRAPIDAPIKEY32,
-    process.env.XRAPIDAPIKEY33,
-  ].filter((key): key is string => Boolean(key));
-
   if (apiKeys.length === 0) {
     throw new Error("Nenhuma API key disponível no array.");
   }

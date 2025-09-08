@@ -9,7 +9,7 @@ export interface IRaceHorse_Spb {
   weight: string | null;
   number: number | null;
   last_ran_days_ago: number | null;
-  non_runner: number | null;
+  non_runner: number | string;
   form: string | null;
   position: number | null;
   distance_beaten: string | null;

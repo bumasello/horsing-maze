@@ -1,13 +1,10 @@
 import dotenv from "dotenv";
 import { supabase } from "../..";
+import { apiKeys } from "../../config/apiKeys";
 import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 import type { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
-
-// Lista de siglas que indicam que o cavalo participou mas não terminou (Green para Lay)
-const didNotFinishCodes = ["PU", "UR", "F", "BD", "RO", "DSQ", "SU", "REF"];
-
-// Lista de siglas que indicam void/anulação
-const voidCodes = ["VO", "NR"];
+import { cleanNumericValue } from "./cleanNumericValue";
+import { processHorsePosition } from "./processHorsePosition";
 
 dotenv.config();
 
@@ -15,67 +12,11 @@ dotenv.config();
  * Função melhorada para processar a posição do cavalo
  * Garante que sempre retorna valores válidos para o banco
  */
-const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
-  // Converter position para string para análise
-  const positionStr = String(hr.position || "")
-    .toUpperCase()
-    .trim();
-
-  // Se é um número válido e positivo
-  const positionNum = Number(hr.position);
-  if (!Number.isNaN(positionNum) && positionNum > 0 && positionNum <= 50) {
-    hr.position = positionNum;
-    hr.non_runner = 0; // Participou da corrida
-    hr.distance_beaten = hr.distance_beaten || "0";
-    return;
-  }
-
-  // Se o cavalo é explicitamente marcado como non_runner
-  if (hr.non_runner === "1" || hr.non_runner === 1) {
-    hr.position = 0;
-    hr.non_runner = 1;
-    hr.distance_beaten = "VOID";
-    return;
-  }
-
-  // Verificar se a position contém uma sigla conhecida
-  if (voidCodes.includes(positionStr)) {
-    // Cavalo não participou (void/non-runner)
-    hr.position = 0;
-    hr.non_runner = 1;
-    hr.distance_beaten = "VOID";
-  } else if (didNotFinishCodes.includes(positionStr)) {
-    // Cavalo participou mas não terminou
-    hr.position = 99;
-    hr.non_runner = 0;
-    hr.distance_beaten = "DNF";
-  } else if (positionStr === "" || positionStr === "NULL" || !hr.position) {
-    // Position vazia ou nula - assumir que não terminou
-    hr.position = 99;
-    hr.non_runner = 0;
-    hr.distance_beaten = "PVN";
-  } else {
-    // Valor desconhecido - logar e tratar como não terminou
-    console.warn(
-      `Posição não reconhecida: "${hr.position}" para cavalo ${hr.id_horse} na corrida ${raceId}`,
-    );
-    hr.position = 99;
-    hr.non_runner = 0;
-    hr.distance_beaten = "UNK"; // Unknown
-  }
-};
 
 /**
  * Função auxiliar para validar e limpar valores numéricos
  * Retorna null se o valor for 0, negativo ou inválido
  */
-const cleanNumericValue = (value: any): number | null => {
-  const num = Number(value);
-  if (Number.isNaN(num) || num <= 0) {
-    return null;
-  }
-  return num;
-};
 
 /**
  * Função para obter detalhes de corrida histórica e armazenar no Supabase
@@ -84,41 +25,6 @@ export const insertEnrichedRaceDetail = async (
   raceid: number,
 ): Promise<void> => {
   // Array de API keys disponíveis
-  const apiKeys = [
-    process.env.XRAPIDAPIKEY1,
-    process.env.XRAPIDAPIKEY2,
-    process.env.XRAPIDAPIKEY3,
-    process.env.XRAPIDAPIKEY4,
-    process.env.XRAPIDAPIKEY5,
-    process.env.XRAPIDAPIKEY6,
-    process.env.XRAPIDAPIKEY7,
-    process.env.XRAPIDAPIKEY8,
-    process.env.XRAPIDAPIKEY9,
-    process.env.XRAPIDAPIKEY10,
-    process.env.XRAPIDAPIKEY11,
-    process.env.XRAPIDAPIKEY12,
-    process.env.XRAPIDAPIKEY13,
-    process.env.XRAPIDAPIKEY14,
-    process.env.XRAPIDAPIKEY15,
-    process.env.XRAPIDAPIKEY16,
-    process.env.XRAPIDAPIKEY17,
-    process.env.XRAPIDAPIKEY18,
-    process.env.XRAPIDAPIKEY19,
-    process.env.XRAPIDAPIKEY20,
-    process.env.XRAPIDAPIKEY21,
-    process.env.XRAPIDAPIKEY22,
-    process.env.XRAPIDAPIKEY23,
-    process.env.XRAPIDAPIKEY24,
-    process.env.XRAPIDAPIKEY25,
-    process.env.XRAPIDAPIKEY26,
-    process.env.XRAPIDAPIKEY27,
-    process.env.XRAPIDAPIKEY28,
-    process.env.XRAPIDAPIKEY29,
-    process.env.XRAPIDAPIKEY30,
-    process.env.XRAPIDAPIKEY31,
-    process.env.XRAPIDAPIKEY32,
-    process.env.XRAPIDAPIKEY33,
-  ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {
     throw new Error("Nenhuma API key disponível.");
@@ -250,7 +156,7 @@ export const insertEnrichedRaceDetail = async (
             last_ran_days_ago: cleanNumericValue(horse.last_ran_days_ago),
             non_runner: horse.non_runner === 1 ? 1 : 0, // Garantir 0 ou 1
             form: horse.form || null,
-            position: horse.position || 99, // Default para 99 se não houver posição
+            position: horse.non_runner === 1 ? 0 : horse.position || 99, // Default para 99 se não houver posição
             distance_beaten: horse.distance_beaten || null,
             owner: horse.owner || null,
             sire: horse.sire || null,
