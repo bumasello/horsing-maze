@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import RaceCard from "../../models/modelHr/raceCardHrModel";
 import RaceCardDetail from "../../models/modelHr/raceDetailHrModel";
 import Horse from "../../models/modelHr/horseHrModel";
+import { apiKeys } from "../../config/apiKeys";
 
 import type { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
 import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
@@ -34,55 +35,6 @@ const getStoredRaceDetail_Hr = async (id_race: number) => {
  */
 const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
   // Array de API keys disponíveis, filtradas para remover valores undefined/null
-  const apiKeys = [
-    process.env.XRAPIDAPIKEY0,
-    process.env.XRAPIDAPIKEY1,
-    process.env.XRAPIDAPIKEY2,
-    process.env.XRAPIDAPIKEY3,
-    process.env.XRAPIDAPIKEY4,
-    process.env.XRAPIDAPIKEY5,
-    process.env.XRAPIDAPIKEY6,
-    process.env.XRAPIDAPIKEY7,
-    process.env.XRAPIDAPIKEY8,
-    process.env.XRAPIDAPIKEY9,
-    process.env.XRAPIDAPIKEY10,
-    process.env.XRAPIDAPIKEY11,
-    process.env.XRAPIDAPIKEY12,
-    process.env.XRAPIDAPIKEY13,
-    process.env.XRAPIDAPIKEY14,
-    process.env.XRAPIDAPIKEY15,
-    process.env.XRAPIDAPIKEY16,
-    process.env.XRAPIDAPIKEY17,
-    process.env.XRAPIDAPIKEY18,
-    process.env.XRAPIDAPIKEY19,
-    process.env.XRAPIDAPIKEY20,
-    process.env.XRAPIDAPIKEY21,
-    process.env.XRAPIDAPIKEY22,
-    process.env.XRAPIDAPIKEY23,
-    process.env.XRAPIDAPIKEY24,
-    process.env.XRAPIDAPIKEY25,
-    process.env.XRAPIDAPIKEY26,
-    process.env.XRAPIDAPIKEY27,
-    process.env.XRAPIDAPIKEY28,
-    process.env.XRAPIDAPIKEY29,
-    process.env.XRAPIDAPIKEY30,
-    process.env.XRAPIDAPIKEY31,
-    process.env.XRAPIDAPIKEY32,
-    process.env.XRAPIDAPIKEY33,
-    process.env.XRAPIDAPIKEY34,
-    process.env.XRAPIDAPIKEY35,
-    process.env.XRAPIDAPIKEY36,
-    process.env.XRAPIDAPIKEY37,
-    process.env.XRAPIDAPIKEY38,
-    process.env.XRAPIDAPIKEY39,
-    process.env.XRAPIDAPIKEY40,
-    process.env.XRAPIDAPIKEY41,
-    process.env.XRAPIDAPIKEY42,
-    process.env.XRAPIDAPIKEY43,
-    process.env.XRAPIDAPIKEY44,
-    process.env.XRAPIDAPIKEY45,
-    process.env.XRAPIDAPIKEY46,
-  ].filter((key): key is string => Boolean(key));
 
   if (apiKeys.length === 0) {
     throw new Error("Nenhuma API key disponível no array.");
@@ -245,7 +197,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
 const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
   // Se já é non_runner, manter como está
   if (hr.non_runner === "1") {
-    hr.position = null;
+    hr.position = 0;
     hr.distance_beaten = "VOID";
     return;
   }
@@ -261,16 +213,16 @@ const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
   const positionUpper = String(hr.position).toUpperCase().trim();
 
   if (didNotFinishCodes.includes(positionUpper)) {
-    hr.position = "99"; // Posição alta para indicar que não terminou (mas participou)
+    hr.position = 99; // Posição alta para indicar que não terminou (mas participou)
     hr.non_runner = 0; // NÃO é non_runner, pois participou
     hr.distance_beaten = hr.distance_beaten || "DNF"; // "Did Not Finish"
   } else if (voidCodes.includes(positionUpper)) {
-    hr.position = null; // ou null, dependendo da sua preferência
+    hr.position = 0; // ou null, dependendo da sua preferência
     hr.non_runner = 1; // É considerado non_runner para efeitos de void
     hr.distance_beaten = hr.distance_beaten || "VOID";
   } else {
     // Para qualquer outra sigla não reconhecida, tratar como não terminou
-    hr.position = "99";
+    hr.position = 99;
     hr.non_runner = 0;
     hr.distance_beaten = hr.distance_beaten || "UNK";
     console.warn(

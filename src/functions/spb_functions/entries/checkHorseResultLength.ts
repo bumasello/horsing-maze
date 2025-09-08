@@ -101,7 +101,7 @@ export const checkHorseResultLength = async () => {
         `Cavalo ID ${horseId}: ${resultCount !== undefined ? resultCount : "sem estatísticas"} resultados`,
       );
 
-      if (resultCount === undefined || resultCount < 3) {
+      if (resultCount === undefined || resultCount < 5) {
         allHorsesQualified = false;
         missingStats.push(horseId);
       }
