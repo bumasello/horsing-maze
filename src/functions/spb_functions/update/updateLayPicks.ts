@@ -26,7 +26,7 @@ export const updateHorseEntries_spb = async () => {
 
     const position = positionData[0].position;
 
-    if (position === 1) {
+    if (position === "1") {
       await supabase
         .schema("hml")
         .from("horse_entries")
@@ -37,7 +37,7 @@ export const updateHorseEntries_spb = async () => {
           resolved_at: new Date().toISOString(),
         })
         .eq("id", lay.id);
-    } else if (position === 0) {
+    } else if (position === "0") {
       await supabase
         .schema("hml")
         .from("horse_entries")
