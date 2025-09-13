@@ -68,12 +68,12 @@ const getRaceCardAndStore_Hr = async (date: string) => {
       throw new Error("Requisição retornou sem dados.");
     }
 
-    let inseridos = 0;
+    // let inseridos = 0;
 
     for (const rc of data as IRaceCard_Hr[]) {
       const checkRc = await RaceCard.findOne({ id_race: rc.id_race });
 
-      if (!checkRc && inseridos < 40) {
+      if (!checkRc) {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
         const [, off_time = "00:00"] = (rc.date || "").split(" ");
 
@@ -81,7 +81,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
         raceCard.checked_detail = false;
 
         await raceCard.save();
-        inseridos++;
+        // inseridos++;
       }
     }
   } catch (err) {
