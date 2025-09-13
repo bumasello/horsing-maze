@@ -7,11 +7,11 @@ import { convertOddToDecimal } from "./utils/bettingLogic"; // Importar todas as
 import { calculateHistoricalFeatures } from "./utils/calculateHistorialFeatures";
 import { calculateJockeyFeatures } from "./utils/calculateJockeyFeatures";
 import { calculateTrainerFeatures } from "./utils/calculateTrainerFeatures";
+import { fetchEnrichedHistory } from "./utils/fetchEnrichedHistory";
 import { fetchFinishedRaces } from "./utils/fetchFinishedRaces";
 import { fetchHorseHistoryBeforeDate } from "./utils/fetchHorseForRace";
 import { fetchHorsesForRace } from "./utils/fetchHorsesForRace";
 import { saveTrainingFeature } from "./utils/saveTrainingFeature";
-import { fetchEnrichedHistory } from "./utils/fetchEnrichedHistory";
 
 export const generateTrainingFeatures_v3 = async (): Promise<void> => {
   try {

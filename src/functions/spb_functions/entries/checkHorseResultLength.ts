@@ -123,7 +123,8 @@ export const checkHorseResultLength = async () => {
   // Atualizar corridas elegíveis (create_entry: true)
   if (eligibleRaceIds.length > 0) {
     const { error: updateEligibleError } = await supabase
-      .from("racecards_hr")
+      .schema("hml")
+      .from("racecards_hr_enriched")
       .update({ create_entry: true })
       .in("id", eligibleRaceIds);
 
@@ -141,7 +142,8 @@ export const checkHorseResultLength = async () => {
   // Atualizar corridas não elegíveis (create_entry: false)
   if (nonEligibleRaceIds.length > 0) {
     const { error: updateNonEligibleError } = await supabase
-      .from("racecards_hr")
+      .schema("hml")
+      .from("racecards_hr_enriched")
       .update({ create_entry: false })
       .in("id", nonEligibleRaceIds);
 

@@ -37,14 +37,12 @@ const spbRaceDetail = async (
 ) => {
   try {
     console.log("spbRaceDetail");
-    // await populateRaceDetail_spb();
+    await populateRaceDetail_spb();
 
     /* Antes de usar o populateEnrichedRaceDetail, vamos utilizar o horseStats, para pegar a contagem de quantas corridas historicas cada cavalo tem.
      * Sabendo quantas corridas historicas cada cavalo tem, podemos rodar o checkHorseResultLength para manter somente os cavalos que precisamos do
      * historico.
      */
-
-    await populateEnrichedRaceDetail_spb();
   } catch (error) {
     next(error);
   }
@@ -60,13 +58,47 @@ const spbHorseStats = async (
 ) => {
   try {
     console.log("spbHorseStats");
-    // await populateHorseStats_spb();
+    await populateHorseStats_spb();
   } catch (error) {
     next(error);
   }
   res
     .status(200)
     .json({ message: "HorseStats carregados para supabase com sucesso." });
+};
+
+const spbCheckCreateEntry = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    console.log("spbCheckCreateEntry");
+    await checkHorseResultLength();
+    await updateCleanRacecard();
+    res.status(200).json({
+      message:
+        "Corridas de cavalos com mais de 3 resultados selecionadas com sucesso.",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const spbEnrichedDetails = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    console.log("spbEnrichedDetails");
+    await populateEnrichedRaceDetail_spb();
+  } catch (error) {
+    next(error);
+  }
+  res.status(200).json({
+    message: "Enriched horse stats carregados para supabase com sucesso.",
+  });
 };
 
 const spbHorseFeatures = async (
@@ -83,24 +115,6 @@ const spbHorseFeatures = async (
     res
       .status(200)
       .json({ message: "HorseFeatures carregados para supabase com sucesso." });
-  } catch (error) {
-    next(error);
-  }
-};
-
-const spbCheckCreateEntry = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
-  try {
-    console.log("spbCheckCreateEntry");
-    await checkHorseResultLength();
-    await updateCleanRacecard();
-    res.status(200).json({
-      message:
-        "Corridas de cavalos com mais de 3 resultados selecionadas com sucesso.",
-    });
   } catch (error) {
     next(error);
   }
@@ -128,6 +142,7 @@ export default {
   spbRaceCards,
   spbRaceDetail,
   spbHorseStats,
+  spbEnrichedDetails,
   spbHorseFeatures,
   spbUpdateRacecard,
   spbCheckCreateEntry,

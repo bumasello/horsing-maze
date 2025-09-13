@@ -23,5 +23,7 @@ export const updateCleanRacecard = async () => {
       await RaceCardDetailModel_Hr.deleteOne({ id_race: rc.id_race });
       await supabase.from("racecards_hr").delete().eq("id_race", rc.id_race);
     }
-  } catch (error) {}
+  } catch (error: any) {
+    throw new Error(error);
+  }
 };

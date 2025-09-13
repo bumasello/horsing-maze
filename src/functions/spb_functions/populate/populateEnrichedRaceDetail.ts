@@ -104,12 +104,16 @@ export const populateEnrichedRaceDetail_spb = async () => {
             await insertEnrichedRaceDetail(+raceId);
             insertedHistoricRaces++;
             console.log(
-              `      ✅ [${processedHistoricRaces}/${totalHistoricRaces}] Race ID ${raceId} inserida com sucesso`,
+              `\n✅ [${processedHistoricRaces}/${totalHistoricRaces}] Race ID ${raceId} inserida com sucesso`,
+              `\n🐴 [${processedHorses}/${totalHorses}] Processando cavalo ID: ${horse.id_horse}`,
+              `\n🏇 [${processedRaces}/${totalRaces}] Processando corrida ID: ${race.id} (Race: ${race.id_race})`,
             );
           } else {
             skippedHistoricRaces++;
             console.log(
-              `      ⏭ [${processedHistoricRaces}/${totalHistoricRaces}] Race ID ${raceId} já existe, pulando...`,
+              `\n⏭  [${processedHistoricRaces}/${totalHistoricRaces}] Race ID ${raceId} já existe, pulando...`,
+              `\n🐴 [${processedHorses}/${totalHorses}] Processando cavalo ID: ${horse.id_horse}`,
+              `\n🏇 [${processedRaces}/${totalRaces}] Processando corrida ID: ${race.id} (Race: ${race.id_race})`,
             );
           }
         }

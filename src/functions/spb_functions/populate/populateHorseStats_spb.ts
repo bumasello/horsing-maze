@@ -4,7 +4,6 @@ import horseStatsData from "../../mdb_functions/getHorseResults_Hr";
 import horseStatsHrModel from "../../../models/modelHr/horseStatsHrModel";
 
 import type { IHorseStats_HR } from "../../../models/modelHr/horseStatsHrModel";
-import type { NextFunction } from "express";
 
 export const populateHorseStats_spb = async () => {
   try {
