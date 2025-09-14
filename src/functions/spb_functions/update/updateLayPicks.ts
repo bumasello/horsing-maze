@@ -18,9 +18,12 @@ export const updateHorseEntries_spb = async () => {
 
   for (const lay of unFinished as IHorseEntrie[]) {
     const { data: positionData, error: positionError } = await supabase
+      .schema("public")
       .from("race_horses_hr")
       .select("position")
       .eq("id", lay.race_horse_id);
+
+    if (positionError) console.log(positionError);
 
     if (!positionData) return;
 
@@ -33,7 +36,7 @@ export const updateHorseEntries_spb = async () => {
         .update({
           was_correct: false,
           void: false,
-          result_position: position,
+          result_position: +position,
           resolved_at: new Date().toISOString(),
         })
         .eq("id", lay.id);
@@ -44,7 +47,7 @@ export const updateHorseEntries_spb = async () => {
         .update({
           was_correct: false,
           void: true,
-          result_position: position,
+          result_position: +position,
           resolved_at: new Date().toISOString(),
         })
         .eq("id", lay.id);
@@ -55,7 +58,7 @@ export const updateHorseEntries_spb = async () => {
         .update({
           was_correct: true,
           void: false,
-          result_position: position,
+          result_position: +position,
           resolved_at: new Date().toISOString(),
         })
         .eq("id", lay.id);

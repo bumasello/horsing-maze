@@ -9,6 +9,7 @@ import type { IRaceHorse_Spb } from "../../../models/modelSpb/raceHorse_Spb";
 
 export const updateRacecards_spb = async () => {
   const { data: unFinished, error } = await supabase
+    .schema("public")
     .from("racecards_hr")
     .select("id,id_race")
     .eq("finished", "0");
@@ -28,6 +29,7 @@ export const updateRacecards_spb = async () => {
 
     if (!mdbRacecard || !mdbRacedetail) {
       const { error } = await supabase
+        .schema("public")
         .from("racecards_hr")
         .delete()
         .eq("id_race", idRace.id_race);
@@ -53,6 +55,7 @@ export const updateRacecards_spb = async () => {
     };
 
     const { data: upsertData, error: upsertError } = await supabase
+      .schema("public")
       .from("racecards_hr")
       .upsert(updatedRacecard, { onConflict: "id" });
 
@@ -66,6 +69,7 @@ export const updateRacecards_spb = async () => {
     for (const detail of mdbRacedetail) {
       for (const horse of detail.horses) {
         const { data: idDetail, error } = await supabase
+          .schema("public")
           .from("race_horses_hr")
           .select("id")
           .eq("racecard_id", idRace.id)
@@ -108,7 +112,9 @@ export const updateRacecards_spb = async () => {
             trainer: horse.trainer,
             weight: horse.weight,
           };
+
           const { data: upsertHorse, error: upsertError } = await supabase
+            .schema("public")
             .from("race_horses_hr")
             .upsert(updatedHorse, { onConflict: "id" });
 
