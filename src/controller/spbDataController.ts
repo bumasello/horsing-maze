@@ -43,6 +43,7 @@ const spbRaceDetail = async (
      * Sabendo quantas corridas historicas cada cavalo tem, podemos rodar o checkHorseResultLength para manter somente os cavalos que precisamos do
      * historico.
      */
+    await populateEnrichedRaceDetail_spb();
   } catch (error) {
     next(error);
   }
@@ -92,7 +93,7 @@ const spbEnrichedDetails = async (
 ) => {
   try {
     console.log("spbEnrichedDetails");
-    await populateEnrichedRaceDetail_spb();
+    // await populateEnrichedRaceDetail_spb();
   } catch (error) {
     next(error);
   }
