@@ -81,13 +81,44 @@ export function extractMarketFeatures(
   // Market movement (placeholder - would need historical odds)
   const movementMetrics = calculateMarketMovement(sp, null);
 
+  // Combine all features ensuring all fields are present
   return {
-    ...basicMetrics,
-    ...positionMetrics,
-    ...fieldMetrics,
-    ...valueMetrics,
-    ...relativeMetrics,
-    ...movementMetrics,
+    // Basic SP features
+    sp_decimal: basicMetrics.sp_decimal ?? null,
+    sp_rank: basicMetrics.sp_rank ?? fieldSPs.length + 1,
+    sp_implied_prob: basicMetrics.sp_implied_prob ?? null,
+    sp_vs_field_avg: basicMetrics.sp_vs_field_avg ?? null,
+
+    // Market position
+    is_favorite: positionMetrics.is_favorite ?? 0,
+    is_joint_favorite: positionMetrics.is_joint_favorite ?? 0,
+    is_top3_market: positionMetrics.is_top3_market ?? 0,
+    is_outsider: positionMetrics.is_outsider ?? 0,
+    market_position_category:
+      positionMetrics.market_position_category ?? "unknown",
+
+    // Field market metrics
+    field_total_probability: fieldMetrics.field_total_probability ?? 0,
+    field_overround: fieldMetrics.field_overround ?? 0,
+    market_confidence: fieldMetrics.market_confidence ?? 0,
+    sp_concentration: fieldMetrics.sp_concentration ?? 0,
+
+    // Value indicators
+    sp_value_rating: valueMetrics.sp_value_rating ?? 0,
+    is_overbet: valueMetrics.is_overbet ?? 0,
+    is_underbet: valueMetrics.is_underbet ?? 0,
+    market_inefficiency: valueMetrics.market_inefficiency ?? 0,
+
+    // Market movement
+    odds_movement: movementMetrics.odds_movement ?? null,
+    odds_volatility: movementMetrics.odds_volatility ?? null,
+    market_support: movementMetrics.market_support ?? null,
+
+    // Relative market metrics
+    sp_to_favorite_ratio: relativeMetrics.sp_to_favorite_ratio ?? null,
+    sp_percentile: relativeMetrics.sp_percentile ?? 0,
+    normalized_sp: relativeMetrics.normalized_sp ?? null,
+    market_share: relativeMetrics.market_share ?? null,
   };
 }
 
