@@ -50,7 +50,7 @@ export const updateHorseEntries_spb = async () => {
       const { data: positionData, error: positionError } = await supabase
         .schema("public")
         .from("race_horses_hr")
-        .select("position")
+        .select("position, non_runner")
         .eq("id", lay.race_horse_id);
 
       if (positionError) {
@@ -68,31 +68,51 @@ export const updateHorseEntries_spb = async () => {
         continue; // Continua para a próxima entrada se a posição não for encontrada
       }
 
-      const position = String(positionData[0].position); // Garante que position é uma string para comparação
-
+      const rawPosition = positionData[0].position;
+      const nonRunner = positionData[0].non_runner;
+      
+      // Log de depuração
+      logger.info(`DEBUG - race_horse_id: ${lay.race_horse_id}, position raw: ${rawPosition} (tipo: ${typeof rawPosition}), non_runner: ${nonRunner}`);
+      
       let wasCorrectValue: boolean;
       let voidValue: boolean;
       let resultPositionValue: number;
 
-      // Lógica de atualização mais explícita
-      if (position === "1") {
+      // Lógica corrigida para lay betting
+      if (nonRunner === 1) {
+        // Cavalo não correu (non-runner) - aposta é anulada
+        logger.info(`  -> Cavalo não correu (non_runner=1)`);
         wasCorrectValue = false;
-        voidValue = false;
-        resultPositionValue = 1;
-      } else if (position === "0") {
+        voidValue = true;
+        resultPositionValue = 0;
+      } else if (rawPosition === null || rawPosition === undefined) {
+        // Posição ainda não disponível
+        logger.warn(`  -> Posição não disponível (null/undefined)`);
         wasCorrectValue = false;
         voidValue = true;
         resultPositionValue = 0;
       } else {
-        // Assumimos que qualquer outro valor válido para position significa que o cavalo não venceu e não foi anulado
-        wasCorrectValue = true;
-        voidValue = false;
-        resultPositionValue = Number.parseInt(position, 10); // Converte para número
-        if (Number.isNaN(resultPositionValue)) {
-          logger.warn(
-            `Posição inválida '${position}' para race_horse_id ${lay.race_horse_id}. Definindo result_position como null.`,
-          );
-          resultPositionValue = 0; // Ou outro valor padrão, dependendo da sua regra de negócio
+        const position = Number(rawPosition);
+        logger.info(`  -> Posição convertida: ${position}`);
+        
+        if (position === 1) {
+          // Cavalo venceu - aposta lay perdeu
+          logger.info(`  -> Cavalo venceu - lay perdeu`);
+          wasCorrectValue = false;
+          voidValue = false;
+          resultPositionValue = 1;
+        } else if (position > 1) {
+          // Cavalo não venceu - aposta lay ganhou
+          logger.info(`  -> Cavalo não venceu (posição ${position}) - lay ganhou`);
+          wasCorrectValue = true;
+          voidValue = false;
+          resultPositionValue = position;
+        } else {
+          // Posição inválida (0 ou negativa)
+          logger.warn(`  -> Posição inválida: ${position}`);
+          wasCorrectValue = false;
+          voidValue = true;
+          resultPositionValue = 0;
         }
       }
 
@@ -114,7 +134,7 @@ export const updateHorseEntries_spb = async () => {
         );
       } else {
         logger.info(
-          `Horse_entry id ${lay.id} atualizada com sucesso. was_correct: ${wasCorrectValue}, void: ${voidValue}, position: ${resultPositionValue}`,
+          `Horse_entry id ${lay.id} atualizada com sucesso. race_horse_id: ${lay.race_horse_id}, was_correct: ${wasCorrectValue}, void: ${voidValue}, result_position: ${resultPositionValue}`,
         );
       }
     } catch (err) {
