@@ -29,8 +29,8 @@ export const generateHorseEntries_v3 = async () => {
 
     // ETAPA 1: COLETAR TODOS OS DADOS (sem alterações)
     const { data: pendingRaces, error: pendingRacesError } = await supabase
-      .schema("hml")
-      .from("racecards_hr_view")
+      .schema("public")
+      .from("racecards_hr")
       .select("id")
       .eq("finished", "0")
       .eq("canceled", "0");
@@ -60,8 +60,8 @@ export const generateHorseEntries_v3 = async () => {
     const horseIds = [...new Set(predictions.map((p) => p.race_horse_id))];
 
     const { data: races, error: racesError } = await supabase
-      .schema("hml")
-      .from("racecards_hr_view")
+      .schema("public")
+      .from("racecards_hr")
       .select("*")
       .in("id", raceIds);
     if (racesError)
@@ -70,8 +70,8 @@ export const generateHorseEntries_v3 = async () => {
       );
 
     const { data: horses, error: horsesError } = await supabase
-      .schema("hml")
-      .from("race_horses_hr_view")
+      .schema("public")
+      .from("race_horses_hr")
       .select("*")
       .in("id", horseIds);
     if (horsesError)
