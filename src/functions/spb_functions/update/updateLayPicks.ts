@@ -65,11 +65,19 @@ export const updateHorseEntries_spb = async () => {
         logger.warn(
           `Nenhuma posição encontrada para race_horse_id ${lay.race_horse_id}. Pulando atualização para horse_entry id: ${lay.id}`,
         );
-        continue; // Continua para a próxima entrada se a posição não for encontrada
+        continue; // Continua para a próxima entrada se a posição não foi encontrada
       }
 
       const rawPosition = positionData[0].position;
       const nonRunner = positionData[0].non_runner;
+      
+      // Validação adicional para evitar valores inválidos
+      if (rawPosition === null || rawPosition === undefined || rawPosition === "") {
+        logger.warn(
+          `Posição ainda não está disponível para race_horse_id ${lay.race_horse_id} (valor: ${rawPosition}). Pulando atualização para horse_entry id: ${lay.id}`,
+        );
+        continue; // Pula se a posição ainda não foi atualizada
+      }
       
       // Log de depuração
       logger.info(`DEBUG - race_horse_id: ${lay.race_horse_id}, position raw: ${rawPosition} (tipo: ${typeof rawPosition}), non_runner: ${nonRunner}`);
@@ -85,9 +93,9 @@ export const updateHorseEntries_spb = async () => {
         wasCorrectValue = false;
         voidValue = true;
         resultPositionValue = 0;
-      } else if (rawPosition === null || rawPosition === undefined) {
-        // Posição ainda não disponível
-        logger.warn(`  -> Posição não disponível (null/undefined)`);
+      } else if (rawPosition === null || rawPosition === undefined || rawPosition === "" || Number.isNaN(Number(rawPosition))) {
+        // Posição ainda não disponível ou inválida
+        logger.warn(`  -> Posição não disponível ou inválida (${rawPosition})`);
         wasCorrectValue = false;
         voidValue = true;
         resultPositionValue = 0;

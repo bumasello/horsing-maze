@@ -279,10 +279,7 @@ async function updateMongoDBData(): Promise<void> {
     logger.info("Atualização de Racecards SPB concluída com sucesso");
   });
 
-  await metrics.measure("Atualização de Horse Entries SPB", async () => {
-    await updateHorseEntries_spb();
-    logger.info("Atualização de Horse Entries SPB concluída com sucesso");
-  });
+
 
   logger.info("Atualização de dados no MongoDB concluída com sucesso");
 }
@@ -421,6 +418,12 @@ async function transferToSupabase(): Promise<void> {
   await metrics.measure("Geração de features para previsão", async () => {
     await generatePredictionFeatures_v3();
     logger.info("Features para previsão geradas com sucesso");
+  });
+
+  // Atualização de Horse Entries após todos os dados estarem sincronizados
+  await metrics.measure("Atualização de Horse Entries SPB", async () => {
+    await updateHorseEntries_spb();
+    logger.info("Atualização de Horse Entries SPB concluída com sucesso");
   });
 
   logger.info(
