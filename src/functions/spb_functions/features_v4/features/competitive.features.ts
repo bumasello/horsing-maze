@@ -100,12 +100,45 @@ export function extractCompetitiveFeatures(
   );
 
   return {
-    ...fieldQuality,
-    ...positionMetrics,
-    ...fieldComposition,
-    ...advantages,
-    ...competitiveness,
-    ...relativePerformance,
+    // Field quality
+    field_avg_or: fieldQuality.field_avg_or ?? 0,
+    field_std_or: fieldQuality.field_std_or ?? 0,
+    field_max_or: fieldQuality.field_max_or ?? 0,
+    field_min_or: fieldQuality.field_min_or ?? 0,
+    field_or_spread: fieldQuality.field_or_spread ?? 0,
+
+    // Position in field
+    or_rank_in_race: positionMetrics.or_rank_in_race ?? 0,
+    or_percentile_in_race: positionMetrics.or_percentile_in_race ?? 0,
+    or_diff_to_top: positionMetrics.or_diff_to_top ?? 0,
+    or_diff_to_avg: positionMetrics.or_diff_to_avg ?? 0,
+    stronger_opponents_count: positionMetrics.stronger_opponents_count ?? 0,
+    weaker_opponents_count: positionMetrics.weaker_opponents_count ?? 0,
+
+    // Field composition
+    field_avg_career_wins: fieldComposition.field_avg_career_wins ?? 0,
+    field_avg_win_rate: fieldComposition.field_avg_win_rate ?? 0,
+    field_avg_recent_position: fieldComposition.field_avg_recent_position ?? 10,
+    experienced_runners_count: fieldComposition.experienced_runners_count ?? 0,
+    maiden_runners_count: fieldComposition.maiden_runners_count ?? 0,
+
+    // Competitive advantages
+    or_advantage_score: advantages.or_advantage_score ?? 0,
+    experience_advantage: advantages.experience_advantage ?? 0,
+    form_advantage: advantages.form_advantage ?? 0,
+    weight_advantage: advantages.weight_advantage ?? 0,
+
+    // Race competitiveness
+    race_competitiveness_score: competitiveness.race_competitiveness_score ?? 0,
+    field_depth_score: competitiveness.field_depth_score ?? 0,
+    quality_concentration: competitiveness.quality_concentration ?? 0,
+    is_competitive_race: competitiveness.is_competitive_race ?? 0,
+
+    // Relative performance
+    better_than_field_avg: relativePerformance.better_than_field_avg ?? 0,
+    in_top_quarter: relativePerformance.in_top_quarter ?? 0,
+    in_bottom_quarter: relativePerformance.in_bottom_quarter ?? 0,
+    outlier_status: relativePerformance.outlier_status ?? "normal",
   };
 }
 
@@ -204,7 +237,7 @@ function calculateFieldComposition(
     const positions =
       form
         .match(/\d/g)
-        ?.map((d) => parseInt(d))
+        ?.map((d) => Number.parseInt(d))
         .slice(0, 3) || [];
     const avgRecent =
       positions.length > 0

@@ -106,11 +106,47 @@ export function extractHistoricalFeatures(
   const additionalStats = calculateAdditionalMetrics(validHistory);
 
   return {
-    ...careerStats,
-    ...conditionStats,
-    ...recentStats,
-    ...trendStats,
-    ...additionalStats,
+    // Career overall stats
+    career_runs: careerStats.career_runs ?? 0,
+    career_wins: careerStats.career_wins ?? 0,
+    career_places: careerStats.career_places ?? 0,
+    career_win_rate: careerStats.career_win_rate ?? 0,
+    career_place_rate: careerStats.career_place_rate ?? 0,
+    career_avg_position: careerStats.career_avg_position ?? 10,
+    career_position_std: careerStats.career_position_std ?? 0,
+
+    // Condition-specific stats
+    course_runs: conditionStats.course_runs ?? 0,
+    course_wins: conditionStats.course_wins ?? 0,
+    course_win_rate: conditionStats.course_win_rate ?? 0,
+    distance_band_runs: conditionStats.distance_band_runs ?? 0,
+    distance_band_wins: conditionStats.distance_band_wins ?? 0,
+    distance_band_win_rate: conditionStats.distance_band_win_rate ?? 0,
+    going_runs: conditionStats.going_runs ?? 0,
+    going_wins: conditionStats.going_wins ?? 0,
+    going_win_rate: conditionStats.going_win_rate ?? 0,
+    class_runs: conditionStats.class_runs ?? 0,
+    class_wins: conditionStats.class_wins ?? 0,
+    class_win_rate: conditionStats.class_win_rate ?? 0,
+
+    // Recent performance
+    recent_runs_30d: recentStats.recent_runs_30d ?? 0,
+    recent_wins_30d: recentStats.recent_wins_30d ?? 0,
+    recent_runs_90d: recentStats.recent_runs_90d ?? 0,
+    recent_wins_90d: recentStats.recent_wins_90d ?? 0,
+    recent_avg_position: recentStats.recent_avg_position ?? 10,
+
+    // Performance trends
+    improvement_rate: trendStats.improvement_rate ?? 0,
+    consistency_score: trendStats.consistency_score ?? 0,
+    peak_or_rating: trendStats.peak_or_rating ?? 0,
+    avg_or_rating: trendStats.avg_or_rating ?? 0,
+
+    // Additional metrics
+    total_prize_money: additionalStats.total_prize_money ?? 0,
+    best_distance_meters: additionalStats.best_distance_meters ?? 0,
+    preferred_going: additionalStats.preferred_going ?? 0,
+    avg_days_between_runs: additionalStats.avg_days_between_runs ?? 30,
   };
 }
 
@@ -427,8 +463,8 @@ function calculateAdditionalMetrics(
 function parsePrizeAmount(prize: string): number {
   if (!prize) return 0;
   const cleaned = prize.replace(/[£$€,]/g, "").trim();
-  const amount = parseFloat(cleaned);
-  return isNaN(amount) ? 0 : amount;
+  const amount = Number.parseFloat(cleaned);
+  return Number.isNaN(amount) ? 0 : amount;
 }
 
 /**

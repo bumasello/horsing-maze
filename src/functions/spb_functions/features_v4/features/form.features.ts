@@ -70,11 +70,37 @@ export function extractFormFeatures(
   const weighted = calculateWeightedFormAverages(formData);
 
   return {
-    ...basicMetrics,
-    ...detailedAnalysis,
-    ...patterns,
-    ...quality,
-    ...weighted,
+    // Basic form metrics
+    form_last_position: basicMetrics.form_last_position ?? null,
+    form_last3_avg: basicMetrics.form_last3_avg ?? null,
+    form_last5_avg: basicMetrics.form_last5_avg ?? null,
+    form_consistency: basicMetrics.form_consistency ?? 0,
+    form_is_improving: basicMetrics.form_is_improving ?? 0,
+    form_has_problems: basicMetrics.form_has_problems ?? 0,
+
+    // Detailed analysis
+    form_wins_in_last5: detailedAnalysis.form_wins_in_last5 ?? 0,
+    form_places_in_last5: detailedAnalysis.form_places_in_last5 ?? 0,
+    form_consecutive_wins: detailedAnalysis.form_consecutive_wins ?? 0,
+    form_consecutive_places: detailedAnalysis.form_consecutive_places ?? 0,
+    form_worst_recent: detailedAnalysis.form_worst_recent ?? null,
+    form_best_recent: detailedAnalysis.form_best_recent ?? null,
+
+    // Form patterns
+    form_trend_score: patterns.form_trend_score ?? 0,
+    form_volatility: patterns.form_volatility ?? 0,
+    form_recovery_rate: patterns.form_recovery_rate ?? 0,
+    form_peak_position: patterns.form_peak_position ?? 10,
+
+    // Quality indicators
+    form_data_quality: quality.form_data_quality ?? 0,
+    form_races_recorded: quality.form_races_recorded ?? 0,
+    form_complete_finishes: quality.form_complete_finishes ?? 0,
+    form_dnf_count: quality.form_dnf_count ?? 0,
+
+    // Weighted averages
+    form_weighted_avg: weighted.form_weighted_avg ?? null,
+    form_exponential_avg: weighted.form_exponential_avg ?? null,
   };
 }
 

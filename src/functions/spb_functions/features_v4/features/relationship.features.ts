@@ -1,14 +1,7 @@
 // features_v4/features/relationship.features.ts
 
-import type { RaceCardEnriched, RaceHorseEnriched } from "../types/core.types";
-
-/**
- * Interface for historical race data combining horse and race info
- */
-export interface HistoricalRaceData {
-  horse: RaceHorseEnriched;
-  race: RaceCardEnriched;
-}
+import type { RaceHorseEnriched } from "../types/core.types";
+import type { HistoricalRaceData } from "./historical.features";
 
 /**
  * Interface for jockey/trainer relationship features

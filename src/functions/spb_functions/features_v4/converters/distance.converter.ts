@@ -19,7 +19,7 @@ export function parseDistanceToMeters(distance: string): number {
   // Check if already in meters (e.g., "1200m" or just "1200")
   const metersMatch = clean.match(/^(\d+)m?$/);
   if (metersMatch) {
-    const value = parseInt(metersMatch[1]);
+    const value = Number.parseInt(metersMatch[1]);
     // If value is > 100, assume it's already in meters/yards
     if (value > 100) {
       // Values > 1000 are likely meters, < 1000 likely yards
@@ -32,26 +32,26 @@ export function parseDistanceToMeters(distance: string): number {
   // Parse miles (e.g., "2m" or "2 miles")
   const mileMatch = clean.match(/(\d+)\s*m(?:ile)?(?:s)?(?:\s|$)/);
   if (mileMatch) {
-    totalMeters += parseInt(mileMatch[1]) * MILE_TO_METERS;
+    totalMeters += Number.parseInt(mileMatch[1]) * MILE_TO_METERS;
   }
 
   // Parse furlongs (e.g., "7f" or "7 furlongs")
   const furlongMatch = clean.match(/(\d+)\s*f(?:urlong)?(?:s)?/);
   if (furlongMatch) {
-    totalMeters += parseInt(furlongMatch[1]) * FURLONG_TO_METERS;
+    totalMeters += Number.parseInt(furlongMatch[1]) * FURLONG_TO_METERS;
   }
 
   // Parse yards (e.g., "110y" or "110 yards")
   const yardMatch = clean.match(/(\d+)\s*y(?:ard)?(?:s)?/);
   if (yardMatch) {
-    totalMeters += parseInt(yardMatch[1]) * YARD_TO_METERS;
+    totalMeters += Number.parseInt(yardMatch[1]) * YARD_TO_METERS;
   }
 
   // If nothing matched, try to extract any number and treat as yards
   if (totalMeters === 0) {
     const anyNumber = clean.match(/(\d+)/);
     if (anyNumber) {
-      const value = parseInt(anyNumber[1]);
+      const value = Number.parseInt(anyNumber[1]);
       // Assume yards for small values, meters for large values
       totalMeters = value > 500 ? value : value * YARD_TO_METERS;
     }
@@ -163,7 +163,7 @@ export function parseDistanceBeaten(beaten: string | null): number {
     if (clean.includes(key)) {
       // Check if there's a multiplier (e.g., "2nk" = 2 necks)
       const match = clean.match(new RegExp(`(\\d+)?\\s*${key}`));
-      const multiplier = match?.[1] ? parseInt(match[1]) : 1;
+      const multiplier = match?.[1] ? Number.parseInt(match[1]) : 1;
       totalLengths += value * multiplier;
     }
   }
@@ -172,16 +172,16 @@ export function parseDistanceBeaten(beaten: string | null): number {
   // First try to find fractions
   const fractionMatch = clean.match(/(\d+)\s+(\d+)\/(\d+)/);
   if (fractionMatch) {
-    const whole = parseInt(fractionMatch[1]);
-    const numerator = parseInt(fractionMatch[2]);
-    const denominator = parseInt(fractionMatch[3]);
+    const whole = Number.parseInt(fractionMatch[1]);
+    const numerator = Number.parseInt(fractionMatch[2]);
+    const denominator = Number.parseInt(fractionMatch[3]);
     totalLengths += whole + numerator / denominator;
   } else {
     // Try regular decimal number
     const numberMatch = clean.match(/(\d+\.?\d*)/);
     if (numberMatch && totalLengths === 0) {
       // Only use if no special markers found
-      totalLengths += parseFloat(numberMatch[1]);
+      totalLengths += Number.parseFloat(numberMatch[1]);
     }
   }
 

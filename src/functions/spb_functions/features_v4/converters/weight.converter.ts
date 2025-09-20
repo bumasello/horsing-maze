@@ -3,7 +3,6 @@
 // Conversion constants
 const STONE_TO_POUNDS = 14;
 const POUND_TO_KG = 0.453592;
-const STONE_TO_KG = 6.35029;
 
 /**
  * Parse weight string to kilograms
@@ -17,8 +16,8 @@ export function parseToKg(weight: string | null): number | null {
   // Check for stones-pounds format (e.g., "10-7", "9-12")
   const stonesPoundsMatch = clean.match(/(\d+)[-\s]+(\d+)/);
   if (stonesPoundsMatch) {
-    const stones = parseInt(stonesPoundsMatch[1]);
-    const pounds = parseInt(stonesPoundsMatch[2]);
+    const stones = Number.parseInt(stonesPoundsMatch[1]);
+    const pounds = Number.parseInt(stonesPoundsMatch[2]);
 
     // Validate pounds (should be less than 14)
     if (pounds >= STONE_TO_POUNDS) {
@@ -31,7 +30,7 @@ export function parseToKg(weight: string | null): number | null {
   // Check for just pounds with "lb" or "lbs"
   const poundsMatch = clean.match(/(\d+\.?\d*)\s*(?:lb|lbs)?/);
   if (poundsMatch) {
-    const pounds = parseFloat(poundsMatch[1]);
+    const pounds = Number.parseFloat(poundsMatch[1]);
 
     // If value is > 100, assume it's pounds
     if (pounds > 100) {
@@ -45,8 +44,8 @@ export function parseToKg(weight: string | null): number | null {
   }
 
   // Try to parse as a simple number
-  const num = parseFloat(clean);
-  if (!isNaN(num)) {
+  const num = Number.parseFloat(clean);
+  if (!Number.isNaN(num)) {
     // Make intelligent guess based on value
     if (num > 100) {
       // Likely pounds
@@ -65,14 +64,15 @@ export function parseToKg(weight: string | null): number | null {
  */
 export function stonesPoundsToKg(stones: number, pounds: number): number {
   const totalPounds = stones * STONE_TO_POUNDS + pounds;
-  return parseFloat((totalPounds * POUND_TO_KG).toFixed(2));
+
+  return Number.parseFloat((totalPounds * POUND_TO_KG).toFixed(2));
 }
 
 /**
  * Convert pounds to kilograms
  */
 export function poundsToKg(pounds: number): number {
-  return parseFloat((pounds * POUND_TO_KG).toFixed(2));
+  return Number.parseFloat((pounds * POUND_TO_KG).toFixed(2));
 }
 
 /**
@@ -321,7 +321,7 @@ export function estimateOptimalWeight(
 export function parseOverweight(text: string): number {
   const match = text.toLowerCase().match(/ow\s*(\d+)/);
   if (match) {
-    const pounds = parseInt(match[1]);
+    const pounds = Number.parseInt(match[1]);
     return poundsToKg(pounds);
   }
   return 0;

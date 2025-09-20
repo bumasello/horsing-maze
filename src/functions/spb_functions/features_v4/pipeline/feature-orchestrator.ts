@@ -9,20 +9,21 @@ import type {
   RaceHorseEnriched,
   ValidationResult,
 } from "../types/core.types";
-import { extractCompetitiveFeatures } from "../features/competitive.features";
-import { extractFormFeatures } from "../features/form.features";
-import { extractHistoricalFeatures } from "../features/historical.features";
-import { extractMarketFeatures } from "../features/market.features";
-import { extractRelationshipFeatures } from "../features/relationship.features";
-import { extractStaticFeatures } from "../features/static.features";
-import type { FormFeatures } from "../features/form.features";
-import type { HistoricalFeatures } from "../features/historical.features";
-import type { MarketFeatures } from "../features/market.features";
-import { parseDistanceBeaten } from "../converters/distance.converter";
-import { parseDistanceToMeters } from "../converters/distance.converter";
-import { parseForm } from "../converters/form.parser";
-import { parseSP } from "../converters/odds.converter";
 
+import {
+  extractCompetitiveFeatures,
+  extractFormFeatures,
+  extractHistoricalFeatures,
+  extractMarketFeatures,
+  extractRelationshipFeatures,
+  extractStaticFeatures,
+  type FormFeatures,
+  type HistoricalFeatures,
+  type HistoricalRaceData,
+  type MarketFeatures,
+} from "../features/index";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   parseDistanceBeaten,
   parseDistanceToMeters,
@@ -53,14 +54,6 @@ export interface FeatureGenerationResult {
   timeElapsed: number;
 }
 
-/**
- * Interface for historical race data
- */
-export interface HistoricalRaceData {
-  horse: RaceHorseEnriched;
-  race: RaceCardEnriched;
-}
-
 // Default thresholds
 const DEFAULT_THRESHOLDS: QualityThresholds = {
   min_runners: 4,
@@ -73,7 +66,7 @@ const DEFAULT_THRESHOLDS: QualityThresholds = {
  * Generate features for training (historical data)
  */
 export async function generateTrainingFeatures(
-  supabase: any,
+  supabase: SupabaseClient,
   startDate: Date,
   endDate: Date,
   options: Partial<FeaturePipelineConfig> = {},
@@ -138,7 +131,7 @@ export async function generateTrainingFeatures(
  * Generate features for prediction (upcoming races)
  */
 export async function generatePredictionFeatures(
-  supabase: any,
+  supabase: SupabaseClient,
   raceIds: string[],
   options: Partial<FeaturePipelineConfig> = {},
 ): Promise<HorseFeatures[]> {
@@ -171,7 +164,7 @@ export async function generatePredictionFeatures(
  * Process a single race and generate features for all horses
  */
 async function processRace(
-  supabase: any,
+  supabase: SupabaseClient,
   race: RaceCardEnriched,
   thresholds: QualityThresholds,
 ): Promise<HorseFeatures[]> {
@@ -492,7 +485,7 @@ function validateRace(
  * Database operations using Supabase
  */
 async function fetchRacesInRange(
-  supabase: any,
+  supabase: SupabaseClient,
   startDate: Date,
   endDate: Date,
 ): Promise<RaceCardEnriched[]> {
@@ -515,7 +508,7 @@ async function fetchRacesInRange(
 }
 
 async function fetchRaceById(
-  supabase: any,
+  supabase: SupabaseClient,
   raceId: string,
 ): Promise<RaceCardEnriched | null> {
   const { data, error } = await supabase
@@ -533,7 +526,7 @@ async function fetchRaceById(
 }
 
 async function fetchHorsesForRace(
-  supabase: any,
+  supabase: SupabaseClient,
   raceId: number,
 ): Promise<RaceHorseEnriched[]> {
   const { data, error } = await supabase
@@ -551,7 +544,7 @@ async function fetchHorsesForRace(
 }
 
 async function fetchHistoricalDataForHorses(
-  supabase: any,
+  supabase: SupabaseClient,
   horseIds: number[],
 ): Promise<Map<number, HistoricalRaceData[]>> {
   // Supabase doesn't support direct JOINs in the same way, so we'll need to fetch in two steps
@@ -622,7 +615,7 @@ async function fetchHistoricalDataForHorses(
 }
 
 async function saveFeaturesToDatabase(
-  supabase: any,
+  supabase: SupabaseClient,
   features: HorseFeatures[],
 ): Promise<void> {
   const records = features.map((f) => ({
@@ -673,8 +666,8 @@ function encodeGoing(going: string | null): number {
 function parsePrize(prize: string | null): number {
   if (!prize) return 0;
   const clean = prize.replace(/[£$€,]/g, "").trim();
-  const num = parseFloat(clean);
-  return isNaN(num) ? 0 : num;
+  const num = Number.parseFloat(clean);
+  return Number.isNaN(num) ? 0 : num;
 }
 
 function calculateStdDev(values: number[]): number {
