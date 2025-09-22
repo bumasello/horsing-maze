@@ -110,6 +110,8 @@ const spbHorseFeatures = async (
   try {
     console.log("spbHorseFeatures");
 
+    // aqui deve ser a geração de features enriquecidas, criadas como
+    // features_v4
     await generateTrainingFeatures_v3();
     await generatePredictionFeatures_v3();
 

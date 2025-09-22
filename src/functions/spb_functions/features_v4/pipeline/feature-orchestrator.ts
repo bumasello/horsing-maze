@@ -490,6 +490,7 @@ async function fetchRacesInRange(
   endDate: Date,
 ): Promise<RaceCardEnriched[]> {
   const { data, error } = await supabase
+    .schema("hml")
     .from("racecards_hr_enriched")
     .select("*")
     .gte("date", startDate.toISOString())
@@ -512,6 +513,7 @@ async function fetchRaceById(
   raceId: string,
 ): Promise<RaceCardEnriched | null> {
   const { data, error } = await supabase
+    .schema("hml")
     .from("racecards_hr_enriched")
     .select("*")
     .eq("id_race", raceId)
@@ -530,6 +532,7 @@ async function fetchHorsesForRace(
   raceId: number,
 ): Promise<RaceHorseEnriched[]> {
   const { data, error } = await supabase
+    .schema("hml")
     .from("race_horses_hr_enriched")
     .select("*")
     .eq("racecard_id", raceId)
@@ -551,6 +554,7 @@ async function fetchHistoricalDataForHorses(
 
   // First, fetch all historical horse records
   const { data: horseRecords, error: horseError } = await supabase
+    .schema("hml")
     .from("race_horses_hr_enriched")
     .select("*, racecard_id")
     .in("id_horse", horseIds)
@@ -570,6 +574,7 @@ async function fetchHistoricalDataForHorses(
 
   // Fetch corresponding race data
   const { data: raceData, error: raceError } = await supabase
+    .schema("hml")
     .from("racecards_hr_enriched")
     .select("*")
     .in("id", racecardIds)
@@ -629,7 +634,10 @@ async function saveFeaturesToDatabase(
   }));
 
   // Batch insert using Supabase
-  const { error } = await supabase.from("horse_features").insert(records);
+  const { error } = await supabase
+    .schema("hml")
+    .from("horse_features")
+    .insert(records);
 
   if (error) {
     console.error("Error saving features:", error);
