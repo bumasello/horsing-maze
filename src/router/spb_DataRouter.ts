@@ -10,6 +10,8 @@ router.get("/racedetails", spbDataController.spbRaceDetail);
 
 router.get("/horsestats", spbDataController.spbHorseStats);
 
+router.get("/enrichedhorses", spbDataController.spbEnrichedDetails);
+
 router.get("/horsefeatures", spbDataController.spbHorseFeatures);
 
 router.get("/checkhorseresultlength", spbDataController.spbCheckCreateEntry);

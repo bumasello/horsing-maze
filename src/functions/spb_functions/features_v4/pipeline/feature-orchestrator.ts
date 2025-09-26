@@ -65,7 +65,7 @@ const DEFAULT_THRESHOLDS: QualityThresholds = {
 /**
  * Generate features for training (historical data)
  */
-export async function generateTrainingFeatures(
+export async function generateTrainingFeatures_v4(
   supabase: SupabaseClient,
   startDate: Date,
   endDate: Date,
@@ -130,7 +130,7 @@ export async function generateTrainingFeatures(
 /**
  * Generate features for prediction (upcoming races)
  */
-export async function generatePredictionFeatures(
+export async function generatePredictionFeatures_v4(
   supabase: SupabaseClient,
   raceIds: string[],
   options: Partial<FeaturePipelineConfig> = {},
@@ -180,8 +180,10 @@ async function processRace(
 
   // Convert to processed format
   const processedRace = convertRace(race, horses);
+
+  // CORREÇÃO: Aceitar non_runner NULL ou 0 (não 1)
   const processedHorses = horses
-    .filter((h) => h.non_runner === 0)
+    .filter((h) => h.non_runner !== 1) // Mudado de === 0 para !== 1
     .map((h) => convertHorse(h));
 
   // Fetch historical data for all horses
@@ -194,8 +196,11 @@ async function processRace(
   const features: HorseFeatures[] = [];
 
   for (let i = 0; i < processedHorses.length; i++) {
+    // CORREÇÃO: Buscar o cavalo correto no array original
     const processedHorse = processedHorses[i];
-    const rawHorse = horses[i];
+    const rawHorse = horses.find((h) => h.id === processedHorse.id);
+
+    if (!rawHorse) continue;
 
     try {
       const horseFeatures = await generateHorseFeatures(
@@ -384,7 +389,9 @@ function convertRace(
   race: RaceCardEnriched,
   horses: RaceHorseEnriched[],
 ): ProcessedRace {
-  const validHorses = horses.filter((h) => h.non_runner === 0);
+  // CORREÇÃO: Filtrar cavalos que não são non-runners confirmados
+  const validHorses = horses.filter((h) => h.non_runner !== 1);
+
   const orRatings = horses
     .map((h) => h.or_rating)
     .filter((r) => r !== null && r > 0) as number[];
@@ -445,8 +452,9 @@ function validateRace(
   if (!race.distance) errors.push("Missing distance");
   if (race.canceled === 1) errors.push("Race was canceled");
 
-  // Check runners
-  const runners = horses.filter((h) => h.non_runner === 0);
+  // CORREÇÃO: Contar runners corretamente
+  const runners = horses.filter((h) => h.non_runner !== 1);
+
   if (runners.length < thresholds.min_runners) {
     errors.push(`Too few runners: ${runners.length}`);
   }
@@ -458,19 +466,22 @@ function validateRace(
     warnings.push(`Low OR coverage: ${(orCoverage * 100).toFixed(1)}%`);
   }
 
-  // Check SP coverage
+  // Check SP coverage - CORREÇÃO para corridas futuras
   const spCoverage =
-    runners.filter((h) => h.sp !== null).length / runners.length;
-  if (spCoverage < thresholds.min_sp_coverage) {
+    runners.filter((h) => h.sp !== null && h.sp !== "" && h.sp !== "0").length /
+    runners.length;
+
+  // Para corridas futuras (finished = 0), SP coverage baixo é esperado
+  if (race.finished === 1 && spCoverage < thresholds.min_sp_coverage) {
     warnings.push(`Low SP coverage: ${(spCoverage * 100).toFixed(1)}%`);
   }
 
-  // Calculate quality score
+  // Calculate quality score - ajustado para corridas futuras
   const qualityScore =
     orCoverage * 0.3 +
-    spCoverage * 0.3 +
+    (race.finished === 1 ? spCoverage * 0.3 : 0.3) + // Se não terminou, assume SP OK
     Math.min(runners.length / 10, 1) * 0.2 +
-    (race.finished === 1 ? 0.2 : 0);
+    (race.finished === 1 ? 0.2 : 0.1); // Menos peso para finished em predição
 
   return {
     isValid:

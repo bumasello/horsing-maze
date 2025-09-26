@@ -1,4 +1,3 @@
-import { populateRacecards_spb } from "../functions/spb_functions/populate/populateRaceCard_spb";
 import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
 import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
 
@@ -8,10 +7,16 @@ import { updateHorseEntries_spb } from "../functions/spb_functions/update/update
 import type { Request, Response, NextFunction } from "express";
 import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
-import { generateTrainingFeatures_v3 } from "../functions/spb_functions/features_v3/generateTrainingFeatures";
-import { generatePredictionFeatures_v3 } from "../functions/spb_functions/features_v3/generatePredictionFeatures";
 import { populateRacecardsEnriched_spb } from "../functions/spb_functions/populate/populateRaceCard_spb_enriched";
 import { populateEnrichedRaceDetail_spb } from "../functions/spb_functions/populate/populateEnrichedRaceDetail";
+import {
+  generatePredictionFeatures_v4,
+  generateTrainingFeatures_v4,
+} from "../functions/spb_functions/features_v4/pipeline/feature-orchestrator";
+
+import { supabase } from "..";
+import { runDebug } from "../functions/spb_functions/features_v4/pipeline/debug";
+import { runDeepDebug } from "../functions/spb_functions/features_v4/pipeline/deepDebug";
 
 const spbRaceCards = async (
   _req: Request,
@@ -43,7 +48,7 @@ const spbRaceDetail = async (
      * Sabendo quantas corridas historicas cada cavalo tem, podemos rodar o checkHorseResultLength para manter somente os cavalos que precisamos do
      * historico.
      */
-    await populateEnrichedRaceDetail_spb();
+    // await populateEnrichedRaceDetail_spb();
   } catch (error) {
     next(error);
   }
@@ -93,7 +98,7 @@ const spbEnrichedDetails = async (
 ) => {
   try {
     console.log("spbEnrichedDetails");
-    // await populateEnrichedRaceDetail_spb();
+    await populateEnrichedRaceDetail_spb();
   } catch (error) {
     next(error);
   }
@@ -108,17 +113,114 @@ const spbHorseFeatures = async (
   next: NextFunction,
 ) => {
   try {
-    console.log("spbHorseFeatures");
+    // PARTE 1: GERAR FEATURES DE TREINO
+    console.log("[V4] Starting training feature generation...");
 
-    // aqui deve ser a geração de features enriquecidas, criadas como
-    // features_v4
-    await generateTrainingFeatures_v3();
-    await generatePredictionFeatures_v3();
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setFullYear(startDate.getFullYear() - 2);
 
-    res
-      .status(200)
-      .json({ message: "HorseFeatures carregados para supabase com sucesso." });
+    console.log(
+      `[V4] Training period: ${startDate.toISOString()} to ${endDate.toISOString()}`,
+    );
+
+    const trainingResult = await generateTrainingFeatures_v4(
+      supabase,
+      startDate,
+      endDate,
+      {
+        mode: "training",
+        batchSize: 50,
+        saveToDatabase: true,
+        minQualityScore: 0.7,
+      },
+    );
+
+    console.log(
+      `[V4] Training complete: ${trainingResult.racesProcessed} races, ${trainingResult.featuresGenerated} features`,
+    );
+
+    // PARTE 2: GERAR FEATURES DE PREDIÇÃO
+    console.log("[V4] Starting prediction feature generation...");
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(23, 59, 59, 999);
+
+    // Buscar corridas futuras
+    const { data: upcomingRaces, error } = await supabase
+      .schema("hml") // Mantendo seu schema
+      .from("racecards_hr_enriched")
+      .select("id_race")
+      .gte("date", today.toISOString())
+      .lte("date", tomorrow.toISOString())
+      .eq("finished", 0)
+      .eq("canceled", 0);
+
+    if (error) {
+      console.error("[V4] Error fetching upcoming races:", error);
+      throw error;
+    }
+
+    if (!upcomingRaces || upcomingRaces.length === 0) {
+      console.log("[V4] No upcoming races found for prediction");
+
+      // Retorna sucesso mesmo sem corridas futuras
+      res.status(200).json({
+        message: "HorseFeatures carregados para supabase com sucesso.",
+        details: {
+          training: {
+            // racesProcessed: trainingResult.racesProcessed,
+            // featuresGenerated: trainingResult.featuresGenerated,
+          },
+          prediction: {
+            message: "No upcoming races to process",
+          },
+        },
+      });
+      return;
+    }
+
+    const raceIds = upcomingRaces.map((r) => r.id_race);
+    console.log(`[V4] Found ${raceIds.length} upcoming races`);
+
+    // Gerar features para predição
+    const predictionFeatures = await generatePredictionFeatures_v4(
+      supabase,
+      raceIds,
+      {
+        mode: "prediction",
+        saveToDatabase: true,
+        minQualityScore: 0.5,
+      },
+    );
+
+    console.log(
+      `[V4] Prediction features generated: ${predictionFeatures.length} horses`,
+    );
+
+    // await runDebug();
+    // await runDeepDebug();
+
+    // RETORNAR SUCESSO
+    res.status(200).json({
+      message: "HorseFeatures carregados para supabase com sucesso.",
+      details: {
+        training: {
+          // racesProcessed: trainingResult.racesProcessed,
+          // featuresGenerated: trainingResult.featuresGenerated,
+        },
+        prediction: {
+          racesFound: raceIds.length,
+          // featuresGenerated: predictionFeatures.length,
+        },
+      },
+    });
   } catch (error) {
+    console.error("[V4] Error in spbHorseFeatures:", error);
     next(error);
   }
 };
