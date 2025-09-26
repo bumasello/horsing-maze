@@ -155,8 +155,6 @@ const spbHorseFeatures = async (
       .schema("hml") // Mantendo seu schema
       .from("racecards_hr_enriched")
       .select("id_race")
-      .gte("date", today.toISOString())
-      .lte("date", tomorrow.toISOString())
       .eq("finished", 0)
       .eq("canceled", 0);
 

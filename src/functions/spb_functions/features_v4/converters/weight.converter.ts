@@ -1,12 +1,17 @@
-// features_v4/converters/weight.converter.ts
+// features_v4/converters/weight.converter.ts - VERSÃO CORRIGIDA
 
 // Conversion constants
 const STONE_TO_POUNDS = 14;
 const POUND_TO_KG = 0.453592;
+const STONE_TO_KG = 6.35029;
 
 /**
  * Parse weight string to kilograms
- * Handles formats: "10-7" (stones-pounds), "147" (pounds), "66.5" (kg)
+ * Handles formats:
+ * - "10-7" (stones-pounds)
+ * - "147" (total pounds)
+ * - "66.5" (already in kg)
+ * - "10st 7lb" (stones and pounds with labels)
  */
 export function parseToKg(weight: string | null): number | null {
   if (!weight) return null;
@@ -14,45 +19,53 @@ export function parseToKg(weight: string | null): number | null {
   const clean = weight.trim().toLowerCase();
 
   // Check for stones-pounds format (e.g., "10-7", "9-12")
-  const stonesPoundsMatch = clean.match(/(\d+)[-\s]+(\d+)/);
+  const stonesPoundsMatch = clean.match(/^(\d+)[-\s]+(\d+)$/);
   if (stonesPoundsMatch) {
     const stones = Number.parseInt(stonesPoundsMatch[1]);
     const pounds = Number.parseInt(stonesPoundsMatch[2]);
 
-    // Validate pounds (should be less than 14)
+    // CORREÇÃO: Se pounds >= 14, então NÃO é formato stones-pounds
+    // É provavelmente um peso total em libras mal formatado
     if (pounds >= STONE_TO_POUNDS) {
-      console.warn(`Invalid pounds value: ${pounds}. Should be less than 14.`);
+      // Tratar como peso total em libras
+      // Por exemplo, "10-135" seria interpretado como 135 libras, não 10 stones e 135 pounds
+      const totalPounds = Number.parseFloat(clean.replace(/[-\s]+/, ""));
+      if (!Number.isNaN(totalPounds)) {
+        return poundsToKg(totalPounds);
+      }
     }
 
+    // É formato stones-pounds válido
     return stonesPoundsToKg(stones, pounds);
   }
 
-  // Check for just pounds with "lb" or "lbs"
-  const poundsMatch = clean.match(/(\d+\.?\d*)\s*(?:lb|lbs)?/);
-  if (poundsMatch) {
-    const pounds = Number.parseFloat(poundsMatch[1]);
+  // Tentar extrair apenas números
+  const numberMatch = clean.match(/(\d+\.?\d*)/);
+  if (numberMatch) {
+    const num = Number.parseFloat(numberMatch[1]);
 
-    // If value is > 100, assume it's pounds
-    if (pounds > 100) {
-      return poundsToKg(pounds);
-    }
+    if (Number.isNaN(num)) return null;
 
-    // If value is < 100, it might be kg already
-    if (pounds < 100) {
-      return pounds; // Assume kg
-    }
-  }
+    // Heurística para determinar a unidade:
+    // - Se > 80: definitivamente libras (cavalos não pesam 80kg de peso carregado)
+    // - Se entre 40-80: provavelmente kg (peso típico carregado)
+    // - Se entre 14-40: pode ser stones ou kg, assumir kg
+    // - Se < 14: provavelmente stones
 
-  // Try to parse as a simple number
-  const num = Number.parseFloat(clean);
-  if (!Number.isNaN(num)) {
-    // Make intelligent guess based on value
-    if (num > 100) {
-      // Likely pounds
+    if (num > 80) {
+      // Definitivamente libras totais
       return poundsToKg(num);
-    } else {
-      // Likely kg
+    } else if (num >= 40 && num <= 80) {
+      // Provavelmente já está em kg
       return num;
+    } else if (num >= 14 && num < 40) {
+      // Ambíguo, mas provavelmente kg para corridas
+      return num;
+    } else if (num < 14) {
+      // Pode ser stones sozinho
+      // Mas em corridas, normalmente seria formato completo
+      // Assumir que é stones
+      return num * STONE_TO_KG;
     }
   }
 
@@ -63,8 +76,13 @@ export function parseToKg(weight: string | null): number | null {
  * Convert stones and pounds to kilograms
  */
 export function stonesPoundsToKg(stones: number, pounds: number): number {
-  const totalPounds = stones * STONE_TO_POUNDS + pounds;
+  // Validar entrada
+  if (pounds >= STONE_TO_POUNDS) {
+    console.warn(`Pounds value ${pounds} exceeds 14, treating as total pounds`);
+    return poundsToKg(pounds);
+  }
 
+  const totalPounds = stones * STONE_TO_POUNDS + pounds;
   return Number.parseFloat((totalPounds * POUND_TO_KG).toFixed(2));
 }
 
@@ -127,7 +145,7 @@ export function calculateWeightDifferential(
  * Check if weight is within normal range for horse racing
  */
 export function isValidWeight(kg: number): boolean {
-  // Normal range for racehorses: 50kg - 75kg (roughly 8-12 stones)
+  // Normal range for racehorses with tack: 50kg - 75kg
   return kg >= 50 && kg <= 75;
 }
 
@@ -141,8 +159,6 @@ export function getWeightForAgeAllowance(
   distanceMeters: number,
 ): number {
   // Simplified WFA calculation
-  // In reality, this varies by jurisdiction and specific race conditions
-
   if (age >= 4) return 0; // Mature horses carry full weight
 
   let allowance = 0;
@@ -196,16 +212,9 @@ export function getWeightImpact(
   distanceMeters: number,
 ): number {
   // Rule of thumb: 1kg = 1 length over a mile
-  // Adjust for distance
-  const distanceFactor = distanceMeters / 1600; // Normalize to mile
-
-  // Each kg of extra weight costs approximately 0.5% in performance
+  const distanceFactor = distanceMeters / 1600;
   const impactPerKg = 0.005 * distanceFactor;
-
-  // Calculate total impact
   const totalImpact = weightDifferential * impactPerKg;
-
-  // Return as multiplier (capped between 0.8 and 1.2)
   return Math.max(0.8, Math.min(1.2, 1 - totalImpact));
 }
 
@@ -249,7 +258,6 @@ export function calculateWeightConsistency(weights: number[]): number {
   const stdDev = Math.sqrt(variance);
 
   // Convert to 0-1 score (lower std dev = higher consistency)
-  // Assume 5kg std dev is very inconsistent
   return Math.max(0, Math.min(1, 1 - stdDev / 5));
 }
 
@@ -260,7 +268,6 @@ export function getHandicapFromWeight(
   weight: number,
   baseWeight: number = 60, // Standard base weight in kg
 ): number {
-  // Simplified: each kg above base = 2 handicap points
   const differential = weight - baseWeight;
   return Math.round(differential * 2);
 }
@@ -304,14 +311,12 @@ export function estimateOptimalWeight(
 ): number | null {
   if (historicalPerformances.length < 3) return null;
 
-  // Find weights where horse performed best (top 3 finishes)
   const goodPerformances = historicalPerformances
     .filter((p) => p.position <= 3)
     .map((p) => p.weight);
 
   if (goodPerformances.length === 0) return null;
 
-  // Return average of successful weights
   return goodPerformances.reduce((a, b) => a + b, 0) / goodPerformances.length;
 }
 
@@ -327,7 +332,7 @@ export function parseOverweight(text: string): number {
   return 0;
 }
 
-// Export grouped as object for backward compatibility (if needed)
+// Export grouped as object for backward compatibility
 export const WeightConverter = {
   parseToKg,
   stonesPoundsToKg,

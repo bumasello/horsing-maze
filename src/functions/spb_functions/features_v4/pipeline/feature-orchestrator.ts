@@ -30,6 +30,7 @@ import {
   parseForm,
   parseSP,
   parseToKg,
+  encodeGoing,
 } from "../converters";
 
 /**
@@ -106,7 +107,7 @@ export async function generateTrainingFeatures_v4(
 
     // Save batch to database
     if (batchFeatures.length > 0 && options.saveToDatabase !== false) {
-      await saveFeaturesToDatabase(supabase, batchFeatures);
+      await saveTrainingFeaturesToDatabase(supabase, batchFeatures);
       totalFeaturesGenerated += batchFeatures.length;
     }
 
@@ -139,6 +140,10 @@ export async function generatePredictionFeatures_v4(
 
   const thresholds = { ...DEFAULT_THRESHOLDS, ...options.thresholds };
   const allFeatures: HorseFeatures[] = [];
+  const featuresByRace = new Map<
+    string,
+    { features: HorseFeatures[]; raceDate: Date }
+  >();
 
   for (const raceId of raceIds) {
     try {
@@ -150,9 +155,27 @@ export async function generatePredictionFeatures_v4(
       }
 
       const features = await processRace(supabase, race, thresholds);
-      allFeatures.push(...features);
+
+      if (features.length > 0) {
+        allFeatures.push(...features);
+        featuresByRace.set(raceId, {
+          features,
+          raceDate: new Date(race.date),
+        });
+      }
     } catch (error) {
       console.error(`Error processing race ${raceId} for prediction:`, error);
+    }
+  }
+
+  // MUDANÇA: Salvar em tabela de predição com data da corrida
+  if (options.saveToDatabase !== false && allFeatures.length > 0) {
+    for (const [raceId, data] of featuresByRace) {
+      await savePredictionFeaturesToDatabase(
+        supabase,
+        data.features,
+        data.raceDate,
+      );
     }
   }
 
@@ -630,7 +653,7 @@ async function fetchHistoricalDataForHorses(
   return historicalMap;
 }
 
-async function saveFeaturesToDatabase(
+async function saveTrainingFeaturesToDatabase(
   supabase: SupabaseClient,
   features: HorseFeatures[],
 ): Promise<void> {
@@ -638,49 +661,72 @@ async function saveFeaturesToDatabase(
     race_horse_id: f.race_horse_id,
     race_id: f.race_id,
     horse_id: f.horse_id,
-    features: f, // Supabase handles JSONB automatically
+    features: f, // JSONB com todas as features
+    target: f.target, // Extraído separadamente para queries mais rápidas
     generated_at: new Date().toISOString(),
     model_version: "v4.0",
     quality_score: calculateFeatureQuality(f),
   }));
 
-  // Batch insert using Supabase
+  // Salvar na tabela de TREINO
   const { error } = await supabase
     .schema("hml")
-    .from("horse_features")
-    .insert(records);
+    .from("training_enriched_horse_features")
+    .upsert(records, {
+      onConflict: "race_horse_id,model_version",
+      ignoreDuplicates: false,
+    });
 
   if (error) {
-    console.error("Error saving features:", error);
+    console.error("Error saving training features:", error);
     throw error;
   }
+
+  console.log(`Saved ${records.length} training features to database`);
+}
+
+/**
+ * Save PREDICTION features to database
+ */
+async function savePredictionFeaturesToDatabase(
+  supabase: SupabaseClient,
+  features: HorseFeatures[],
+  raceDate: Date,
+): Promise<void> {
+  const records = features.map((f) => ({
+    race_horse_id: f.race_horse_id,
+    race_id: f.race_id,
+    horse_id: f.horse_id,
+    features: f, // JSONB com todas as features
+    predicted_probability: null, // Será preenchido quando rodar o modelo ML
+    lay_recommendation: null, // Será preenchido quando rodar o modelo ML
+    race_date: raceDate.toISOString().split("T")[0], // Apenas data
+    generated_at: new Date().toISOString(),
+    model_version: "v4.0",
+    quality_score: calculateFeatureQuality(f),
+    prediction_status: "PENDING",
+  }));
+
+  // Salvar na tabela de PREDIÇÃO
+  const { error } = await supabase
+    .schema("hml")
+    .from("prediction_enriched_horse_features")
+    .upsert(records, {
+      onConflict: "race_horse_id,model_version",
+      ignoreDuplicates: false,
+    });
+
+  if (error) {
+    console.error("Error saving prediction features:", error);
+    throw error;
+  }
+
+  console.log(`Saved ${records.length} prediction features to database`);
 }
 
 /**
  * Helper functions
  */
-function encodeGoing(going: string | null): number {
-  if (!going) return 4;
-
-  const goingMap: Record<string, number> = {
-    hard: 1,
-    fast: 2,
-    firm: 3,
-    good: 4,
-    "good to firm": 5,
-    "good to yielding": 6,
-    "yielding to soft": 7,
-    yielding: 8,
-    "good to soft": 9,
-    "standard to slow": 10,
-    standard: 11,
-    "soft heavy": 12,
-    heavy: 13,
-    soft: 14,
-  };
-
-  return goingMap[going.toLowerCase()] || 4;
-}
 
 function parsePrize(prize: string | null): number {
   if (!prize) return 0;
