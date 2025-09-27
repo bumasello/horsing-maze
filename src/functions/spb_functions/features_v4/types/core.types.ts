@@ -174,7 +174,7 @@ export interface HorseFeatures {
   beaten_favorite_rate: number; // Vezes que foi favorito e perdeu
 
   // === Target ===
-  target: 0 | 1; // 0 = ganhou (ruim para lay), 1 = não ganhou (bom para lay)
+  target: 0 | 1 | null; // 0 = ganhou (ruim para lay), 1 = não ganhou (bom para lay)
 }
 
 // ===== TIPOS AUXILIARES =====

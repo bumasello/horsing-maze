@@ -203,10 +203,8 @@ async function processRace(
 
   // Convert to processed format
   const processedRace = convertRace(race, horses);
-
-  // CORREÇÃO: Aceitar non_runner NULL ou 0 (não 1)
   const processedHorses = horses
-    .filter((h) => h.non_runner !== 1) // Mudado de === 0 para !== 1
+    .filter((h) => h.non_runner !== 1)
     .map((h) => convertHorse(h));
 
   // Fetch historical data for all horses
@@ -219,7 +217,6 @@ async function processRace(
   const features: HorseFeatures[] = [];
 
   for (let i = 0; i < processedHorses.length; i++) {
-    // CORREÇÃO: Buscar o cavalo correto no array original
     const processedHorse = processedHorses[i];
     const rawHorse = horses.find((h) => h.id === processedHorse.id);
 
@@ -233,6 +230,7 @@ async function processRace(
         processedHorses,
         horses,
         historicalData.get(rawHorse.id_horse) || [],
+        race.finished === 1, // PASSAR O FINISHED COMO PARÂMETRO
       );
 
       features.push(horseFeatures);
@@ -257,6 +255,7 @@ async function generateHorseFeatures(
   allProcessedHorses: ProcessedHorse[],
   allRawHorses: RaceHorseEnriched[],
   historicalData: HistoricalRaceData[],
+  isFinishedRace: boolean, // NOVO PARÂMETRO
 ): Promise<HorseFeatures> {
   // Extract all feature groups
   const staticFeatures = extractStaticFeatures(race, processedHorse, rawHorse);
@@ -289,9 +288,16 @@ async function generateHorseFeatures(
     marketFeatures,
   );
 
-  // Determine target (1 = didn't win = good for lay)
-  const target: 0 | 1 =
-    rawHorse.position !== null && rawHorse.position !== 1 ? 1 : 0;
+  // CORREÇÃO: Target só existe para corridas finalizadas
+  let target: 0 | 1 | null;
+
+  if (isFinishedRace) {
+    // Corrida finalizada: 1 = não ganhou (bom para lay), 0 = ganhou
+    target = rawHorse.position !== null && rawHorse.position !== 1 ? 1 : 0;
+  } else {
+    // Corrida futura: não tem target ainda
+    target = null;
+  }
 
   // Combine all features
   return {
@@ -369,8 +375,8 @@ async function generateHorseFeatures(
     // Lay-specific features
     ...layFeatures,
 
-    // Target
-    target,
+    // Target - NULL para corridas futuras
+    target: target as 0 | 1, // Type assertion necessário por causa do tipo em HorseFeatures
   };
 }
 

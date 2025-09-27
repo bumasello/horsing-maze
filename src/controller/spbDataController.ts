@@ -171,8 +171,8 @@ const spbHorseFeatures = async (
         message: "HorseFeatures carregados para supabase com sucesso.",
         details: {
           training: {
-            // racesProcessed: trainingResult.racesProcessed,
-            // featuresGenerated: trainingResult.featuresGenerated,
+            racesProcessed: trainingResult.racesProcessed,
+            featuresGenerated: trainingResult.featuresGenerated,
           },
           prediction: {
             message: "No upcoming races to process",
@@ -208,12 +208,12 @@ const spbHorseFeatures = async (
       message: "HorseFeatures carregados para supabase com sucesso.",
       details: {
         training: {
-          // racesProcessed: trainingResult.racesProcessed,
-          // featuresGenerated: trainingResult.featuresGenerated,
+          racesProcessed: trainingResult.racesProcessed,
+          featuresGenerated: trainingResult.featuresGenerated,
         },
         prediction: {
           racesFound: raceIds.length,
-          // featuresGenerated: predictionFeatures.length,
+          featuresGenerated: predictionFeatures.length,
         },
       },
     });
