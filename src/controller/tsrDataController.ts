@@ -1,8 +1,8 @@
-import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
-import { trainHorseData_v3 } from "../functions/tensor_functions/trainHorseData_v3";
 import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
+import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
+import { trainLayBettingModel } from "../functions/tensor_functions/tensor_v4/ml/claude-training-model";
 
-import type { Request, Response, NextFunction } from "express";
+import type { NextFunction, Request, Response } from "express";
 
 const getTraining = async (
   _req: Request,
@@ -11,7 +11,7 @@ const getTraining = async (
 ) => {
   console.log("tsrTrainData");
   try {
-    await trainHorseData_v3();
+    await trainLayBettingModel();
 
     res
       .status(200)
