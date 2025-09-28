@@ -4,7 +4,7 @@ import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../../../..";
 
 // Configuração do modelo
-const MODEL_NAME = "lay-betting-model";
+const MODEL_NAME = "claude-ml-model";
 const BUCKET_NAME = "modelos-tfjs-publicos";
 const MODEL_PATH = `horse_probability_model/${MODEL_NAME}`;
 
@@ -303,30 +303,83 @@ async function loadAndPrepareData() {
 }
 
 /**
- * Normalização robusta
+ * Normalização robusta com quantiles implementados manualmente
  */
 function robustNormalize(trainX: tf.Tensor2D, valX: tf.Tensor2D) {
-  // Mean e std para normalização padrão
+  // Converter para array para calcular quantiles
+  const trainData = trainX.arraySync() as number[][];
+  const valData = valX.arraySync() as number[][];
+
+  // Calcular quantiles manualmente para cada feature
+  const q25: number[] = [];
+  const q50: number[] = [];
+  const q75: number[] = [];
+
+  for (let col = 0; col < trainData[0].length; col++) {
+    // Extrair e ordenar coluna
+    const column = trainData.map((row) => row[col]).sort((a, b) => a - b);
+    const n = column.length;
+
+    // Calcular índices dos quantiles
+    const idx25 = Math.floor(n * 0.25);
+    const idx50 = Math.floor(n * 0.5);
+    const idx75 = Math.floor(n * 0.75);
+
+    q25.push(column[idx25]);
+    q50.push(column[idx50]);
+    q75.push(column[idx75]);
+  }
+
+  // Calcular IQR (Interquartile Range)
+  const iqr = q75.map((v, i) => {
+    const range = v - q25[i];
+    return range > 0 ? range : 1; // Evitar divisão por zero
+  });
+
+  // Normalizar dados usando mediana e IQR
+  const normalizedTrain: number[][] = [];
+  const normalizedVal: number[][] = [];
+
+  // Normalizar conjunto de treino
+  for (let row = 0; row < trainData.length; row++) {
+    const normalizedRow: number[] = [];
+    for (let col = 0; col < trainData[0].length; col++) {
+      const value = (trainData[row][col] - q50[col]) / iqr[col];
+      // Clipping para lidar com outliers extremos
+      normalizedRow.push(Math.max(-3, Math.min(3, value)));
+    }
+    normalizedTrain.push(normalizedRow);
+  }
+
+  // Normalizar conjunto de validação
+  for (let row = 0; row < valData.length; row++) {
+    const normalizedRow: number[] = [];
+    for (let col = 0; col < valData[0].length; col++) {
+      const value = (valData[row][col] - q50[col]) / iqr[col];
+      // Clipping para lidar com outliers extremos
+      normalizedRow.push(Math.max(-3, Math.min(3, value)));
+    }
+    normalizedVal.push(normalizedRow);
+  }
+
+  // Converter de volta para tensors
+  const normalizedTrainX = tf.tensor2d(normalizedTrain);
+  const normalizedValX = tf.tensor2d(normalizedVal);
+
+  // Calcular mean e std também (para compatibilidade)
   const { mean, variance } = tf.moments(trainX, 0);
   const std = variance.sqrt().add(1e-7);
 
-  // Percentis para normalização robusta
-  const median = tf.quantile(trainX, 0.5, 0);
-  const q25 = tf.quantile(trainX, 0.25, 0);
-  const q75 = tf.quantile(trainX, 0.75, 0);
-  const iqr = q75.sub(q25).add(1e-7);
-
-  // Normalizar usando IQR (mais robusto a outliers)
-  const normalizedTrainX = trainX.sub(median).div(iqr).clipByValue(-3, 3);
-  const normalizedValX = valX.sub(median).div(iqr).clipByValue(-3, 3);
+  // Cleanup tensors temporários
+  variance.dispose();
 
   return {
     trainX: normalizedTrainX,
     valX: normalizedValX,
     mean: mean.arraySync() as number[],
     std: std.arraySync() as number[],
-    median: median.arraySync() as number[],
-    iqr: iqr.arraySync() as number[],
+    median: q50,
+    iqr: iqr,
   };
 }
 
@@ -391,7 +444,7 @@ function createModel(inputDim: number): tf.LayersModel {
 }
 
 /**
- * Treinar modelo
+ * Treinar modelo com Early Stopping manual
  */
 async function trainModel(model: tf.LayersModel, data: any) {
   console.log("\n🏋 Treinando modelo...\n");
@@ -404,39 +457,107 @@ async function trainModel(model: tf.LayersModel, data: any) {
     epochs: 0,
   };
 
-  await model.fit(data.trainX, data.trainY, {
-    epochs: 100,
-    batchSize: 32,
-    validationData: [data.valX, data.valY],
-    classWeight: data.classWeights,
-    callbacks: [
-      tf.callbacks.earlyStopping({
-        monitor: "val_loss",
-        patience: 15,
-        mode: "min",
-        restoreBestWeights: true,
-      }),
-      {
-        onEpochEnd: (epoch, logs) => {
-          if (epoch % 10 === 0) {
-            console.log(
-              `Epoch ${epoch}: loss=${logs?.loss?.toFixed(4)}, ` +
-                `acc=${logs?.acc?.toFixed(4)}, ` +
-                `val_loss=${logs?.val_loss?.toFixed(4)}, ` +
-                `val_acc=${logs?.val_acc?.toFixed(4)}`,
-            );
-          }
-          finalMetrics = {
-            trainLoss: logs?.loss || 0,
-            trainAcc: logs?.acc || 0,
-            valLoss: logs?.val_loss || 0,
-            valAcc: logs?.val_acc || 0,
-            epochs: epoch + 1,
-          };
-        },
-      },
-    ],
-  });
+  // Variáveis para Early Stopping manual
+  let bestValLoss = Infinity;
+  let bestWeights: tf.Tensor[] | null = null;
+  let patienceCounter = 0;
+  const patience = 15;
+  const maxEpochs = 100;
+  let actualEpochs = 0;
+
+  // Treinar época por época para implementar Early Stopping manual
+  for (let epoch = 0; epoch < maxEpochs; epoch++) {
+    const history = await model.fit(data.trainX, data.trainY, {
+      epochs: 1,
+      batchSize: 32,
+      validationData: [data.valX, data.valY],
+      classWeight: data.classWeights,
+      verbose: 0, // Silencioso para controlar output manualmente
+    });
+
+    const trainLoss = history.history.loss[0] as number;
+    const trainAcc = history.history.acc[0] as number;
+    const valLoss = history.history.val_loss[0] as number;
+    const valAcc = history.history.val_acc[0] as number;
+
+    // Atualizar métricas finais
+    finalMetrics = {
+      trainLoss,
+      trainAcc,
+      valLoss,
+      valAcc,
+      epochs: epoch + 1,
+    };
+
+    // Log a cada 10 épocas
+    if (epoch % 10 === 0) {
+      console.log(
+        `Epoch ${epoch}: loss=${trainLoss.toFixed(4)}, ` +
+          `acc=${trainAcc.toFixed(4)}, ` +
+          `val_loss=${valLoss.toFixed(4)}, ` +
+          `val_acc=${valAcc.toFixed(4)}`,
+      );
+    }
+
+    // Early Stopping manual
+    if (valLoss < bestValLoss) {
+      bestValLoss = valLoss;
+
+      // Salvar melhores pesos
+      if (bestWeights !== null) {
+        // Limpar pesos anteriores
+        bestWeights.forEach((w) => w.dispose());
+      }
+      bestWeights = model.getWeights().map((w) => w.clone());
+
+      patienceCounter = 0;
+
+      // Log quando encontrar melhor modelo
+      console.log(
+        `📈 Melhor modelo encontrado - Epoch ${epoch}: val_loss=${valLoss.toFixed(4)}`,
+      );
+    } else {
+      patienceCounter++;
+
+      // Parar se patience excedido
+      if (patienceCounter >= patience) {
+        console.log(
+          `\n⏹ Early stopping ativado na época ${epoch} (patience=${patience})`,
+        );
+        actualEpochs = epoch + 1;
+        break;
+      }
+    }
+
+    actualEpochs = epoch + 1;
+  }
+
+  // Restaurar melhores pesos
+  if (bestWeights !== null) {
+    console.log("♻ Restaurando melhores pesos do modelo...");
+    model.setWeights(bestWeights);
+
+    // Recalcular métricas com os melhores pesos
+    const finalEval = (await model.evaluate(
+      data.valX,
+      data.valY,
+    )) as tf.Tensor[];
+    const finalValLoss = await finalEval[0].data();
+    const finalValAcc = await finalEval[1].data();
+
+    finalMetrics.valLoss = finalValLoss[0];
+    finalMetrics.valAcc = finalValAcc[0];
+    finalMetrics.epochs = actualEpochs;
+
+    // Cleanup tensors de avaliação
+    finalEval.forEach((t) => t.dispose());
+
+    // Cleanup pesos salvos
+    bestWeights.forEach((w) => w.dispose());
+  }
+
+  console.log(`\n✅ Treinamento finalizado em ${actualEpochs} épocas`);
+  console.log(`📊 Melhor val_loss: ${bestValLoss.toFixed(4)}`);
 
   return finalMetrics;
 }

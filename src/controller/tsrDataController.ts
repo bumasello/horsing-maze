@@ -9,14 +9,25 @@ const getTraining = async (
   res: Response,
   next: NextFunction,
 ) => {
-  console.log("tsrTrainData");
+  console.log("[Training] Iniciando treinamento do modelo...");
+
   try {
+    const startTime = Date.now();
+
+    // Executar treinamento
     await trainLayBettingModel();
 
-    res
-      .status(200)
-      .json({ message: "Treinamento do modelo executado com sucesso." });
+    const timeElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    res.status(200).json({
+      message: "Treinamento do modelo executado com sucesso.",
+      details: {
+        timeElapsed: `${timeElapsed}s`,
+        timestamp: new Date().toISOString(),
+      },
+    });
   } catch (error) {
+    console.error("[Training] Erro:", error);
     next(error);
   }
 };
