@@ -124,23 +124,66 @@ async function checkExistingModel(): Promise<ModelConfig | null> {
 }
 
 /**
- * Carregar e preparar dados
+ * Carregar e preparar dados com paginação
  */
 async function loadAndPrepareData() {
   console.log("📊 Carregando dados de treinamento...");
 
-  // Buscar dados COM FILTRO DE QUALIDADE
-  const { data, error } = await supabase
+  // Primeiro, contar total de registros disponíveis
+  const { count: totalCount, error: countError } = await supabase
     .schema("hml")
     .from("training_enriched_horse_features")
-    .select("features, target, quality_score")
-    .gte("quality_score", 0.7) // Apenas amostras com qualidade >= 0.7 para treino
-    .order("generated_at", { ascending: true });
+    .select("*", { count: "exact", head: true })
+    .gte("quality_score", 0.7);
 
-  if (error) throw error;
-  if (!data || data.length === 0) throw new Error("Sem dados de treinamento");
+  if (countError) throw countError;
 
-  console.log(`✅ ${data.length} amostras carregadas (quality_score >= 0.7)`);
+  console.log(`📊 Total de registros disponíveis: ${totalCount}`);
+
+  // Carregar dados com paginação
+  const allData: any[] = [];
+  const pageSize = 1000; // Tamanho seguro de página
+  let currentPage = 0;
+
+  while (currentPage * pageSize < (totalCount || 0)) {
+    const from = currentPage * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data: pageData, error } = await supabase
+      .schema("hml")
+      .from("training_enriched_horse_features")
+      .select("features, target, quality_score")
+      .gte("quality_score", 0.7)
+      .order("generated_at", { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+    if (!pageData) break;
+
+    allData.push(...pageData);
+    currentPage++;
+
+    console.log(`📥 Carregadas ${allData.length}/${totalCount} amostras...`);
+  }
+
+  if (allData.length === 0) throw new Error("Sem dados de treinamento");
+
+  console.log(
+    `✅ ${allData.length} amostras carregadas (quality_score >= 0.7)`,
+  );
+
+  // Opção de limitar dados se forem muitos (para não explodir memória)
+  const maxSamples = 10000; // Ajuste conforme sua memória disponível
+  const data =
+    allData.length > maxSamples
+      ? shuffleArray(allData).slice(0, maxSamples)
+      : allData;
+
+  if (allData.length > maxSamples) {
+    console.log(
+      `! Limitando a ${maxSamples} amostras aleatórias para economizar memória`,
+    );
+  }
 
   // Features selecionadas (42 features importantes)
   const selectedFeatures = [
@@ -300,6 +343,18 @@ async function loadAndPrepareData() {
       iqr: normalization.iqr,
     },
   };
+}
+
+/**
+ * Função auxiliar para embaralhar array (Fisher-Yates)
+ */
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
 }
 
 /**

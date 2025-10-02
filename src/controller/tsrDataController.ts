@@ -1,8 +1,10 @@
-import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
 import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
+import { generatePredictions_v4 } from "../functions/tensor_functions/tensor_v4/ml/claude-prediction-model";
 import { trainLayBettingModel } from "../functions/tensor_functions/tensor_v4/ml/claude-training-model";
+import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
 
 import type { NextFunction, Request, Response } from "express";
+import { generateLayBettingPicks } from "../functions/tensor_functions/tensor_v4/ml/claude-generate-picks";
 
 const getTraining = async (
   _req: Request,
@@ -39,7 +41,7 @@ const getGeneratePredictions = async (
 ) => {
   console.log("tsrGeneratePredictions");
 
-  await generatePredictions_v3();
+  await generatePredictions_v4();
 
   try {
     res.status(200).json({ message: "Previsões geradas com suscesso." });
@@ -55,7 +57,7 @@ const getInsertPredictions = async (
 ) => {
   console.log("tsrGetInsertPredictions");
   try {
-    await generateHorseEntries_v3();
+    await generateLayBettingPicks();
 
     res.status(200).json({ message: "Previsões armazendas com suscesso." });
   } catch (error) {

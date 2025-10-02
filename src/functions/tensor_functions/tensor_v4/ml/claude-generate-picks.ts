@@ -1,0 +1,858 @@
+// features_v4/ml/generate_picks.ts
+
+import { supabase } from "../../../..";
+
+// Configurações
+const MIN_IVL_THRESHOLD = 1.1; // IVL mínimo para considerar valor
+const MIN_ODD_THRESHOLD = 4.0; // Odd mínima aceitável
+const MAX_ODD_THRESHOLD = 34.0; // Odd máxima aceitável
+const MODEL_VERSION = "v1"; // Versão do modelo
+
+interface PredictionData {
+  racecard_id: number;
+  race_id: number;
+  race_horse_id: number;
+  horse_id: number;
+  predicted_probability: number;
+  lay_recommendation: string;
+  course?: string;
+  race_date?: Date;
+  off_time_br?: string;
+  title?: string;
+  horse?: string;
+  number?: number;
+}
+
+interface EnrichedPick extends PredictionData {
+  market_odd: number;
+  ivl_score: number;
+  combined_score: number;
+  pick_type: "VALUE" | "PROBABILITY" | "HYBRID";
+  confidence_score: number;
+  selection_reason: string;
+}
+
+/**
+ * Pipeline principal para gerar picks de lay betting
+ */
+export async function generateLayBettingPicks(): Promise<void> {
+  console.log("\n" + "=".repeat(50));
+  console.log("🎯 GERAÇÃO DE PICKS PARA LAY BETTING");
+  console.log("=".repeat(50));
+
+  try {
+    // 1. Buscar corridas pendentes com predições
+    const upcomingRaces = await getUpcomingRacesWithPredictions();
+
+    if (upcomingRaces.length === 0) {
+      console.log("i Nenhuma corrida com predições para processar");
+      return;
+    }
+
+    console.log(`\n📊 ${upcomingRaces.length} corridas para processar`);
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    // 2. Processar cada corrida
+    for (const raceId of upcomingRaces) {
+      try {
+        await processRaceForPicks(raceId);
+        successCount++;
+      } catch (error) {
+        console.error(`❌ Erro ao processar corrida ${raceId}:`, error);
+        errorCount++;
+      }
+    }
+
+    // 3. Resumo final
+    console.log("\n" + "=".repeat(50));
+    console.log("📊 RESUMO DA GERAÇÃO DE PICKS");
+    console.log("-".repeat(50));
+    console.log(`✅ Corridas processadas com sucesso: ${successCount}`);
+    console.log(`❌ Corridas com erro: ${errorCount}`);
+    console.log("=".repeat(50));
+
+    // 4. Mostrar estatísticas dos picks gerados
+    await showPickStatistics();
+  } catch (error) {
+    console.error("❌ Erro no pipeline de geração de picks:", error);
+    throw error;
+  }
+}
+
+/**
+ * Buscar corridas futuras que já têm predições
+ */
+async function getUpcomingRacesWithPredictions(): Promise<number[]> {
+  const today = new Date().toISOString().split("T")[0];
+
+  const { data, error } = await supabase
+    .schema("hml")
+    .from("prediction_enriched_horse_features")
+    .select("race_id")
+    .eq("prediction_status", "PENDING");
+  // .gte("race_date", today);
+
+  if (error) throw error;
+
+  // Retornar IDs únicos de corridas
+  return [...new Set(data?.map((d) => d.race_id) || [])];
+}
+
+/**
+ * Processar uma corrida para gerar picks
+ */
+async function processRaceForPicks(raceId: number): Promise<void> {
+  console.log(`\n🏇 Processando corrida ${raceId}...`);
+
+  // 1. Buscar todas as predições da corrida
+  const predictions = await getPredictionsForRace(raceId);
+
+  if (predictions.length === 0) {
+    console.log(`  ! Sem predições para corrida ${raceId}`);
+    return;
+  }
+
+  console.log(`  📊 ${predictions.length} cavalos com predições`);
+
+  // 2. Enriquecer com odds do mercado e calcular scores
+  const enrichedPicks = await enrichPredictionsWithMarketData(predictions);
+
+  // 3. Rankear picks usando estratégia híbrida
+  const rankedPicks = rankPicks(enrichedPicks);
+
+  // 4. Selecionar o pick principal
+  const mainPick = selectMainPick(rankedPicks);
+
+  if (!mainPick) {
+    console.log(`  ! Nenhum pick adequado encontrado para corrida ${raceId}`);
+    return;
+  }
+
+  // 5. Inserir pick principal
+  await insertMainPick(mainPick, raceId);
+
+  // 6. Inserir top 4 picks
+  const top4 = rankedPicks.slice(0, 4);
+  await insertTop4Picks(top4, raceId);
+
+  // Log do resultado
+  console.log(`  ✅ Pick principal: ${mainPick.horse} (#${mainPick.number})`);
+  console.log(`     - Tipo: ${mainPick.pick_type}`);
+  console.log(
+    `     - Probabilidade: ${(mainPick.predicted_probability * 100).toFixed(1)}%`,
+  );
+  if (mainPick.ivl_score) {
+    console.log(`     - IVL: ${mainPick.ivl_score.toFixed(2)}`);
+  }
+  console.log(
+    `     - Confiança: ${(mainPick.confidence_score * 100).toFixed(0)}%`,
+  );
+}
+
+/**
+ * Buscar predições para uma corrida
+ */
+async function getPredictionsForRace(
+  raceId: number,
+): Promise<PredictionData[]> {
+  // Buscar predições
+  const { data: predictions, error: predError } = await supabase
+    .schema("hml")
+    .from("prediction_enriched_horse_features")
+    .select("*")
+    .eq("race_id", raceId)
+    .eq("prediction_status", "PENDING");
+
+  if (predError) throw predError;
+  if (!predictions || predictions.length === 0) return [];
+
+  // Buscar dados complementares da corrida e cavalos
+  const raceHorseIds = predictions.map((p) => p.race_horse_id);
+
+  const { data: raceData, error: raceError } = await supabase
+    .schema("hml")
+    .from("racecards_hr_enriched")
+    .select("id, course, date, off_time_br, title")
+    .eq("id", raceId)
+    .single();
+
+  if (raceError) throw raceError;
+
+  const { data: horsesData, error: horsesError } = await supabase
+    .schema("hml")
+    .from("race_horses_hr_enriched")
+    .select("id, horse, number")
+    .in("id", raceHorseIds);
+
+  if (horsesError) throw horsesError;
+
+  // Combinar dados
+  return predictions.map((pred) => {
+    const horse = horsesData?.find((h) => h.id === pred.race_horse_id);
+
+    return {
+      racecard_id: raceId,
+      race_id: pred.race_id,
+      race_horse_id: pred.race_horse_id,
+      horse_id: pred.horse_id,
+      predicted_probability: pred.predicted_probability,
+      lay_recommendation: pred.lay_recommendation,
+      course: raceData?.course,
+      race_date: raceData?.date,
+      off_time_br: raceData?.off_time_br,
+      title: raceData?.title,
+      horse: horse?.horse,
+      number: horse?.number,
+    };
+  });
+}
+
+/**
+ * Enriquecer predições com dados de mercado
+ */
+async function enrichPredictionsWithMarketData(
+  predictions: PredictionData[],
+): Promise<EnrichedPick[]> {
+  const enrichedPicks: EnrichedPick[] = [];
+
+  for (const pred of predictions) {
+    // Buscar odd média do mercado
+    const marketOdd = await getAverageOdd(pred.race_horse_id);
+
+    // Calcular IVL (Índice de Valor de Lay)
+    let ivlScore = 0;
+    if (marketOdd && marketOdd > 0) {
+      ivlScore = calculateLayValueIndex(pred.predicted_probability, marketOdd);
+    }
+
+    // Calcular score combinado
+    const combinedScore = calculateCombinedScore(
+      pred.predicted_probability,
+      ivlScore,
+      marketOdd || 0,
+    );
+
+    // Determinar tipo de pick
+    const pickType = determinePickType(ivlScore, marketOdd || 0);
+
+    // Calcular confiança
+    const confidenceScore = calculateConfidenceScore(
+      pred.predicted_probability,
+      ivlScore,
+      marketOdd || 0,
+      pred.lay_recommendation,
+    );
+
+    // Gerar razão da seleção
+    const selectionReason = generateSelectionReason(
+      pickType,
+      pred.predicted_probability,
+      ivlScore,
+      marketOdd || 0,
+    );
+
+    enrichedPicks.push({
+      ...pred,
+      market_odd: marketOdd || 0,
+      ivl_score: ivlScore,
+      combined_score: combinedScore,
+      pick_type: pickType,
+      confidence_score: confidenceScore,
+      selection_reason: selectionReason,
+    });
+  }
+
+  return enrichedPicks;
+}
+
+/**
+ * Buscar odd média do mercado
+ */
+async function getAverageOdd(raceHorseId: number): Promise<number | null> {
+  // Buscar nas tabelas de odds (betfair, smarkets, etc.)
+  // Por enquanto, vamos simular ou buscar de uma tabela genérica
+
+  const { data, error } = await supabase
+    .schema("public")
+    .from("race_horses_hr_enriched")
+    .select("sp_decimal")
+    .eq("id", raceHorseId)
+    .single();
+
+  if (error || !data?.sp_decimal) return null;
+
+  // Converter SP para decimal se necessário
+  return Number(data.sp_decimal);
+}
+
+/**
+ * Calcular Índice de Valor de Lay (IVL)
+ */
+function calculateLayValueIndex(
+  probability: number,
+  marketOdd: number,
+): number {
+  if (marketOdd <= 0) return 0;
+
+  // IVL = Probabilidade de não ganhar / (1 / odd de mercado)
+  // Quanto maior o IVL, melhor o valor da aposta lay
+  const impliedProbability = 1 / marketOdd;
+  return probability / impliedProbability;
+}
+
+/**
+ * Calcular score combinado
+ */
+function calculateCombinedScore(
+  probability: number,
+  ivl: number,
+  marketOdd: number,
+): number {
+  // Pesos para cada componente
+  const WEIGHT_PROB = 0.4;
+  const WEIGHT_IVL = 0.4;
+  const WEIGHT_ODD_RANGE = 0.2;
+
+  // Score de probabilidade (0-1)
+  const probScore = probability;
+
+  // Score de IVL (normalizado 0-1)
+  const ivlScore = Math.min(ivl / 2, 1); // IVL de 2 = score máximo
+
+  // Score de odd (penaliza odds extremas)
+  let oddScore = 0;
+  if (marketOdd >= MIN_ODD_THRESHOLD && marketOdd <= MAX_ODD_THRESHOLD) {
+    // Ideal é entre 6-15
+    if (marketOdd >= 6 && marketOdd <= 15) {
+      oddScore = 1;
+    } else if (marketOdd < 6) {
+      oddScore = (marketOdd - MIN_ODD_THRESHOLD) / (6 - MIN_ODD_THRESHOLD);
+    } else {
+      oddScore = 1 - (marketOdd - 15) / (MAX_ODD_THRESHOLD - 15);
+    }
+  }
+
+  return (
+    probScore * WEIGHT_PROB +
+    ivlScore * WEIGHT_IVL +
+    oddScore * WEIGHT_ODD_RANGE
+  );
+}
+
+/**
+ * Determinar tipo de pick
+ */
+function determinePickType(
+  ivl: number,
+  marketOdd: number,
+): "VALUE" | "PROBABILITY" | "HYBRID" {
+  const hasGoodValue =
+    ivl > MIN_IVL_THRESHOLD &&
+    marketOdd >= MIN_ODD_THRESHOLD &&
+    marketOdd <= MAX_ODD_THRESHOLD;
+
+  if (hasGoodValue && ivl > 1.5) {
+    return "VALUE";
+  } else if (
+    !marketOdd ||
+    marketOdd < MIN_ODD_THRESHOLD ||
+    marketOdd > MAX_ODD_THRESHOLD
+  ) {
+    return "PROBABILITY";
+  } else {
+    return "HYBRID";
+  }
+}
+
+/**
+ * Calcular score de confiança
+ */
+function calculateConfidenceScore(
+  probability: number,
+  ivl: number,
+  marketOdd: number,
+  layRecommendation: string,
+): number {
+  let confidence = 0;
+
+  // Base da confiança na recomendação
+  switch (layRecommendation) {
+    case "STRONG_LAY":
+      confidence = 0.9;
+      break;
+    case "LAY":
+      confidence = 0.7;
+      break;
+    case "NEUTRAL":
+      confidence = 0.5;
+      break;
+    default:
+      confidence = 0.3;
+  }
+
+  // Ajustar baseado na probabilidade
+  if (probability > 0.9) {
+    confidence = Math.min(confidence + 0.15, 1);
+  } else if (probability > 0.85) {
+    confidence = Math.min(confidence + 0.1, 1);
+  } else if (probability > 0.8) {
+    confidence = Math.min(confidence + 0.05, 1);
+  } else if (probability < 0.6) {
+    confidence *= 0.9; // Penalizar probabilidades baixas
+  }
+
+  // Ajustar baseado no IVL
+  if (ivl > 1.5) {
+    confidence = Math.min(confidence + 0.1, 1);
+  } else if (ivl > MIN_IVL_THRESHOLD) {
+    confidence = Math.min(confidence + 0.05, 1);
+  }
+
+  // Penalizar odds extremas
+  if (
+    marketOdd &&
+    (marketOdd < MIN_ODD_THRESHOLD || marketOdd > MAX_ODD_THRESHOLD)
+  ) {
+    confidence *= 0.8;
+  }
+
+  return confidence;
+}
+
+/**
+ * Gerar razão da seleção
+ */
+function generateSelectionReason(
+  pickType: string,
+  probability: number,
+  ivl: number,
+  marketOdd: number,
+): string {
+  const reasons: string[] = [];
+
+  if (probability > 0.85) {
+    reasons.push(
+      `Alta probabilidade de não vencer (${(probability * 100).toFixed(1)}%)`,
+    );
+  }
+
+  if (ivl > 1.5) {
+    reasons.push(`Excelente valor de lay (IVL: ${ivl.toFixed(2)})`);
+  } else if (ivl > MIN_IVL_THRESHOLD) {
+    reasons.push(`Bom valor de lay (IVL: ${ivl.toFixed(2)})`);
+  }
+
+  if (marketOdd >= 6 && marketOdd <= 15) {
+    reasons.push(`Odd ideal para lay (${marketOdd.toFixed(2)})`);
+  }
+
+  if (pickType === "VALUE") {
+    reasons.push("Pick baseado em valor de mercado");
+  } else if (pickType === "PROBABILITY") {
+    reasons.push("Pick baseado em probabilidade do modelo");
+  } else {
+    reasons.push("Pick híbrido (valor + probabilidade)");
+  }
+
+  return reasons.join("; ");
+}
+
+/**
+ * Rankear picks
+ */
+function rankPicks(picks: EnrichedPick[]): EnrichedPick[] {
+  // Ordenar por score combinado (maior primeiro)
+  return picks.sort((a, b) => b.combined_score - a.combined_score);
+}
+
+/**
+ * Selecionar pick principal
+ */
+function selectMainPick(rankedPicks: EnrichedPick[]): EnrichedPick | null {
+  // Primeiro, tentar encontrar pick de VALOR
+  const valuePicks = rankedPicks.filter(
+    (p) =>
+      p.pick_type === "VALUE" &&
+      p.ivl_score > MIN_IVL_THRESHOLD &&
+      p.market_odd >= MIN_ODD_THRESHOLD &&
+      p.market_odd <= MAX_ODD_THRESHOLD,
+  );
+
+  if (valuePicks.length > 0) {
+    return valuePicks[0];
+  }
+
+  // Se não houver pick de valor, pegar o de maior probabilidade
+  const probPicks = rankedPicks.filter((p) => p.predicted_probability > 0.65);
+
+  if (probPicks.length > 0) {
+    return probPicks[0];
+  }
+
+  // Se ainda não houver, retornar o primeiro do ranking
+  return rankedPicks.length > 0 ? rankedPicks[0] : null;
+}
+
+/**
+ * Inserir pick principal no banco
+ */
+async function insertMainPick(
+  pick: EnrichedPick,
+  raceId: number,
+): Promise<void> {
+  const record = {
+    racecard_id: raceId,
+    race_id: pick.race_id,
+    race_horse_id: pick.race_horse_id,
+    horse_id: pick.horse_id,
+    course: pick.course || "",
+    race_date: pick.race_date,
+    off_time_br: pick.off_time_br || "",
+    race_title: pick.title || "",
+    horse_name: pick.horse || "",
+    horse_number: pick.number,
+    predicted_probability: pick.predicted_probability,
+    market_odd: pick.market_odd > 0 ? pick.market_odd : null,
+    ivl_score: pick.ivl_score > 0 ? pick.ivl_score : null,
+    pick_type: pick.pick_type,
+    lay_recommendation: pick.lay_recommendation,
+    confidence_score: pick.confidence_score,
+    model_version: MODEL_VERSION,
+    generated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .schema("hml")
+    .from("lay_betting_picks")
+    .upsert(record, {
+      onConflict: "racecard_id,model_version",
+    });
+
+  if (error) throw error;
+}
+
+/**
+ * Inserir top 4 picks no banco
+ */
+async function insertTop4Picks(
+  picks: EnrichedPick[],
+  raceId: number,
+): Promise<void> {
+  const records = picks.map((pick, index) => ({
+    racecard_id: raceId,
+    race_id: pick.race_id,
+    race_horse_id: pick.race_horse_id,
+    horse_id: pick.horse_id,
+    pick_rank: index + 1,
+    horse_name: pick.horse || "",
+    horse_number: pick.number,
+    predicted_probability: pick.predicted_probability,
+    market_odd: pick.market_odd > 0 ? pick.market_odd : null,
+    ivl_score: pick.ivl_score > 0 ? pick.ivl_score : null,
+    combined_score: pick.combined_score,
+    pick_type: pick.pick_type,
+    lay_recommendation: pick.lay_recommendation,
+    selection_reason: pick.selection_reason,
+    model_version: MODEL_VERSION,
+    generated_at: new Date().toISOString(),
+    score_diff_to_first:
+      index === 0
+        ? 0
+        : (picks[0].combined_score - pick.combined_score) /
+          picks[0].combined_score,
+  }));
+
+  const { error } = await supabase
+    .schema("hml")
+    .from("lay_betting_top_picks")
+    .upsert(records, {
+      onConflict: "racecard_id,pick_rank,model_version",
+    });
+
+  if (error) throw error;
+}
+
+/**
+ * Mostrar estatísticas dos picks gerados
+ */
+async function showPickStatistics(): Promise<void> {
+  console.log("\n📊 ESTATÍSTICAS DOS PICKS GERADOS");
+  console.log("-".repeat(40));
+
+  // Estatísticas dos picks principais
+  const { data: mainPicks, error: mainError } = await supabase
+    .schema("hml")
+    .from("lay_betting_picks")
+    .select("pick_type, lay_recommendation, confidence_score")
+    .eq("model_version", MODEL_VERSION)
+    .gte(
+      "generated_at",
+      new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    );
+
+  if (!mainError && mainPicks && mainPicks.length > 0) {
+    const byType = {
+      VALUE: mainPicks.filter((p) => p.pick_type === "VALUE").length,
+      PROBABILITY: mainPicks.filter((p) => p.pick_type === "PROBABILITY")
+        .length,
+      HYBRID: mainPicks.filter((p) => p.pick_type === "HYBRID").length,
+    };
+
+    console.log(`\n🎯 Picks Principais (últimas 24h):`);
+    console.log(`  - VALUE: ${byType.VALUE}`);
+    console.log(`  - PROBABILITY: ${byType.PROBABILITY}`);
+    console.log(`  - HYBRID: ${byType.HYBRID}`);
+
+    const avgConfidence =
+      mainPicks.reduce((sum, p) => sum + p.confidence_score, 0) /
+      mainPicks.length;
+    console.log(`  - Confiança média: ${(avgConfidence * 100).toFixed(1)}%`);
+
+    const byRecommendation = {
+      STRONG_LAY: mainPicks.filter((p) => p.lay_recommendation === "STRONG_LAY")
+        .length,
+      LAY: mainPicks.filter((p) => p.lay_recommendation === "LAY").length,
+      NEUTRAL: mainPicks.filter((p) => p.lay_recommendation === "NEUTRAL")
+        .length,
+      AVOID: mainPicks.filter((p) => p.lay_recommendation === "AVOID").length,
+    };
+
+    console.log(`\n📈 Por Recomendação:`);
+    console.log(`  - STRONG_LAY: ${byRecommendation.STRONG_LAY}`);
+    console.log(`  - LAY: ${byRecommendation.LAY}`);
+    console.log(`  - NEUTRAL: ${byRecommendation.NEUTRAL}`);
+    console.log(`  - AVOID: ${byRecommendation.AVOID}`);
+  }
+
+  // Top picks mais frequentes
+  const { data: topPicks, error: topError } = await supabase
+    .schema("hml")
+    .from("lay_betting_top_picks")
+    .select("pick_rank, horse_name, combined_score")
+    .eq("model_version", MODEL_VERSION)
+    .eq("pick_rank", 1)
+    .order("combined_score", { ascending: false })
+    .limit(5);
+
+  if (!topError && topPicks && topPicks.length > 0) {
+    console.log(`\n🏆 Top 5 Melhores Scores (Rank #1):`);
+    topPicks.forEach((pick, idx) => {
+      console.log(
+        `  ${idx + 1}. ${pick.horse_name} - Score: ${pick.combined_score.toFixed(3)}`,
+      );
+    });
+  }
+
+  console.log("-".repeat(40));
+}
+
+/**
+ * Validar e atualizar resultados de picks anteriores
+ */
+export async function validatePreviousPicks(): Promise<void> {
+  console.log("\n🔍 Validando resultados de picks anteriores...");
+
+  // Buscar picks pendentes de corridas finalizadas
+  const { data: pendingPicks, error: pendingError } = await supabase
+    .schema("hml")
+    .from("lay_betting_picks")
+    .select("id, racecard_id, race_horse_id, bet_odd")
+    .eq("result", "PENDING");
+
+  if (pendingError || !pendingPicks) {
+    console.error("Erro ao buscar picks pendentes:", pendingError);
+    return;
+  }
+
+  console.log(`📊 ${pendingPicks.length} picks pendentes para validar`);
+
+  let validated = 0;
+  let won = 0;
+  let lost = 0;
+
+  for (const pick of pendingPicks) {
+    // Buscar resultado da corrida
+    const { data: raceResult, error: raceError } = await supabase
+      .schema("hml")
+      .from("race_horses_hr_enriched")
+      .select("position")
+      .eq("id", pick.race_horse_id)
+      .single();
+
+    if (raceError || !raceResult) continue;
+
+    // Verificar se a corrida foi finalizada
+    const { data: raceData, error: raceDataError } = await supabase
+      .schema("hml")
+      .from("racecards_hr_enriched")
+      .select("finished")
+      .eq("id", pick.racecard_id)
+      .single();
+
+    if (raceDataError || !raceData || !raceData.finished) continue;
+
+    // Determinar resultado
+    const result = raceResult.position === 1 ? "LOST" : "WON";
+
+    // Calcular lucro/prejuízo (assumindo stake de 100)
+    const stake = 100;
+    let profitLoss = 0;
+
+    if (result === "WON") {
+      // Lay bet ganhou (cavalo não venceu)
+      profitLoss = stake; // Simplificado - ajustar baseado na odd real
+      won++;
+    } else {
+      // Lay bet perdeu (cavalo venceu)
+      profitLoss = -stake * (pick.bet_odd - 1); // Liability
+      lost++;
+    }
+
+    // Atualizar resultado
+    const { error: updateError } = await supabase
+      .schema("hml")
+      .from("lay_betting_picks")
+      .update({
+        result: result,
+        profit_loss: profitLoss,
+      })
+      .eq("id", pick.id);
+
+    if (!updateError) {
+      validated++;
+    }
+  }
+
+  console.log(`✅ ${validated} picks validados`);
+  console.log(`  - Ganhos: ${won}`);
+  console.log(`  - Perdidos: ${lost}`);
+
+  if (validated > 0) {
+    const winRate = ((won / validated) * 100).toFixed(1);
+    console.log(`  - Taxa de acerto: ${winRate}%`);
+  }
+}
+
+/**
+ * Função auxiliar para análise de performance histórica
+ */
+export async function analyzeHistoricalPerformance(days = 30): Promise<void> {
+  console.log(`\n📊 ANÁLISE DE PERFORMANCE (últimos ${days} dias)`);
+  console.log("=".repeat(50));
+
+  const startDate = new Date(
+    Date.now() - days * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  // Buscar picks com resultado
+  const { data: picks, error } = await supabase
+    .schema("hml")
+    .from("lay_betting_picks")
+    .select("*")
+    .gte("race_date", startDate)
+    .in("result", ["WON", "LOST"]);
+
+  if (error || !picks || picks.length === 0) {
+    console.log("Sem dados suficientes para análise");
+    return;
+  }
+
+  // Análise por tipo de pick
+  const analysisByType = {
+    VALUE: { total: 0, won: 0, profit: 0 },
+    PROBABILITY: { total: 0, won: 0, profit: 0 },
+    HYBRID: { total: 0, won: 0, profit: 0 },
+  };
+
+  // Análise por faixa de confiança
+  const analysisByConfidence = {
+    high: { total: 0, won: 0, profit: 0 }, // > 0.8
+    medium: { total: 0, won: 0, profit: 0 }, // 0.6 - 0.8
+    low: { total: 0, won: 0, profit: 0 }, // < 0.6
+  };
+
+  // Processar cada pick
+  for (const pick of picks) {
+    // Por tipo
+    const type = pick.pick_type as keyof typeof analysisByType;
+    if (analysisByType[type]) {
+      analysisByType[type].total++;
+      if (pick.result === "WON") analysisByType[type].won++;
+      analysisByType[type].profit += pick.profit_loss || 0;
+    }
+
+    // Por confiança
+    const confKey =
+      pick.confidence_score > 0.8
+        ? "high"
+        : pick.confidence_score > 0.6
+          ? "medium"
+          : "low";
+    analysisByConfidence[confKey].total++;
+    if (pick.result === "WON") analysisByConfidence[confKey].won++;
+    analysisByConfidence[confKey].profit += pick.profit_loss || 0;
+  }
+
+  // Exibir resultados
+  console.log("\n📈 PERFORMANCE POR TIPO DE PICK:");
+  for (const [type, stats] of Object.entries(analysisByType)) {
+    if (stats.total > 0) {
+      const winRate = ((stats.won / stats.total) * 100).toFixed(1);
+      const roi = ((stats.profit / (stats.total * 100)) * 100).toFixed(1);
+      console.log(`\n${type}:`);
+      console.log(`  - Total: ${stats.total} picks`);
+      console.log(`  - Taxa de acerto: ${winRate}%`);
+      console.log(`  - Lucro/Prejuízo: ${stats.profit.toFixed(2)}`);
+      console.log(`  - ROI: ${roi}%`);
+    }
+  }
+
+  console.log("\n📊 PERFORMANCE POR NÍVEL DE CONFIANÇA:");
+  for (const [level, stats] of Object.entries(analysisByConfidence)) {
+    if (stats.total > 0) {
+      const winRate = ((stats.won / stats.total) * 100).toFixed(1);
+      const roi = ((stats.profit / (stats.total * 100)) * 100).toFixed(1);
+      console.log(
+        `\n${level.toUpperCase()} (${level === "high" ? ">80%" : level === "medium" ? "60-80%" : "<60%"}):`,
+      );
+      console.log(`  - Total: ${stats.total} picks`);
+      console.log(`  - Taxa de acerto: ${winRate}%`);
+      console.log(`  - Lucro/Prejuízo: ${stats.profit.toFixed(2)}`);
+      console.log(`  - ROI: ${roi}%`);
+    }
+  }
+
+  // Resumo geral
+  const totalPicks = picks.length;
+  const totalWon = picks.filter((p) => p.result === "WON").length;
+  const totalProfit = picks.reduce((sum, p) => sum + (p.profit_loss || 0), 0);
+  const overallWinRate = ((totalWon / totalPicks) * 100).toFixed(1);
+  const overallROI = ((totalProfit / (totalPicks * 100)) * 100).toFixed(1);
+
+  console.log("\n" + "=".repeat(50));
+  console.log("📊 RESUMO GERAL:");
+  console.log(`  - Total de picks: ${totalPicks}`);
+  console.log(`  - Taxa de acerto geral: ${overallWinRate}%`);
+  console.log(`  - Lucro/Prejuízo total: ${totalProfit.toFixed(2)}`);
+  console.log(`  - ROI geral: ${overallROI}%`);
+  console.log("=".repeat(50));
+
+  // Identificar padrões de sucesso
+  const successfulPicks = picks.filter(
+    (p) => p.result === "WON" && p.ivl_score && p.ivl_score > 0,
+  );
+  if (successfulPicks.length > 0) {
+    const avgIVL =
+      successfulPicks.reduce((sum, p) => sum + p.ivl_score, 0) /
+      successfulPicks.length;
+    const avgOdd =
+      successfulPicks.reduce((sum, p) => sum + (p.market_odd || 0), 0) /
+      successfulPicks.length;
+
+    console.log("\n💡 INSIGHTS DOS PICKS VENCEDORES:");
+    console.log(`  - IVL médio: ${avgIVL.toFixed(2)}`);
+    console.log(`  - Odd média: ${avgOdd.toFixed(2)}`);
+  }
+}
