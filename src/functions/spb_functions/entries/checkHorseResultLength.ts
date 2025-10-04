@@ -5,7 +5,8 @@ export const checkHorseResultLength = async () => {
 
   // Buscar corridas não finalizadas
   const { data: unfinishedRaceCards, error: raceCardError } = await supabase
-    .from("racecards_hr")
+    .schema("hml")
+    .from("racecards_hr_enriched")
     .select("id")
     .eq("finished", "0");
 
@@ -34,7 +35,8 @@ export const checkHorseResultLength = async () => {
 
     // Buscar cavalos participantes da corrida
     const { data: horses, error: horsesError } = await supabase
-      .from("race_horses_hr")
+      .schema("hml")
+      .from("race_horses_hr_enriched")
       .select("id_horse")
       .eq("racecard_id", racecardId);
 

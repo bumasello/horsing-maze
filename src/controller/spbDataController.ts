@@ -17,6 +17,10 @@ import {
 import { supabase } from "..";
 import { runDebug } from "../functions/spb_functions/features_v4/pipeline/debug";
 import { runDeepDebug } from "../functions/spb_functions/features_v4/pipeline/deepDebug";
+import {
+  updateLayBettingResults,
+  updateRacecardsAndDetails,
+} from "../functions/spb_functions/features_v4/pipeline/update_results";
 
 const spbRaceCards = async (
   _req: Request,
@@ -230,8 +234,8 @@ const spbUpdateRacecard = async (
 ) => {
   try {
     console.log("spbUpdateRacecard");
-    await updateRacecards_spb();
-    // await updateHorseEntries_spb();
+    await updateRacecardsAndDetails();
+    await updateLayBettingResults();
 
     res
       .status(200)

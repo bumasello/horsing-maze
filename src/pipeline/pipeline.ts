@@ -468,7 +468,7 @@ export const runPipeline = async (): Promise<PipelineResult> => {
 
     await metrics.measure("Pipeline Completo", async () => {
       // Etapa 1: Atualização de dados no MongoDB
-      // await updateMongoDBData();
+      await updateMongoDBData();
 
       // Etapa 2: Processamento de dados no MongoDB
       await processMongoDBData();

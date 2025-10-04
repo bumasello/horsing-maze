@@ -18,6 +18,7 @@ export interface IRaceHorse_Spb {
   dam: string | null;
   or_rating: number | null;
   sp: string | null;
+  sp_decimal?: string | null;
   created_at?: string;
   updated_at?: string;
 }
