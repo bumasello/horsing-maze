@@ -528,24 +528,58 @@ async function fetchRacesInRange(
   supabase: SupabaseClient,
   startDate: Date,
   endDate: Date,
-): Promise<RaceCardEnriched[]> {
-  const { data, error } = await supabase
+): Promise<any[]> {
+  // Primeiro, contar total de registros disponíveis
+  const { count: totalCount, error: countError } = await supabase
     .schema("hml")
     .from("racecards_hr_enriched")
-    .select("*")
+    .select("*", { count: "exact", head: true })
     .gte("date", startDate.toISOString())
     .lte("date", endDate.toISOString())
     .eq("finished", 1)
-    .eq("canceled", 0)
-    .order("date", { ascending: true })
-    .order("off_time_br", { ascending: true });
+    .eq("canceled", 0);
 
-  if (error) {
-    console.error("Error fetching races:", error);
-    throw error;
+  if (countError) {
+    console.error("Error counting races:", countError);
+    throw countError;
   }
 
-  return data || [];
+  console.log(`📊 Total de registros disponíveis: ${totalCount}`);
+
+  // Carregar dados com paginação
+  const allRaces: any[] = [];
+  const pageSize = 1000; // Tamanho seguro de página
+  let currentPage = 0;
+
+  while (currentPage * pageSize < (totalCount || 0)) {
+    const from = currentPage * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data: pageData, error } = await supabase
+      .schema("hml")
+      .from("racecards_hr_enriched")
+      .select("*")
+      .gte("date", startDate.toISOString())
+      .lte("date", endDate.toISOString())
+      .eq("finished", 1)
+      .eq("canceled", 0)
+      .order("date", { ascending: true })
+      .order("off_time_br", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      console.error("Error fetching races:", error);
+      throw error;
+    }
+
+    if (!pageData) break;
+    allRaces.push(...pageData);
+    currentPage++;
+
+    console.log(`📥 Carregadas ${allRaces.length}/${totalCount} corridas...`);
+  }
+
+  return allRaces;
 }
 
 async function fetchRaceById(

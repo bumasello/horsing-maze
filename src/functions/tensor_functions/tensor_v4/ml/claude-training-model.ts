@@ -173,7 +173,7 @@ async function loadAndPrepareData() {
   );
 
   // Opção de limitar dados se forem muitos (para não explodir memória)
-  const maxSamples = 10000; // Ajuste conforme sua memória disponível
+  const maxSamples = 100000000; // Ajuste conforme sua memória disponível
   const data =
     allData.length > maxSamples
       ? shuffleArray(allData).slice(0, maxSamples)

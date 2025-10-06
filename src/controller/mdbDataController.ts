@@ -13,14 +13,17 @@ const getRaceCards = async (
 ) => {
   console.log("mdbGetRaceCards");
   const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate());
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
 
   const formatted = tomorrowDate.toISOString().slice(0, 10);
 
   try {
-    await raceCards.getRaceCardAndStore_Hr(formatted);
+    const inseridos = await raceCards.getRaceCardAndStore_Hr(formatted);
 
-    res.status(200).json({ message: "Racecards obtidos com sucesso." });
+    res.status(200).json({
+      message: "Racecards obtidos com sucesso.",
+      inseridos: inseridos,
+    });
   } catch (error) {
     next(error);
   }
