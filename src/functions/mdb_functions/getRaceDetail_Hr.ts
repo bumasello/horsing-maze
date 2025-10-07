@@ -101,7 +101,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         ...raceCardFields
       } = dataSansId;
 
-      if (horses.length > 8 && horses.length <= 15) {
+      if (horses.length > 8) {
         // 1) Atualiza RaceCard (só campos que interessam + checked_detail)
         await RaceCard.findOneAndUpdate(
           { id_race: data.id_race },
