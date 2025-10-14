@@ -2,6 +2,7 @@
 
 import type { RaceHorseEnriched } from "../types/core.types";
 import type { HistoricalRaceData } from "./historical.features";
+import { parseDistanceToMeters } from "../converters";
 
 /**
  * Interface for jockey/trainer relationship features
@@ -625,21 +626,21 @@ function calculateRelationshipStrength(
  * Helper function to parse distance to meters
  * (Simplified version - should import from distance.converter.ts)
  */
-function parseDistanceToMeters(distance: string): number {
-  // This is a simplified implementation
-  // In production, import from '../converters/distance.converter'
-  const clean = distance.toLowerCase().trim();
-
-  // Try to extract a number
-  const match = clean.match(/(\d+)/);
-  if (match) {
-    const value = Number.parseInt(match[1]);
-    // Assume meters if > 1000, yards otherwise
-    return value > 1000 ? value : value * 0.9144;
-  }
-
-  return 1600; // Default to about a mile
-}
+// function parseDistanceToMeters(distance: string): number {
+//   // This is a simplified implementation
+//   // In production, import from '../converters/distance.converter'
+//   const clean = distance.toLowerCase().trim();
+//
+//   // Try to extract a number
+//   const match = clean.match(/(\d+)/);
+//   if (match) {
+//     const value = Number.parseInt(match[1]);
+//     // Assume meters if > 1000, yards otherwise
+//     return value > 1000 ? value : value * 0.9144;
+//   }
+//
+//   return 1600; // Default to about a mile
+// }
 
 /**
  * Analyze relationship dynamics

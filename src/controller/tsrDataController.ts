@@ -1,6 +1,6 @@
 import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
 import { generatePredictions_v4 } from "../functions/tensor_functions/tensor_v4/ml/claude-prediction-model";
-import { trainLayBettingModel } from "../functions/tensor_functions/tensor_v4/ml/claude-training-model";
+import { trainLayBettingModel } from "../functions/tensor_functions/tensor_v4/ml/sonnet-claude-training";
 import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
 
 import type { NextFunction, Request, Response } from "express";

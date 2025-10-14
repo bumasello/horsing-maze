@@ -620,77 +620,234 @@ async function fetchHorsesForRace(
   return data || [];
 }
 
+const historyCache = new Map<string, HistoricalRaceData[]>();
+
 async function fetchHistoricalDataForHorses(
   supabase: SupabaseClient,
   horseIds: number[],
+  beforeDate?: Date,
 ): Promise<Map<number, HistoricalRaceData[]>> {
-  // Supabase doesn't support direct JOINs in the same way, so we'll need to fetch in two steps
+  const historicalMap = new Map<number, HistoricalRaceData[]>();
 
-  // First, fetch all historical horse records
-  const { data: horseRecords, error: horseError } = await supabase
-    .schema("hml")
-    .from("race_horses_hr_enriched")
-    .select("*, racecard_id")
-    .in("id_horse", horseIds)
-    .not("position", "is", null);
+  // Processar em batches para evitar timeout
+  const batchSize = 5; // Reduzido para evitar timeout
 
-  if (horseError) {
-    console.error("Error fetching horse history:", horseError);
-    throw horseError;
+  for (let i = 0; i < horseIds.length; i += batchSize) {
+    const batch = horseIds.slice(i, i + batchSize);
+
+    try {
+      // Buscar histórico de cada cavalo do batch
+      const batchPromises = batch.map(async (horseId) => {
+        // Verificar cache primeiro
+        const cacheKey = `${horseId}-${beforeDate?.toISOString() || "all"}`;
+        if (historyCache.has(cacheKey)) {
+          return { horseId, data: historyCache.get(cacheKey)! };
+        }
+
+        // Query otimizada com limit e campos específicos
+        // Primeiro buscar os registros do cavalo
+        const { data: horseRecords, error } = await supabase
+          .schema("hml")
+          .from("race_horses_hr_enriched")
+          .select(
+            `
+            id,
+            id_horse,
+            horse,
+            position,
+            or_rating,
+            sp_decimal,
+            weight,
+            distance_beaten,
+            non_runner,
+            age,
+            jockey,
+            trainer,
+            form,
+            racecard_id
+          `,
+          )
+          .eq("id_horse", horseId)
+          .not("position", "is", null)
+          .gt("position", 0)
+          .limit(20);
+
+        if (error) {
+          // Se for timeout, tentar com menos registros
+          if (error.code === "57014") {
+            console.warn(`Timeout for horse ${horseId}, trying with limit 10`);
+            const { data: reducedData } = await supabase
+              .schema("hml")
+              .from("race_horses_hr_enriched")
+              .select(`id, id_horse, position, or_rating, racecard_id`)
+              .eq("id_horse", horseId)
+              .not("position", "is", null)
+              .limit(10);
+
+            return {
+              horseId,
+              data: await enrichWithRaceData(
+                supabase,
+                reducedData || [],
+                beforeDate,
+              ),
+            };
+          }
+
+          console.error(`Error fetching history for horse ${horseId}:`, error);
+          return { horseId, data: [] };
+        }
+
+        // Enriquecer com dados das corridas
+        const historicalData = await enrichWithRaceData(
+          supabase,
+          horseRecords || [],
+          beforeDate,
+        );
+
+        // Salvar no cache
+        historyCache.set(cacheKey, historicalData);
+
+        return { horseId, data: historicalData };
+      });
+
+      // Aguardar batch completar
+      const batchResults = await Promise.all(batchPromises);
+
+      // Adicionar ao mapa
+      for (const { horseId, data } of batchResults) {
+        historicalMap.set(horseId, data);
+      }
+
+      // Pequeno delay entre batches
+      if (i + batchSize < horseIds.length) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      // console.log(
+      //   `📊 Histórico carregado: ${i + batch.length}/${horseIds.length} cavalos`,
+      // );
+    } catch (error) {
+      console.error(`Error processing batch starting at ${i}:`, error);
+      // Continuar com próximo batch mesmo se houver erro
+      for (const horseId of batch) {
+        historicalMap.set(horseId, []);
+      }
+    }
   }
 
+  return historicalMap;
+}
+
+/**
+ * Enriquecer registros de cavalos com dados das corridas
+ */
+async function enrichWithRaceData(
+  supabase: SupabaseClient,
+  horseRecords: any[],
+  beforeDate?: Date,
+): Promise<HistoricalRaceData[]> {
   if (!horseRecords || horseRecords.length === 0) {
-    return new Map();
+    return [];
   }
 
-  // Get unique racecard IDs
+  // Obter IDs únicos de racecards
   const racecardIds = [...new Set(horseRecords.map((h) => h.racecard_id))];
 
-  // Fetch corresponding race data
-  const { data: raceData, error: raceError } = await supabase
+  // Buscar dados das corridas
+  let raceQuery = supabase
     .schema("hml")
     .from("racecards_hr_enriched")
-    .select("*")
+    .select(
+      "id, date, course, distance, going, class, finished, canceled, title, prize, id_race, off_time_br",
+    )
     .in("id", racecardIds)
-    .eq("finished", 1);
+    .eq("finished", 1)
+    .eq("canceled", 0);
 
-  if (raceError) {
-    console.error("Error fetching race history:", raceError);
-    throw raceError;
+  // Adicionar filtro de data se fornecido
+  if (beforeDate) {
+    raceQuery = raceQuery.lt("date", beforeDate.toISOString().split("T")[0]);
   }
 
-  // Create a map of race data for quick lookup
-  const raceMap = new Map<number, RaceCardEnriched>();
-  raceData?.forEach((race) => {
+  const { data: raceData, error: raceError } = await raceQuery;
+
+  if (raceError) {
+    console.error("Error fetching race data:", raceError);
+    return [];
+  }
+
+  // Criar mapa de corridas
+  const raceMap = new Map<number, any>();
+  (raceData || []).forEach((race) => {
     raceMap.set(race.id, race);
   });
 
-  // Group by horse ID
-  const historicalMap = new Map<number, HistoricalRaceData[]>();
+  // Combinar dados e filtrar por corridas válidas
+  const historicalData: HistoricalRaceData[] = [];
 
-  horseRecords.forEach((horse) => {
+  for (const horse of horseRecords) {
     const race = raceMap.get(horse.racecard_id);
-    if (!race) return; // Skip if race data not found
+    if (!race) continue; // Pular se não encontrar a corrida
 
-    const horseId = horse.id_horse;
-    const data: HistoricalRaceData = { horse, race };
-
-    if (!historicalMap.has(horseId)) {
-      historicalMap.set(horseId, []);
-    }
-    historicalMap.get(horseId)!.push(data);
-  });
-
-  // Sort each horse's history by date (most recent first)
-  historicalMap.forEach((history) => {
-    history.sort((a, b) => {
-      const dateA = new Date(a.race.date).getTime();
-      const dateB = new Date(b.race.date).getTime();
-      return dateB - dateA;
+    historicalData.push({
+      horse: {
+        id: horse.id,
+        id_horse: horse.id_horse,
+        horse: horse.horse,
+        position: horse.position,
+        or_rating: horse.or_rating,
+        sp_decimal: horse.sp_decimal,
+        weight: horse.weight,
+        distance_beaten: horse.distance_beaten,
+        non_runner: horse.non_runner,
+        age: horse.age,
+        jockey: horse.jockey,
+        trainer: horse.trainer,
+        form: horse.form,
+        racecard_id: horse.racecard_id,
+        number: horse.number || null,
+        dam: horse.dam || null,
+        sire: horse.sire || null,
+        owner: horse.owner || null,
+        last_ran_days_ago: horse.last_ran_days_ago || null,
+        sp: horse.sp || null,
+      } as RaceHorseEnriched,
+      race: {
+        id: race.id,
+        date: race.date,
+        course: race.course,
+        distance: race.distance,
+        going: race.going,
+        class: race.class,
+        finished: race.finished,
+        canceled: race.canceled,
+        title: race.title || "",
+        prize: race.prize || "",
+        id_race: race.id_race || "",
+        off_time_br: race.off_time_br || "",
+        age: race.age || null,
+        finish_time: race.finish_time || null,
+      } as RaceCardEnriched,
     });
+  }
+
+  // Ordenar por data (mais recente primeiro)
+  historicalData.sort((a, b) => {
+    const dateA = new Date(a.race.date).getTime();
+    const dateB = new Date(b.race.date).getTime();
+    return dateB - dateA;
   });
 
-  return historicalMap;
+  return historicalData;
+}
+
+/**
+ * Limpar cache periodicamente (adicionar ao final do processamento)
+ */
+function clearHistoryCache(): void {
+  historyCache.clear();
+  console.log("♻ Cache de histórico limpo");
 }
 
 async function saveTrainingFeaturesToDatabase(
