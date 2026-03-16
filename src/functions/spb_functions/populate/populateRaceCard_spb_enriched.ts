@@ -25,56 +25,40 @@ export const populateRacecardsEnriched_spb = async () => {
         class: raceclass,
       } = rc;
 
-      // Verifica se o racecard com o mesmo id_race já existe no Supabase
-      const { data: existingData, error: existingError } = await supabase
+      const { error } = await supabase
         .schema("hml")
         .from("racecards_hr_enriched")
-        .select("id")
-        .eq("id_race", id_race);
-
-      if (existingError) {
-        throw new Error(
-          `Erro verificando existência do racecard ${id_race}: ${JSON.stringify(
-            existingError,
-          )}.`,
+        .upsert(
+          {
+            id_race,
+            course,
+            date,
+            off_time_br,
+            title,
+            distance,
+            age,
+            going,
+            finished,
+            canceled,
+            finish_time,
+            prize,
+            class: raceclass,
+          },
+          { onConflict: "id_race", ignoreDuplicates: true },
         );
-      }
-
-      // Se já existir, pula para o próximo registro
-      if (existingData && existingData.length > 0) {
-        console.log(`Racecard ${id_race} já existe. Pulando inserção.`);
-        continue;
-      }
-
-      // Se não existe, insere o novo racecard
-      const { data, error } = await supabase
-        .schema("hml")
-        .from("racecards_hr_enriched")
-        .insert({
-          id_race,
-          course,
-          date,
-          off_time_br,
-          title,
-          distance,
-          age,
-          going,
-          finished,
-          canceled,
-          finish_time,
-          prize,
-          class: raceclass,
-        })
-        .select("id");
 
       if (error) {
         throw new Error(
-          `Erro inserindo racecard ${id_race}: ${JSON.stringify(error)}.`,
+          `Erro no upsert do racecard ${id_race}: ${JSON.stringify(error)}.`,
         );
       }
-      console.log(`Racecard ${id_race} inserido com sucesso.`);
+
+      console.log(`Racecard ${id_race} inserido/atualizado com sucesso.`);
     }
+
+    console.log("Population de racecards concluída com sucesso.");
   } catch (error) {
-    console.log(error);
+    // Relança o erro para o pipeline saber que falhou
+    throw error;
   }
 };

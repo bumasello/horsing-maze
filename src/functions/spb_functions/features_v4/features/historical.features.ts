@@ -1,5 +1,6 @@
 // features_v4/features/historical.features.ts
 
+import { parsePrize } from "../converters";
 import {
   isInSameDistanceBand,
   parseDistanceToMeters,
@@ -190,12 +191,10 @@ function calculateConditionSpecificStats(
   history: HistoricalRaceData[],
   currentRace: ProcessedRace,
 ): Partial<HistoricalFeatures> {
-  // Course-specific
   const courseRuns = history.filter(
     ({ race }) => race.course === currentRace.course,
   );
 
-  // Distance-specific (within 10% of current distance)
   const distanceRuns = history.filter(({ race }) => {
     const historicalDistance = parseDistanceToMeters(race.distance);
     return isInSameDistanceBand(
@@ -205,13 +204,12 @@ function calculateConditionSpecificStats(
     );
   });
 
-  // Going-specific (need to encode historical going)
+  // FIX 1 + FIX 2: usar going.converter + tolerância ±1
   const goingRuns = history.filter(({ race }) => {
     const historicalGoing = encodeGoing(race.going);
-    return historicalGoing === currentRace.going_encoded;
+    return Math.abs(historicalGoing - currentRace.going_encoded) <= 1;
   });
 
-  // Class-specific
   const classRuns = history.filter(
     ({ race }) => race.class === currentRace.race_class,
   );
@@ -364,31 +362,26 @@ function calculatePerformanceTrends(
 function calculateAdditionalMetrics(
   history: HistoricalRaceData[],
 ): Partial<HistoricalFeatures> {
-  // Total prize money (sum of prizes from winning/placing)
   let totalPrize = 0;
   history.forEach(({ horse, race }) => {
     if (horse.position && horse.position <= 3 && race.prize) {
-      // Parse prize string and estimate share based on position
-      const prizeAmount = parsePrizeAmount(race.prize);
+      // FIX 3: usar parsePrize em vez de parsePrizeAmount local
+      const prizeAmount = parsePrize(race.prize);
       const share =
         horse.position === 1 ? 0.6 : horse.position === 2 ? 0.2 : 0.1;
       totalPrize += prizeAmount * share;
     }
   });
 
-  // Best distance (where horse performed best)
   const distancePerformances = history.map(({ horse, race }) => ({
     distance: parseDistanceToMeters(race.distance),
     position: horse.position || 99,
   }));
 
-  // Group by distance and find best average
   const distanceGroups = new Map<number, number[]>();
   distancePerformances.forEach(({ distance, position }) => {
-    const band = Math.round(distance / 200) * 200; // Round to nearest 200m
-    if (!distanceGroups.has(band)) {
-      distanceGroups.set(band, []);
-    }
+    const band = Math.round(distance / 200) * 200;
+    if (!distanceGroups.has(band)) distanceGroups.set(band, []);
     distanceGroups.get(band)!.push(position);
   });
 
@@ -402,21 +395,21 @@ function calculateAdditionalMetrics(
     }
   });
 
-  // Preferred going (where horse wins most)
+  // FIX 1: usar going.converter
   const goingWins = new Map<number, number>();
-  const goingRuns = new Map<number, number>();
+  const goingRunsMap = new Map<number, number>();
 
   history.forEach(({ horse, race }) => {
     const going = encodeGoing(race.going);
-    goingRuns.set(going, (goingRuns.get(going) || 0) + 1);
+    goingRunsMap.set(going, (goingRunsMap.get(going) || 0) + 1);
     if (horse.position === 1) {
       goingWins.set(going, (goingWins.get(going) || 0) + 1);
     }
   });
 
-  let preferredGoing = 4; // Default to good
+  let preferredGoing = 4;
   let bestWinRate = 0;
-  goingRuns.forEach((runs, going) => {
+  goingRunsMap.forEach((runs, going) => {
     const wins = goingWins.get(going) || 0;
     const winRate = wins / runs;
     if (winRate > bestWinRate && runs >= 2) {
@@ -425,23 +418,18 @@ function calculateAdditionalMetrics(
     }
   });
 
-  // Average days between runs
-  const sortedByDate = [...history].sort((a, b) => {
-    const dateA = new Date(a.race.date);
-    const dateB = new Date(b.race.date);
-    return dateA.getTime() - dateB.getTime();
-  });
+  const sortedByDate = [...history].sort(
+    (a, b) => new Date(a.race.date).getTime() - new Date(b.race.date).getTime(),
+  );
 
   const dayGaps: number[] = [];
   for (let i = 1; i < sortedByDate.length; i++) {
-    const prevDate = new Date(sortedByDate[i - 1].race.date);
-    const currDate = new Date(sortedByDate[i].race.date);
     const diffDays = Math.floor(
-      (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24),
+      (new Date(sortedByDate[i].race.date).getTime() -
+        new Date(sortedByDate[i - 1].race.date).getTime()) /
+        (1000 * 60 * 60 * 24),
     );
-    if (diffDays > 0 && diffDays < 365) {
-      dayGaps.push(diffDays);
-    }
+    if (diffDays > 0 && diffDays < 365) dayGaps.push(diffDays);
   }
 
   const avgDaysBetween =
@@ -455,16 +443,6 @@ function calculateAdditionalMetrics(
     preferred_going: preferredGoing,
     avg_days_between_runs: avgDaysBetween,
   };
-}
-
-/**
- * Helper function to parse prize amount from string
- */
-function parsePrizeAmount(prize: string): number {
-  if (!prize) return 0;
-  const cleaned = prize.replace(/[£$€,]/g, "").trim();
-  const amount = Number.parseFloat(cleaned);
-  return Number.isNaN(amount) ? 0 : amount;
 }
 
 /**

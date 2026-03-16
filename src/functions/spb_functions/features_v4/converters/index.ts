@@ -1,46 +1,20 @@
 // features_v4/converters/index.ts
 
-// Import specific functions we need
 import {
   parseDistanceBeaten,
   parseDistanceToMeters,
 } from "./distance.converter";
 import { parseForm } from "./form.parser";
+import { encodeGoing } from "./going.converter"; // ← fonte única
 import { parseSP } from "./odds.converter";
 import { parseToKg } from "./weight.converter";
 
 // Re-export everything from each module
 export * from "./distance.converter";
 export * from "./form.parser";
+export * from "./going.converter";
 export * from "./odds.converter";
 export * from "./weight.converter";
-
-/**
- * Helper to encode going conditions
- */
-export function encodeGoing(going: string | null): number {
-  if (!going) return 4; // Default to 'good'
-
-  const goingMap: Record<string, number> = {
-    hard: 1,
-    fast: 2,
-    firm: 3,
-    good: 4,
-    "good to firm": 5,
-    "good to yielding": 6,
-    "yielding to soft": 7,
-    yielding: 8,
-    "good to soft": 9,
-    "standard to slow": 10,
-    standard: 11,
-    "soft heavy": 12,
-    heavy: 13,
-    soft: 14,
-  };
-
-  const normalized = going.toLowerCase().trim();
-  return goingMap[normalized] || 4; // Default to 'good'
-}
 
 /**
  * Helper to parse prize money

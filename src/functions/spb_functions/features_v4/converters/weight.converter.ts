@@ -18,53 +18,36 @@ export function parseToKg(weight: string | null): number | null {
 
   const clean = weight.trim().toLowerCase();
 
-  // Check for stones-pounds format (e.g., "10-7", "9-12")
   const stonesPoundsMatch = clean.match(/^(\d+)[-\s]+(\d+)$/);
   if (stonesPoundsMatch) {
     const stones = Number.parseInt(stonesPoundsMatch[1]);
     const pounds = Number.parseInt(stonesPoundsMatch[2]);
 
-    // CORREÇÃO: Se pounds >= 14, então NÃO é formato stones-pounds
-    // É provavelmente um peso total em libras mal formatado
     if (pounds >= STONE_TO_POUNDS) {
-      // Tratar como peso total em libras
-      // Por exemplo, "10-135" seria interpretado como 135 libras, não 10 stones e 135 pounds
       const totalPounds = Number.parseFloat(clean.replace(/[-\s]+/, ""));
-      if (!Number.isNaN(totalPounds)) {
-        return poundsToKg(totalPounds);
-      }
+      if (!Number.isNaN(totalPounds)) return poundsToKg(totalPounds);
     }
 
-    // É formato stones-pounds válido
     return stonesPoundsToKg(stones, pounds);
   }
 
-  // Tentar extrair apenas números
   const numberMatch = clean.match(/(\d+\.?\d*)/);
   if (numberMatch) {
     const num = Number.parseFloat(numberMatch[1]);
-
     if (Number.isNaN(num)) return null;
 
-    // Heurística para determinar a unidade:
-    // - Se > 80: definitivamente libras (cavalos não pesam 80kg de peso carregado)
-    // - Se entre 40-80: provavelmente kg (peso típico carregado)
-    // - Se entre 14-40: pode ser stones ou kg, assumir kg
-    // - Se < 14: provavelmente stones
-
     if (num > 80) {
-      // Definitivamente libras totais
       return poundsToKg(num);
     } else if (num >= 40 && num <= 80) {
-      // Provavelmente já está em kg
       return num;
     } else if (num >= 14 && num < 40) {
-      // Ambíguo, mas provavelmente kg para corridas
-      return num;
-    } else if (num < 14) {
-      // Pode ser stones sozinho
-      // Mas em corridas, normalmente seria formato completo
-      // Assumir que é stones
+      // FIX 2: ambíguo → null
+      console.warn(
+        `Ambiguous weight value: ${num} — expected stones-pounds format or kg (40-80)`,
+      );
+      return null;
+    } else {
+      // < 14 → stones sozinho
       return num * STONE_TO_KG;
     }
   }
@@ -295,8 +278,8 @@ export function isBottomWeight(
  * Calculate weight rank in field
  */
 export function getWeightRank(weight: number, fieldWeights: number[]): number {
-  const sorted = [...fieldWeights].sort((a, b) => b - a); // Heavy to light
-  return sorted.indexOf(weight) + 1;
+  const sorted = [...fieldWeights].sort((a, b) => b - a); // heavy to light
+  return sorted.filter((w) => w > weight).length + 1;
 }
 
 /**

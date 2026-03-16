@@ -51,7 +51,7 @@ export interface ProcessedRace {
   // Dados convertidos
   distance_meters: number;
   going_encoded: number;
-  race_class: number;
+  race_class: number | null;
   total_prize_numeric: number;
 
   // Metadados da corrida
@@ -97,22 +97,43 @@ export interface HorseFeatures {
   // === Identificadores ===
   race_horse_id: number;
   race_id: number;
+  race_date: string;
   horse_id: number;
 
-  // === Features Estáticas (da corrida atual) ===
-  // Cavalo
+  // === Static — cavalo ===
   horse_age: number | null;
   horse_weight_kg: number | null;
   days_since_last_run: number;
+  horse_number: number | null;
+  race_total_prize: number;
 
-  // Corrida
+  // === Static — corrida ===
   race_distance_meters: number;
   race_going_encoded: number;
   race_class: number | null;
   race_field_size: number;
 
-  // === Features de Performance Histórica ===
-  // Carreira geral
+  // === Static — flags derivadas ===
+  is_juvenile: number;
+  is_3yo: number;
+  is_mature: number;
+  is_fresh: number;
+  is_quick_backup: number;
+  is_normal_rest: number;
+  is_small_field: number;
+  is_large_field: number;
+  is_sprint: number;
+  is_mile: number;
+  is_middle_distance: number;
+  is_long_distance: number;
+  is_firm_ground: number;
+  is_good_ground: number;
+  is_soft_ground: number;
+  is_high_class: number;
+  is_mid_class: number;
+  is_low_class: number;
+
+  // === Historical — carreira ===
   career_runs: number;
   career_wins: number;
   career_places: number;
@@ -121,15 +142,38 @@ export interface HorseFeatures {
   career_avg_position: number;
   career_position_std: number;
 
-  // Condições específicas
+  // === Historical — condições específicas ===
   course_runs: number;
+  course_wins: number;
   course_win_rate: number;
-  distance_band_runs: number; // ±10% da distância atual
+  distance_band_runs: number;
+  distance_band_wins: number;
   distance_band_win_rate: number;
   going_runs: number;
+  going_wins: number;
   going_win_rate: number;
+  class_runs: number;
+  class_wins: number;
+  class_win_rate: number;
 
-  // === Features de Form Recente ===
+  // === Historical — recente ===
+  recent_runs_30d: number;
+  recent_wins_30d: number;
+  recent_runs_90d: number;
+  recent_wins_90d: number;
+  recent_avg_position: number;
+
+  // === Historical — tendências ===
+  improvement_rate: number;
+  consistency_score: number;
+  peak_or_rating: number;
+  avg_or_rating: number;
+  total_prize_money: number;
+  best_distance_meters: number;
+  preferred_going: number;
+  avg_days_between_runs: number;
+
+  // === Form — básico ===
   form_last_position: number | null;
   form_last3_avg: number | null;
   form_last5_avg: number | null;
@@ -137,44 +181,155 @@ export interface HorseFeatures {
   form_is_improving: 0 | 1;
   form_has_problems: 0 | 1;
 
-  // === Features de Rating ===
+  // === Form — detalhado ===
+  form_wins_in_last5: number;
+  form_places_in_last5: number;
+  form_consecutive_wins: number;
+  form_consecutive_places: number;
+  form_worst_recent: number | null;
+  form_best_recent: number | null;
+
+  // === Form — padrões ===
+  form_trend_score: number;
+  form_volatility: number;
+  form_recovery_rate: number;
+  form_peak_position: number;
+
+  // === Form — qualidade ===
+  form_data_quality: number;
+  form_races_recorded: number;
+  form_complete_finishes: number;
+  form_dnf_count: number;
+
+  // === Form — ponderado ===
+  form_weighted_avg: number | null;
+  form_exponential_avg: number | null;
+
+  // === Rating ===
   or_rating: number | null;
-  or_rating_imputed: number; // Sempre preenchido
-  or_rating_is_imputed: 0 | 1; // Flag
+  or_rating_imputed: number;
+  or_rating_is_imputed: 0 | 1;
   or_rank_in_race: number;
   or_percentile_in_race: number;
   or_diff_to_top: number;
+  or_diff_to_avg: number;
 
-  // === Features de Mercado (SP) ===
+  // === Market — básico ===
   sp_decimal: number | null;
   sp_rank: number;
   sp_implied_prob: number | null;
   sp_vs_field_avg: number | null;
 
-  // === Features de Contexto Competitivo ===
+  // === Market — posição ===
+  is_favorite: 0 | 1;
+  is_joint_favorite: 0 | 1;
+  is_top3_market: 0 | 1;
+  is_outsider: 0 | 1;
+
+  // === Market — campo ===
+  field_total_probability: number;
+  field_overround: number;
+  market_confidence: number;
+  sp_concentration: number;
+
+  // === Market — valor ===
+  sp_value_rating: number;
+  is_overbet: 0 | 1;
+  is_underbet: 0 | 1;
+  market_inefficiency: number;
+
+  // === Market — relativo ===
+  sp_to_favorite_ratio: number | null;
+  sp_percentile: number;
+  normalized_sp: number | null;
+  market_share: number | null;
+
+  // === Competitive — campo ===
   field_avg_or: number;
   field_std_or: number;
+  field_max_or: number;
+  field_min_or: number;
+  field_or_spread: number;
+
+  // === Competitive — posição ===
+  stronger_opponents_count: number;
+  weaker_opponents_count: number;
+
+  // === Competitive — composição ===
   field_avg_career_wins: number;
-  stronger_opponents_count: number; // Quantos com OR maior
+  field_avg_win_rate: number;
+  field_avg_recent_position: number;
+  experienced_runners_count: number;
+  maiden_runners_count: number;
 
-  // === Features de Relacionamento ===
+  // === Competitive — vantagens ===
+  or_advantage_score: number;
+  experience_advantage: number;
+  form_advantage: number;
+  weight_advantage: number;
+
+  // === Competitive — corrida ===
+  race_competitiveness_score: number;
+  field_depth_score: number;
+  quality_concentration: number;
+  is_competitive_race: 0 | 1;
+
+  // === Competitive — relativo ===
+  better_than_field_avg: 0 | 1;
+  in_top_quarter: 0 | 1;
+  in_bottom_quarter: 0 | 1;
+
+  // === Relationship — jóquei ===
   jockey_win_rate: number;
+  jockey_place_rate: number;
+  jockey_recent_form: number;
   jockey_course_win_rate: number;
-  jockey_with_horse_runs: number;
-  jockey_with_horse_win_rate: number;
-  trainer_win_rate: number;
-  trainer_course_win_rate: number;
-  jockey_trainer_combo_runs: number;
-  jockey_trainer_combo_win_rate: number;
+  jockey_distance_win_rate: number;
+  jockey_total_runs: number;
 
-  // === Features Específicas para Lay ===
+  // === Relationship — treinador ===
+  trainer_win_rate: number;
+  trainer_place_rate: number;
+  trainer_recent_form: number;
+  trainer_course_win_rate: number;
+  trainer_distance_win_rate: number;
+  trainer_total_runs: number;
+
+  // === Relationship — combinações ===
+  jockey_with_horse_runs: number;
+  jockey_with_horse_wins: number;
+  jockey_with_horse_win_rate: number;
+  jockey_with_horse_place_rate: number;
+  trainer_with_horse_runs: number;
+  trainer_with_horse_wins: number;
+  trainer_with_horse_win_rate: number;
+  trainer_with_horse_place_rate: number;
+  jockey_trainer_combo_runs: number;
+  jockey_trainer_combo_wins: number;
+  jockey_trainer_combo_win_rate: number;
+  jockey_trainer_combo_place_rate: number;
+
+  // === Relationship — owner & linhagem ===
+  owner_win_rate: number;
+  owner_with_trainer_win_rate: number;
+  owner_total_runners: number;
+  sire_win_rate: number;
+  sire_distance_suitability: number;
+  dam_produce_win_rate: number;
+
+  // === Relationship — força ===
+  stable_confidence: number;
+  jockey_reliability: number;
+  partnership_strength: number;
+
+  // === Lay-specific ===
   out_of_top3_rate: number;
   worst_recent_position: number | null;
   position_volatility: number;
-  beaten_favorite_rate: number; // Vezes que foi favorito e perdeu
+  beaten_favorite_rate: number;
 
   // === Target ===
-  target: 0 | 1 | null; // 0 = ganhou (ruim para lay), 1 = não ganhou (bom para lay)
+  target: 0 | 1 | null;
 }
 
 // ===== TIPOS AUXILIARES =====

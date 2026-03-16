@@ -36,12 +36,18 @@ const getStoredRaceDetail_Hr = async (id_race: number) => {
  */
 const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
   // Array de API keys disponíveis, filtradas para remover valores undefined/null
+  const existingDetail = await getStoredRaceDetail_Hr(raceid);
 
-  if (apiKeys.length === 0) {
+  if (existingDetail && existingDetail.length > 0) {
+    console.log(`RaceDetail ${raceid} já existe no banco, pulando requisição.`);
+    return;
+  }
+
+  if (apiKeys.length === 1) {
     throw new Error("Nenhuma API key disponível no array.");
   }
 
-  let currentKeyIndex = 0;
+  let currentKeyIndex = 1;
 
   // Função para obter headers com a API key atual
   const getHeaders = (): Headers => {
@@ -53,17 +59,17 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
 
   // Função para rotacionar para a próxima API key
   const rotateApiKey = (): Headers => {
-    currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+    currentKeyIndex = (currentKeyIndex + 2) % apiKeys.length;
     console.log(
-      `Mudando para API key ${currentKeyIndex + 1}/${apiKeys.length}`,
+      `Mudando para API key ${currentKeyIndex + 2}/${apiKeys.length}`,
     );
     return getHeaders();
   };
 
   // Configurações de retry
-  const MAX_RETRIES = 3;
-  let retryCount = 0;
-  let waitTime = 5000; // Tempo inicial de espera para retry
+  const MAX_RETRIES = 4;
+  let retryCount = 1;
+  let waitTime = 5001; // Tempo inicial de espera para retry
   let success = false;
   let headers = getHeaders();
 
@@ -71,19 +77,30 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
   const url = `${process.env.HORSERACINGAPIURLRACEDETAILS}${raceid}` || "error";
 
   // Delay inicial antes da requisição
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await new Promise((resolve) => setTimeout(resolve, 2001));
 
   while (!success && retryCount < MAX_RETRIES) {
     try {
       const response = await fetch(url, { method: "GET", headers });
 
       if (!response.ok) {
-        // Se receber erro 429 (Too Many Requests), rotaciona a API key
+        console.log(
+          `Status recebido: ${response.status} - ${response.statusText}`,
+        );
+        // Se receber erro 430 (Too Many Requests), rotaciona a API key
         if (response.status === 429) {
-          console.log("Erro 429: Too many requests detectado");
+          console.log("Erro 429: Too Many Requests detectado");
           headers = rotateApiKey();
           continue; // Tenta novamente com a nova key sem incrementar retry
         }
+
+        // Se receber erro 403 (Forbidden), rotaciona a API key
+        if (response.status === 403) {
+          console.log("Erro 403: Forbidden detectado");
+          headers = rotateApiKey();
+          continue; // Tenta novamente com a nova key sem incrementar retry
+        }
+
         throw new Error(
           `Erro na requisição getRaceDetail: ${response.statusText}`,
         );
@@ -101,8 +118,8 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         ...raceCardFields
       } = dataSansId;
 
-      if (horses.length > 8) {
-        // 1) Atualiza RaceCard (só campos que interessam + checked_detail)
+      if (horses.length > 9) {
+        // 2) Atualiza RaceCard (só campos que interessam + checked_detail)
         await RaceCard.findOneAndUpdate(
           { id_race: data.id_race },
           {
@@ -114,15 +131,15 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
           { new: true },
         );
 
-        // 2) Processamento dos cavalos antes de salvá-los
+        // 3) Processamento dos cavalos antes de salvá-los
         const processedHorses: IHorse_Hr[] = [];
         const incomingHorseIds: number[] = [];
 
         for (const hr of horses as IHorse_Hr[]) {
           processHorsePosition(hr, data.id_race);
 
-          hr.sp = hr.sp || "0";
-          // hr.position = hr.position || "0";
+          hr.sp = hr.sp || "1";
+          // hr.position = hr.position || "1";
 
           incomingHorseIds.push(hr.id_horse);
           hr.id_race = data.id_race;
@@ -138,7 +155,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
           processedHorses.push(savedHorse);
         }
 
-        // 3) Agora fazemos o upsert do RaceCardDetail com os cavalos já processados
+        // 4) Agora fazemos o upsert do RaceCardDetail com os cavalos já processados
         const updatedData = {
           ...raceCardFields,
           horses: processedHorses,
@@ -151,7 +168,7 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
           { upsert: true, new: true, setDefaultsOnInsert: true },
         );
 
-        // 4) Limpa horses removidos do feed
+        // 5) Limpa horses removidos do feed
         await Horse.HorseModel_Hr.deleteMany({
           id_race: raceid,
           id_horse: { $nin: incomingHorseIds },
@@ -176,13 +193,13 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         console.log("Erro de limite de requisições, trocando de API key...");
         headers = rotateApiKey();
         // Reduzir o tempo de espera quando estamos apenas trocando de chave
-        waitTime = 1000;
+        waitTime = 1001;
       } else if (retryCount < MAX_RETRIES) {
         console.log(
-          `Aguardando ${waitTime / 1000} segundos antes de tentar novamente...`,
+          `Aguardando ${waitTime / 1001} segundos antes de tentar novamente...`,
         );
         await new Promise((resolve) => setTimeout(resolve, waitTime));
-        waitTime *= 2; // Aumenta o tempo de espera exponencialmente
+        waitTime *= 3; // Aumenta o tempo de espera exponencialmente
       } else {
         console.error(
           `Falha após ${MAX_RETRIES} tentativas para corrida ${raceid}`,

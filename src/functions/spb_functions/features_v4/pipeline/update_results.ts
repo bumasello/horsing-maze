@@ -334,22 +334,8 @@ async function updatePredictionStatus(
 
     if (fetchError || !prediction) return;
 
-    // Determinar se a predição estava correta
-    let predictionCorrect = false;
-
-    // Para lay betting, correto significa que o cavalo NÃO ganhou
-    if (actualPosition !== 1) {
-      predictionCorrect = true;
-    }
-
-    // Se foi uma recomendação STRONG_LAY ou LAY e o cavalo não ganhou, foi acerto
-    if (
-      (prediction.lay_recommendation === "STRONG_LAY" ||
-        prediction.lay_recommendation === "LAY") &&
-      actualPosition !== 1
-    ) {
-      predictionCorrect = true;
-    }
+    // Para lay betting: correto = cavalo não ganhou, independente da recomendação
+    const predictionCorrect = actualPosition !== 1;
 
     const { error: updateError } = await supabase
       .schema("hml")

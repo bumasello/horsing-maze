@@ -57,64 +57,38 @@ export function extractMarketFeatures(
   allHorses: ProcessedHorse[],
   allRawHorses: RaceHorseEnriched[],
 ): MarketFeatures {
-  // Parse SP if not already done
-  const sp = horse.sp_decimal || parseSP(rawHorse.sp);
-
-  // Get all valid SPs in the field
+  const sp = horse.sp_decimal ?? parseSP(rawHorse.sp);
   const fieldSPs = getAllFieldSPs(allHorses, allRawHorses);
 
-  // Calculate basic market metrics
   const basicMetrics = calculateBasicMarketMetrics(sp, fieldSPs);
-
-  // Calculate market position
   const positionMetrics = calculateMarketPosition(sp, fieldSPs);
-
-  // Calculate field metrics
   const fieldMetrics = calculateFieldMarketMetrics(fieldSPs);
-
-  // Calculate value indicators
   const valueMetrics = calculateValueIndicators(sp, fieldSPs, basicMetrics);
-
-  // Calculate relative metrics
   const relativeMetrics = calculateRelativeMetrics(sp, fieldSPs);
-
-  // Market movement (placeholder - would need historical odds)
   const movementMetrics = calculateMarketMovement(sp, null);
 
-  // Combine all features ensuring all fields are present
   return {
-    // Basic SP features
     sp_decimal: basicMetrics.sp_decimal ?? null,
     sp_rank: basicMetrics.sp_rank ?? fieldSPs.length + 1,
     sp_implied_prob: basicMetrics.sp_implied_prob ?? null,
     sp_vs_field_avg: basicMetrics.sp_vs_field_avg ?? null,
-
-    // Market position
     is_favorite: positionMetrics.is_favorite ?? 0,
     is_joint_favorite: positionMetrics.is_joint_favorite ?? 0,
     is_top3_market: positionMetrics.is_top3_market ?? 0,
     is_outsider: positionMetrics.is_outsider ?? 0,
     market_position_category:
       positionMetrics.market_position_category ?? "unknown",
-
-    // Field market metrics
     field_total_probability: fieldMetrics.field_total_probability ?? 0,
     field_overround: fieldMetrics.field_overround ?? 0,
     market_confidence: fieldMetrics.market_confidence ?? 0,
     sp_concentration: fieldMetrics.sp_concentration ?? 0,
-
-    // Value indicators
     sp_value_rating: valueMetrics.sp_value_rating ?? 0,
     is_overbet: valueMetrics.is_overbet ?? 0,
     is_underbet: valueMetrics.is_underbet ?? 0,
     market_inefficiency: valueMetrics.market_inefficiency ?? 0,
-
-    // Market movement
     odds_movement: movementMetrics.odds_movement ?? null,
     odds_volatility: movementMetrics.odds_volatility ?? null,
     market_support: movementMetrics.market_support ?? null,
-
-    // Relative market metrics
     sp_to_favorite_ratio: relativeMetrics.sp_to_favorite_ratio ?? null,
     sp_percentile: relativeMetrics.sp_percentile ?? 0,
     normalized_sp: relativeMetrics.normalized_sp ?? null,
@@ -129,16 +103,16 @@ function getAllFieldSPs(
   horses: ProcessedHorse[],
   rawHorses: RaceHorseEnriched[],
 ): number[] {
-  const sps: number[] = [];
+  const rawMap = new Map(rawHorses.map((h) => [h.id, h]));
 
-  for (let i = 0; i < horses.length; i++) {
-    const sp = horses[i].sp_decimal || parseSP(rawHorses[i].sp);
-    if (sp !== null && sp > 0 && sp < 1000) {
-      sps.push(sp);
-    }
-  }
-
-  return sps.sort((a, b) => a - b); // Sort ascending (favorite first)
+  return horses
+    .map((h) => {
+      const raw = rawMap.get(h.id);
+      const sp = h.sp_decimal ?? (raw ? parseSP(raw.sp) : null);
+      return sp !== null && sp > 0 && sp < 1000 ? sp : null;
+    })
+    .filter((sp): sp is number => sp !== null)
+    .sort((a, b) => a - b);
 }
 
 /**
@@ -157,21 +131,20 @@ function calculateBasicMarketMetrics(
     };
   }
 
-  // Calculate rank (1 = favorite)
   const rank = fieldSPs.filter((s) => s < sp).length + 1;
-
-  // Calculate implied probability
-  const impliedProb = decimalToImpliedProbability(sp);
-
-  // Compare to field average
   const fieldAvg = fieldSPs.reduce((sum, s) => sum + s, 0) / fieldSPs.length;
-  const vsFieldAvg = sp - fieldAvg;
+
+  // FIX 1: normalizar pela soma das probabilidades implícitas
+  const rawProbs = fieldSPs.map((s) => 1 / s);
+  const totalProb = rawProbs.reduce((sum, p) => sum + p, 0);
+  const spRawProb = 1 / sp;
+  const impliedProb = totalProb > 0 ? spRawProb / totalProb : spRawProb;
 
   return {
     sp_decimal: sp,
     sp_rank: rank,
     sp_implied_prob: impliedProb,
-    sp_vs_field_avg: vsFieldAvg,
+    sp_vs_field_avg: sp - fieldAvg,
   };
 }
 

@@ -24,6 +24,7 @@ interface ModelConfig {
     median: number[];
     iqr: number[];
   };
+  optimalThreshold: number;
 }
 
 interface RaceForPrediction {
@@ -78,7 +79,11 @@ export async function generatePredictions_v4(): Promise<void> {
       );
 
       try {
-        const predictionsCount = await processRace(race, model, config);
+        const predictionsCount = await processRaceAfterTraining(
+          race,
+          model,
+          config,
+        );
         totalPredictions += predictionsCount;
         racesProcessed++;
 
@@ -163,54 +168,45 @@ async function getUpcomingRaces(): Promise<RaceForPrediction[]> {
 /**
  * Processar uma corrida individual
  */
-async function processRace(
+async function processRaceAfterTraining(
   race: RaceForPrediction,
   model: tf.LayersModel,
   config: ModelConfig,
 ): Promise<number> {
-  // 1. Buscar cavalos e features da corrida
   const horses = await getHorsesWithFeatures(race.id);
-
   if (horses.length === 0) {
     console.log(`! Nenhum cavalo com features para corrida ${race.id}`);
     return 0;
   }
-
   console.log(`🐴 ${horses.length} cavalos encontrados com features`);
 
-  // 2. Preparar dados para predição
   const { inputTensor, validHorses } = prepareInputData(horses, config);
-
   if (validHorses.length === 0) {
     console.log("! Nenhum cavalo válido após preparação");
     inputTensor.dispose();
     return 0;
   }
 
-  // 3. Fazer predições
   const predictions = model.predict(inputTensor) as tf.Tensor;
   const probabilities = await predictions.data();
 
-  // 4. Preparar registros para inserção
+  // Thresholds calibrados — derivados do optimalThreshold salvo no config
+  const strongLayThreshold = config.optimalThreshold;
+  const layThreshold = config.optimalThreshold - 0.1;
+  const neutralThreshold = config.optimalThreshold - 0.2;
+
   const predictionRecords = [];
 
   for (let i = 0; i < validHorses.length; i++) {
     const horse = validHorses[i];
     const probability = probabilities[i];
 
-    // Determinar recomendação de lay
     let layRecommendation: string;
-    if (probability >= 0.85) {
-      layRecommendation = "STRONG_LAY";
-    } else if (probability >= 0.75) {
-      layRecommendation = "LAY";
-    } else if (probability >= 0.65) {
-      layRecommendation = "NEUTRAL";
-    } else {
-      layRecommendation = "AVOID";
-    }
+    if (probability >= strongLayThreshold) layRecommendation = "STRONG_LAY";
+    else if (probability >= layThreshold) layRecommendation = "LAY";
+    else if (probability >= neutralThreshold) layRecommendation = "NEUTRAL";
+    else layRecommendation = "AVOID";
 
-    // Calcular score de qualidade baseado na completude das features
     const qualityScore = calculateQualityScore(horse.features);
 
     predictionRecords.push({
@@ -228,12 +224,22 @@ async function processRace(
     });
   }
 
-  // 5. Inserir no banco (com upsert para evitar duplicatas)
   if (predictionRecords.length > 0) {
+    const uniqueRecords = predictionRecords.reduce(
+      (acc, record) => {
+        const exists = acc.find(
+          (r) => r.race_horse_id === record.race_horse_id,
+        );
+        if (!exists) acc.push(record);
+        return acc;
+      },
+      [] as typeof predictionRecords,
+    );
+
     const { error } = await supabase
       .schema("hml")
       .from("prediction_enriched_horse_features")
-      .upsert(predictionRecords, {
+      .upsert(uniqueRecords, {
         onConflict: "race_horse_id,model_version",
         ignoreDuplicates: false,
       });
@@ -243,27 +249,25 @@ async function processRace(
       throw error;
     }
 
-    // Log das predições mais interessantes
-    const strongLays = predictionRecords.filter(
+    const strongLays = uniqueRecords.filter(
       (p) => p.lay_recommendation === "STRONG_LAY",
     );
-    const regularLays = predictionRecords.filter(
+    const regularLays = uniqueRecords.filter(
       (p) => p.lay_recommendation === "LAY",
     );
 
     if (strongLays.length > 0) {
       console.log(
-        `  🔥 ${strongLays.length} STRONG LAY (>85% chance de não ganhar)`,
+        `  🔥 ${strongLays.length} STRONG LAY (threshold >= ${strongLayThreshold.toFixed(2)})`,
       );
     }
     if (regularLays.length > 0) {
       console.log(
-        `  ✅ ${regularLays.length} LAY (75-85% chance de não ganhar)`,
+        `  ✅ ${regularLays.length} LAY (threshold >= ${layThreshold.toFixed(2)})`,
       );
     }
   }
 
-  // Cleanup
   inputTensor.dispose();
   predictions.dispose();
 
@@ -276,45 +280,32 @@ async function processRace(
 async function getHorsesWithFeatures(
   raceId: number,
 ): Promise<HorseForPrediction[]> {
-  // Primeiro buscar na tabela de predições existentes (caso já existam features geradas)
-  const { data: existingPredictions, error: predError } = await supabase
+  const { data, error } = await supabase
     .schema("hml")
     .from("prediction_enriched_horse_features")
     .select("race_horse_id, race_id, horse_id, features")
     .eq("race_id", raceId);
 
-  if (!predError && existingPredictions && existingPredictions.length > 0) {
-    return existingPredictions.map((p) => ({
-      id: p.race_horse_id,
-      race_horse_id: p.race_horse_id,
-      race_id: p.race_id,
-      horse_id: p.horse_id,
-      horse: "N/A", // Nome não é crítico para predição
-      features: p.features,
-    }));
+  if (error) {
+    console.error(`Erro ao buscar features para corrida ${raceId}:`, error);
+    return [];
   }
 
-  // Se não existirem, buscar da tabela de training (caso sejam corridas passadas sendo reprocessadas)
-  const { data: trainingData, error: trainError } = await supabase
-    .schema("hml")
-    .from("training_enriched_horse_features")
-    .select("race_horse_id, race_id, horse_id, features")
-    .eq("race_id", raceId);
-
-  if (!trainError && trainingData && trainingData.length > 0) {
-    return trainingData.map((t) => ({
-      id: t.race_horse_id,
-      race_horse_id: t.race_horse_id,
-      race_id: t.race_id,
-      horse_id: t.horse_id,
-      horse: "N/A",
-      features: t.features,
-    }));
+  if (!data || data.length === 0) {
+    console.warn(
+      `Nenhuma feature de previsão encontrada para corrida ${raceId}`,
+    );
+    return [];
   }
 
-  // Se não houver features em nenhuma tabela, retornar vazio
-  // (Você pode adicionar aqui uma chamada para gerar features on-demand se necessário)
-  return [];
+  return data.map((p) => ({
+    id: p.race_horse_id,
+    race_horse_id: p.race_horse_id,
+    race_id: p.race_id,
+    horse_id: p.horse_id,
+    horse: "N/A",
+    features: p.features,
+  }));
 }
 
 /**
@@ -331,22 +322,24 @@ function prepareInputData(
     const featureVector: number[] = [];
     let isValid = true;
 
-    // Extrair features na ordem correta
     for (const featureName of config.features) {
-      const value = horse.features[featureName];
+      let value = horse.features[featureName];
 
-      // Pular se feature crítica estiver faltando
-      if (value === null || value === undefined) {
-        if (featureName.includes("sp_") || featureName.includes("or_rating")) {
-          // Para predição, podemos imputar SP e OR
-          featureVector.push(featureName.includes("rate") ? 0.5 : 0);
-        } else {
-          isValid = false;
-          break;
-        }
-      } else {
-        featureVector.push(Number(value));
+      // SP null = cavalo inválido para previsão
+      if (
+        (featureName === "sp_decimal" || featureName === "sp_implied_prob") &&
+        (value === null || value === undefined)
+      ) {
+        isValid = false;
+        break;
       }
+
+      // FIX 1 + FIX 2: imputação consistente com treino — sempre 0
+      if (value === null || value === undefined) {
+        value = 0;
+      }
+
+      featureVector.push(Number(value));
     }
 
     if (isValid && featureVector.length === config.features.length) {
@@ -362,15 +355,11 @@ function prepareInputData(
     };
   }
 
-  // Criar tensor e normalizar usando os parâmetros salvos
   const rawTensor = tf.tensor2d(inputData);
   const normalizedTensor = normalizeFeatures(rawTensor, config.normalization);
   rawTensor.dispose();
 
-  return {
-    inputTensor: normalizedTensor,
-    validHorses,
-  };
+  return { inputTensor: normalizedTensor, validHorses };
 }
 
 /**

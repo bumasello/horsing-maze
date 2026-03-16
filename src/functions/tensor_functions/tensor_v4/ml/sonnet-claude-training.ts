@@ -31,6 +31,7 @@ interface ModelConfig {
     samplesUsed: number;
     classWeights: { [key: number]: number };
   };
+  optimalThreshold: number;
 }
 
 /**
@@ -66,6 +67,15 @@ export async function trainLayBettingModel(): Promise<void> {
     const history = await trainModel(model, trainingData);
     console.log("✅ Treinamento concluído");
 
+    // 4.5 Cabilbrar threshold
+    console.log("\n🎯 [STEP 4.5/7] Calibrando threshold...");
+    const optimalThreshold = await calibrateThreshold(
+      model,
+      trainingData.valX,
+      trainingData.valY,
+    );
+    console.log(`✅ Threshold calibrado: ${optimalThreshold.toFixed(2)}`);
+
     // 5. Preparar configuração
     console.log("\n📝 [STEP 5/7] Preparando configuração...");
     const config: ModelConfig = {
@@ -91,6 +101,7 @@ export async function trainLayBettingModel(): Promise<void> {
         samplesUsed: trainingData.sampleCount,
         classWeights: trainingData.classWeights,
       },
+      optimalThreshold: optimalThreshold,
     };
     console.log("✅ Configuração preparada");
 
@@ -179,380 +190,218 @@ async function checkExistingModel(): Promise<ModelConfig | null> {
  * Carregar e preparar dados com paginação
  */
 async function loadAndPrepareData() {
-  console.log("  📊 Iniciando carregamento de dados...");
+  console.log("📊 Carregando dados de treinamento...");
 
-  try {
-    // Primeiro, testar conexão básica com a tabela
-    console.log("  🔌 Testando conexão com a tabela...");
-    const { data: testData, error: testError } = await supabase
+  const { count: totalCount, error: countError } = await supabase
+    .schema("hml")
+    .from("training_enriched_horse_features")
+    .select("*", { count: "exact", head: true })
+    .gte("quality_score", 0.7);
+
+  if (countError) throw countError;
+  console.log(`📊 Total de registros disponíveis: ${totalCount}`);
+
+  const allData: any[] = [];
+  const pageSize = 1000;
+  let currentPage = 0;
+
+  while (currentPage * pageSize < (totalCount || 0)) {
+    const from = currentPage * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data: pageData, error } = await supabase
       .schema("hml")
       .from("training_enriched_horse_features")
-      .select("*")
-      .limit(1);
+      .select("features, target, quality_score, race_date") // ← race_date adicionado
+      .gte("quality_score", 0.7)
+      .order("race_date", { ascending: true }) // ← ordenar por data da corrida
+      .range(from, to);
 
-    if (testError) {
-      console.error(
-        "  ❌ Erro ao testar conexão:",
-        JSON.stringify(testError, null, 2),
-      );
-      throw new Error(
-        `Erro de conexão com tabela: ${testError.message || JSON.stringify(testError)}`,
-      );
-    }
-    console.log("  ✅ Conexão com tabela OK");
+    if (error) throw error;
+    if (!pageData) break;
 
-    // Contar total de registros disponíveis
-    console.log("  🔢 Contando registros disponíveis...");
-    let totalCount: number | null = null;
-
-    const { count, error: countError } = await supabase
-      .schema("hml")
-      .from("training_enriched_horse_features")
-      .select("*", { count: "exact", head: true })
-      .gte("quality_score", 0.7);
-
-    if (countError) {
-      console.log(
-        "  !  Erro ao contar (será ignorado, continuando sem contagem):",
-      );
-      console.log("  ", JSON.stringify(countError, null, 2));
-      totalCount = null;
-    } else {
-      totalCount = count;
-      console.log(`  ✅ Total de registros disponíveis: ${totalCount}`);
-    }
-
-    // Se não conseguiu contar, carrega sem saber o total
-    const useAlternativeLoading = !totalCount || totalCount === 0;
-
-    if (useAlternativeLoading) {
-      console.log(
-        "  i  Prosseguindo sem contagem total (carregamento dinâmico)",
-      );
-    }
-
-    // Carregar dados com paginação
-    console.log("  📥 Carregando dados com paginação...");
-    const allData: any[] = [];
-    const pageSize = 1000;
-    let currentPage = 0;
-    let hasMoreData = true;
-
-    if (useAlternativeLoading) {
-      console.log("  !  Usando método alternativo (sem contagem total)");
-    }
-
-    while (hasMoreData) {
-      const from = currentPage * pageSize;
-      const to = from + pageSize - 1;
-
-      console.log(
-        `  📄 Carregando página ${currentPage + 1} (${from}-${to})...`,
-      );
-
-      const { data: pageData, error } = await supabase
-        .schema("hml")
-        .from("training_enriched_horse_features")
-        .select("features, target, quality_score")
-        .gte("quality_score", 0.7)
-        .order("generated_at", { ascending: true })
-        .range(from, to);
-
-      if (error) {
-        console.error(
-          "  ❌ Erro ao carregar página:",
-          JSON.stringify(error, null, 2),
-        );
-        throw new Error(
-          `Erro ao carregar dados: ${error.message || JSON.stringify(error)}`,
-        );
-      }
-
-      if (!pageData || pageData.length === 0) {
-        console.log(`  ✅ Fim dos dados na página ${currentPage + 1}`);
-        hasMoreData = false;
-        break;
-      }
-
-      allData.push(...pageData);
-      currentPage++;
-
-      const progress = totalCount
-        ? `${allData.length}/${totalCount}`
-        : `${allData.length}`;
-      console.log(`  📥 Progresso: ${progress} amostras carregadas`);
-
-      // Parar se não houver contagem total e carregou menos que pageSize (última página)
-      if (useAlternativeLoading && pageData.length < pageSize) {
-        console.log(
-          `  ✅ Última página detectada (${pageData.length} < ${pageSize})`,
-        );
-        hasMoreData = false;
-      }
-
-      // Segurança: parar após 1000 páginas (1 milhão de registros)
-      if (currentPage >= 1000) {
-        console.log(`  !  Limite de segurança atingido (1000 páginas)`);
-        hasMoreData = false;
-      }
-    }
-
-    if (allData.length === 0) {
-      throw new Error("Nenhum dado de treinamento foi carregado");
-    }
-
-    console.log(
-      `  ✅ ${allData.length} amostras carregadas (quality_score >= 0.7)`,
-    );
-
-    // Verificar estrutura dos dados
-    console.log("  🔍 Verificando estrutura dos dados...");
-    const firstRecord = allData[0];
-    console.log("  📋 Estrutura do primeiro registro:");
-    console.log("    - Tem 'features'?", "features" in firstRecord);
-    console.log("    - Tem 'target'?", "target" in firstRecord);
-    console.log("    - Tem 'quality_score'?", "quality_score" in firstRecord);
-
-    if (!firstRecord.features) {
-      throw new Error("Campo 'features' não encontrado nos dados");
-    }
-    if (firstRecord.target === undefined) {
-      throw new Error("Campo 'target' não encontrado nos dados");
-    }
-
-    console.log("    - Tipo de 'features':", typeof firstRecord.features);
-    console.log(
-      "    - Keys em 'features':",
-      Object.keys(firstRecord.features).slice(0, 5).join(", "),
-      "...",
-    );
-    console.log("    - Target:", firstRecord.target);
-
-    // Opção de limitar dados se forem muitos
-    const maxSamples = 100000000;
-    const data =
-      allData.length > maxSamples
-        ? shuffleArray(allData).slice(0, maxSamples)
-        : allData;
-
-    if (allData.length > maxSamples) {
-      console.log(
-        `  !  Limitando a ${maxSamples} amostras aleatórias para economizar memória`,
-      );
-    }
-
-    // Features selecionadas (42 features importantes)
-    console.log("  📊 Extraindo features...");
-    const selectedFeatures = [
-      // Performance
-      "career_win_rate",
-      "career_place_rate",
-      "career_avg_position",
-      "career_position_std",
-      "career_runs",
-      "career_wins",
-
-      // Curso
-      "course_win_rate",
-      "course_runs",
-
-      // Forma
-      "form_last3_avg",
-      "form_last5_avg",
-      "form_consistency",
-      "form_is_improving",
-      "form_has_problems",
-      "form_last_position",
-      "worst_recent_position",
-
-      // Mercado
-      "sp_decimal",
-      "sp_implied_prob",
-      "sp_rank",
-      "sp_vs_field_avg",
-
-      // Ratings
-      "or_rating",
-      "or_rating_imputed",
-      "or_rank_in_race",
-      "or_percentile_in_race",
-      "or_diff_to_top",
-
-      // Campo
-      "field_avg_or",
-      "field_std_or",
-      "field_avg_career_wins",
-      "race_field_size",
-      "stronger_opponents_count",
-
-      // Jockey/Trainer
-      "jockey_win_rate",
-      "jockey_course_win_rate",
-      "trainer_win_rate",
-      "trainer_course_win_rate",
-      "jockey_trainer_combo_win_rate",
-
-      // Condições
-      "distance_band_win_rate",
-      "going_win_rate",
-      "race_going_encoded",
-      "race_distance_meters",
-
-      // Outros
-      "days_since_last_run",
-      "horse_age",
-      "horse_weight_kg",
-      "race_class",
-
-      // Lay específicos
-      "out_of_top3_rate",
-      "position_volatility",
-      "beaten_favorite_rate",
-    ];
-
-    console.log(
-      `  📝 Total de features selecionadas: ${selectedFeatures.length}`,
-    );
-
-    // Extrair features e targets
-    const features: number[][] = [];
-    const targets: number[] = [];
-    let skippedCount = 0;
-    let nullReasons: Record<string, number> = {};
-
-    console.log("  🔄 Processando registros...");
-    for (let i = 0; i < data.length; i++) {
-      const record = data[i];
-      const featureVector: number[] = [];
-      let hasNull = false;
-      let nullReason = "";
-
-      for (const featName of selectedFeatures) {
-        let value = record.features[featName];
-
-        // Para SP, pular se null (corridas futuras não teriam)
-        if (
-          (featName === "sp_decimal" || featName === "sp_implied_prob") &&
-          (value === null || value === undefined)
-        ) {
-          hasNull = true;
-          nullReason = `sp_null`;
-          break;
-        }
-
-        // Imputar outros nulls
-        if (value === null || value === undefined) {
-          value = featName.includes("rate") ? 0.5 : 0;
-        }
-
-        featureVector.push(Number(value));
-      }
-
-      if (!hasNull) {
-        features.push(featureVector);
-        targets.push(record.target);
-      } else {
-        skippedCount++;
-        nullReasons[nullReason] = (nullReasons[nullReason] || 0) + 1;
-      }
-
-      // Log de progresso a cada 10%
-      if (i > 0 && i % Math.floor(data.length / 10) === 0) {
-        console.log(`  ⏳ Processados ${i}/${data.length} registros...`);
-      }
-    }
-
-    console.log(`  ✅ ${features.length} amostras válidas após limpeza`);
-    console.log(`  !  ${skippedCount} amostras ignoradas por dados faltantes`);
-    if (skippedCount > 0) {
-      console.log(`  📊 Razões para ignorar:`, nullReasons);
-    }
-
-    if (features.length === 0) {
-      throw new Error("Nenhuma amostra válida após limpeza de dados");
-    }
-
-    // Calcular class weights
-    console.log("  ⚖  Calculando pesos de classe...");
-    const classCounts = targets.reduce(
-      (acc, target) => {
-        acc[target] = (acc[target] || 0) + 1;
-        return acc;
-      },
-      {} as Record<number, number>,
-    );
-
-    console.log(`  📊 Distribuição de classes:`, classCounts);
-
-    const totalSamples = targets.length;
-    const numClasses = Object.keys(classCounts).length;
-    const classWeights: { [key: number]: number } = {};
-
-    for (const classId in classCounts) {
-      classWeights[Number(classId)] =
-        totalSamples / (numClasses * classCounts[classId]);
-    }
-
-    console.log(
-      `  ⚖  Pesos de classe calculados: 0=${classWeights[0]?.toFixed(2)}, 1=${classWeights[1]?.toFixed(2)}`,
-    );
-
-    // Split 80/20
-    console.log("  ✂  Dividindo dados em treino/validação (80/20)...");
-    const splitIdx = Math.floor(features.length * 0.8);
-    const trainFeatures = features.slice(0, splitIdx);
-    const trainTargets = targets.slice(0, splitIdx);
-    const valFeatures = features.slice(splitIdx);
-    const valTargets = targets.slice(splitIdx);
-
-    console.log(`  📊 Treino: ${trainFeatures.length} amostras`);
-    console.log(`  📊 Validação: ${valFeatures.length} amostras`);
-
-    // Converter para tensors
-    console.log("  🔢 Convertendo para tensors...");
-    const trainX = tf.tensor2d(trainFeatures);
-    const trainY = tf.tensor2d(trainTargets, [trainTargets.length, 1]);
-    const valX = tf.tensor2d(valFeatures);
-    const valY = tf.tensor2d(valTargets, [valTargets.length, 1]);
-
-    console.log("  ✅ Tensors criados com sucesso");
-    console.log(`  📏 Shape trainX: [${trainX.shape}]`);
-    console.log(`  📏 Shape trainY: [${trainY.shape}]`);
-
-    // Normalização robusta
-    console.log("  📐 Aplicando normalização robusta...");
-    const normalization = robustNormalize(trainX, valX);
-    console.log("  ✅ Normalização aplicada");
-
-    return {
-      trainX: normalization.trainX,
-      trainY,
-      valX: normalization.valX,
-      valY,
-      features: selectedFeatures,
-      featureCount: selectedFeatures.length,
-      sampleCount: trainFeatures.length,
-      classWeights,
-      normalization: {
-        mean: normalization.mean,
-        std: normalization.std,
-        median: normalization.median,
-        iqr: normalization.iqr,
-      },
-    };
-  } catch (error) {
-    console.error("\n  ❌ ERRO em loadAndPrepareData:");
-    console.error("  Tipo:", typeof error);
-    console.error("  Erro:", error);
-
-    if (error instanceof Error) {
-      console.error("  Nome:", error.name);
-      console.error("  Mensagem:", error.message);
-      console.error("  Stack:", error.stack);
-    }
-
-    throw error;
+    allData.push(...pageData);
+    currentPage++;
+    console.log(`📥 Carregadas ${allData.length}/${totalCount} amostras...`);
   }
+
+  if (allData.length === 0) throw new Error("Sem dados de treinamento");
+  console.log(
+    `✅ ${allData.length} amostras carregadas (quality_score >= 0.7)`,
+  );
+
+  // Features selecionadas — v4 com novas features do pipeline
+  const selectedFeatures = [
+    // Performance carreira
+    "career_win_rate",
+    "career_place_rate",
+    "career_avg_position",
+    "career_position_std",
+    "career_runs",
+    "career_wins",
+
+    // Condições específicas
+    "course_win_rate",
+    "course_runs",
+    "distance_band_win_rate",
+    "going_win_rate",
+    "class_win_rate",
+
+    // Form
+    "form_last3_avg",
+    "form_last5_avg",
+    "form_consistency",
+    "form_is_improving",
+    "form_has_problems",
+    "form_last_position",
+    "form_weighted_avg",
+    "form_exponential_avg",
+    "form_wins_in_last5",
+    "form_trend_score",
+
+    // Mercado
+    "sp_decimal",
+    "sp_implied_prob",
+    "sp_rank",
+    "sp_vs_field_avg",
+    "market_confidence",
+    "is_favorite",
+    "is_outsider",
+
+    // Ratings
+    "or_rating_imputed",
+    "or_rank_in_race",
+    "or_percentile_in_race",
+    "or_diff_to_top",
+    "or_advantage_score",
+
+    // Campo competitivo
+    "field_avg_or",
+    "field_std_or",
+    "field_avg_career_wins",
+    "race_field_size",
+    "stronger_opponents_count",
+    "is_competitive_race",
+
+    // Jockey/Trainer
+    "jockey_win_rate",
+    "jockey_recent_form",
+    "jockey_course_win_rate",
+    "jockey_total_runs",
+    "trainer_win_rate",
+    "trainer_recent_form",
+    "trainer_course_win_rate",
+    "jockey_trainer_combo_win_rate",
+
+    // Condições da corrida
+    "race_going_encoded",
+    "race_distance_meters",
+    "race_class",
+    "days_since_last_run",
+    "horse_age",
+    "horse_weight_kg",
+
+    // Recente
+    "recent_avg_position",
+    "recent_runs_90d",
+
+    // Lay específicos
+    "out_of_top3_rate",
+    "position_volatility",
+    "beaten_favorite_rate",
+    "worst_recent_position",
+  ];
+
+  // Split temporal — 80% mais antigo treina, 20% mais recente valida
+  const sortedDates = [
+    ...new Set(allData.map((r) => r.race_date as string)),
+  ].sort();
+  const splitDateIdx = Math.floor(sortedDates.length * 0.8);
+  const splitDate = sortedDates[splitDateIdx];
+
+  console.log(`📅 Split temporal: treino até ${splitDate}`);
+  console.log(`📅 Validação: ${splitDate} em diante`);
+
+  const trainData = allData.filter((r) => (r.race_date as string) < splitDate);
+  const valData = allData.filter((r) => (r.race_date as string) >= splitDate);
+
+  console.log(`📊 Treino: ${trainData.length} amostras`);
+  console.log(`📊 Validação: ${valData.length} amostras`);
+
+  // Extrair feature vectors
+  const trainFeatures: number[][] = [];
+  const trainTargets: number[] = [];
+
+  for (const record of trainData) {
+    const { vector, valid } = extractFeatureVector(record, selectedFeatures);
+    if (valid) {
+      trainFeatures.push(vector);
+      trainTargets.push(record.target);
+    }
+  }
+
+  const valFeatures: number[][] = [];
+  const valTargets: number[] = [];
+
+  for (const record of valData) {
+    const { vector, valid } = extractFeatureVector(record, selectedFeatures);
+    if (valid) {
+      valFeatures.push(vector);
+      valTargets.push(record.target);
+    }
+  }
+
+  console.log(`✅ ${trainFeatures.length} amostras treino válidas`);
+  console.log(`✅ ${valFeatures.length} amostras validação válidas`);
+
+  // Calcular class weights sobre todo o dataset
+  const allTargets = [...trainTargets, ...valTargets];
+  const classCounts = allTargets.reduce(
+    (acc, target) => {
+      acc[target] = (acc[target] || 0) + 1;
+      return acc;
+    },
+    {} as Record<number, number>,
+  );
+
+  const totalSamples = allTargets.length;
+  const numClasses = Object.keys(classCounts).length;
+  const classWeights: { [key: number]: number } = {};
+
+  for (const classId in classCounts) {
+    classWeights[Number(classId)] =
+      totalSamples / (numClasses * classCounts[classId]);
+  }
+
+  console.log(
+    `⚖ Pesos de classe: 0=${classWeights[0]?.toFixed(2)}, 1=${classWeights[1]?.toFixed(2)}`,
+  );
+
+  // Converter para tensors
+  const trainX = tf.tensor2d(trainFeatures);
+  const trainY = tf.tensor2d(trainTargets, [trainTargets.length, 1]);
+  const valX = tf.tensor2d(valFeatures);
+  const valY = tf.tensor2d(valTargets, [valTargets.length, 1]);
+
+  // Normalização robusta
+  const normalization = robustNormalize(trainX, valX);
+
+  return {
+    trainX: normalization.trainX,
+    trainY,
+    valX: normalization.valX,
+    valY,
+    features: selectedFeatures,
+    featureCount: selectedFeatures.length,
+    sampleCount: trainFeatures.length,
+    classWeights,
+    normalization: {
+      mean: normalization.mean,
+      std: normalization.std,
+      median: normalization.median,
+      iqr: normalization.iqr,
+    },
+  };
 }
 
 /**
@@ -990,4 +839,102 @@ async function saveMetricsHistory(config: ModelConfig) {
     // Não falhar o processo inteiro se apenas salvar métricas falhou
     console.log("  !  Continuando apesar do erro ao salvar métricas...");
   }
+}
+
+function extractFeatureVector(
+  record: any,
+  selectedFeatures: string[],
+): { vector: number[]; valid: boolean } {
+  const vector: number[] = [];
+
+  for (const featName of selectedFeatures) {
+    let value = record.features[featName];
+
+    // SP null = registro inválido para treino
+    if (
+      (featName === "sp_decimal" || featName === "sp_implied_prob") &&
+      (value === null || value === undefined)
+    ) {
+      return { vector: [], valid: false };
+    }
+
+    // Imputação conservadora — 0 para desconhecido
+    if (value === null || value === undefined) {
+      value = 0;
+    }
+
+    vector.push(Number(value));
+  }
+
+  return { vector, valid: true };
+}
+
+async function calibrateThreshold(
+  model: tf.LayersModel,
+  valX: tf.Tensor2D,
+  valY: tf.Tensor2D,
+): Promise<number> {
+  console.log("\n🎯 Calibrando threshold ótimo...");
+
+  const predictions = model.predict(valX) as tf.Tensor;
+  const probs = await predictions.data();
+  const trueLabels = await valY.data();
+  predictions.dispose();
+
+  // Testar thresholds de 0.50 a 0.99 em steps de 0.01
+  const thresholds = Array.from({ length: 50 }, (_, i) => 0.5 + i * 0.01);
+
+  let bestThreshold = 0.85;
+  let bestF1 = 0;
+
+  console.log("\n  Threshold | Precision | Recall | F1     | LAY%");
+  console.log("  " + "-".repeat(52));
+
+  for (const threshold of thresholds) {
+    let tp = 0; // predito LAY (1), real LAY (1)
+    let fp = 0; // predito LAY (1), real vencedor (0)
+    let fn = 0; // predito não-LAY (0), real LAY (1)
+
+    for (let i = 0; i < probs.length; i++) {
+      const predicted = probs[i] >= threshold ? 1 : 0;
+      const actual = trueLabels[i];
+
+      if (predicted === 1 && actual === 1) tp++;
+      if (predicted === 1 && actual === 0) fp++;
+      if (predicted === 0 && actual === 1) fn++;
+    }
+
+    const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+    const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+    const f1 =
+      precision + recall > 0
+        ? (2 * (precision * recall)) / (precision + recall)
+        : 0;
+    const layPct = (((tp + fp) / probs.length) * 100).toFixed(1);
+
+    // Log a cada 0.05 para não poluir o console
+    if (Math.round(threshold * 100) % 5 === 0) {
+      console.log(
+        `  ${threshold.toFixed(2)}      | ${(precision * 100).toFixed(1)}%     | ${(recall * 100).toFixed(1)}%  | ${f1.toFixed(4)} | ${layPct}%`,
+      );
+    }
+
+    // Critério: maximizar F1 com Precision >= 0.92
+    // Para LAY betting, falsos positivos (apostar contra vencedor) são caros
+    const layPctValue = ((tp + fp) / probs.length) * 100;
+    if (
+      precision >= 0.95 &&
+      layPctValue >= 15 &&
+      layPctValue <= 30 &&
+      f1 > bestF1
+    ) {
+      bestF1 = f1;
+      bestThreshold = threshold;
+    }
+  }
+
+  console.log(`\n  ✅ Threshold ótimo: ${bestThreshold.toFixed(2)}`);
+  console.log(`  📊 F1 no threshold ótimo: ${bestF1.toFixed(4)}`);
+
+  return bestThreshold;
 }

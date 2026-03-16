@@ -110,23 +110,20 @@ export function extractFormFeatures(
 function extractBasicFormMetrics(form: ParsedForm): Partial<FormFeatures> {
   const { figures, recent_figures } = form;
 
-  // Calculate averages for different periods
   const last3Avg =
-    recent_figures.length >= 3
-      ? recent_figures.slice(0, 3).reduce((sum, p) => sum + p, 0) / 3
-      : recent_figures.length > 0
-        ? recent_figures.reduce((sum, p) => sum + p, 0) / recent_figures.length
-        : null;
+    recent_figures.length > 0
+      ? recent_figures.reduce((sum, p) => sum + p, 0) / recent_figures.length
+      : null;
 
   const last5Avg =
     figures.length >= 5
-      ? figures.slice(0, 5).reduce((sum, p) => sum + p, 0) / 5
+      ? figures.slice(-5).reduce((sum, p) => sum + p, 0) / 5
       : figures.length > 0
         ? figures.reduce((sum, p) => sum + p, 0) / figures.length
         : null;
 
   return {
-    form_last_position: recent_figures[0] || null,
+    form_last_position: recent_figures[recent_figures.length - 1] ?? null, // FIX 1: último = mais recente
     form_last3_avg: last3Avg,
     form_last5_avg: last5Avg,
     form_consistency: form.consistency_score,
@@ -152,33 +149,28 @@ function extractDetailedFormAnalysis(form: ParsedForm): Partial<FormFeatures> {
     };
   }
 
-  // Count wins and places in last 5
-  const last5 = figures.slice(0, 5);
+  // FIX 1: slice(-5) para pegar os 5 mais recentes
+  const last5 = figures.slice(-5);
   const winsInLast5 = last5.filter((p) => p === 1).length;
   const placesInLast5 = last5.filter((p) => p <= 3).length;
 
-  // Count consecutive wins/places from most recent
+  // FIX 1: iterar do mais recente para o mais antigo
+  const reversed = [...figures].reverse();
+
   let consecutiveWins = 0;
+  for (const position of reversed) {
+    if (position === 1) consecutiveWins++;
+    else break;
+  }
+
   let consecutivePlaces = 0;
-
-  for (const position of figures) {
-    if (position === 1) {
-      consecutiveWins++;
-    } else {
-      break;
-    }
+  for (const position of reversed) {
+    if (position <= 3) consecutivePlaces++;
+    else break;
   }
 
-  for (const position of figures) {
-    if (position <= 3) {
-      consecutivePlaces++;
-    } else {
-      break;
-    }
-  }
-
-  // Best and worst recent positions
-  const recentPositions = figures.slice(0, 5);
+  // FIX 1: slice(-5) para worst/best recentes
+  const recentPositions = figures.slice(-5);
   const worstRecent =
     recentPositions.length > 0 ? Math.max(...recentPositions) : null;
   const bestRecent =
@@ -285,17 +277,16 @@ function calculateRecoveryRate(positions: number[]): number {
 
   const recoveries: number[] = [];
 
-  for (let i = 1; i < positions.length - 1; i++) {
-    // Check if previous run was poor (> 5th)
+  // positions ordenado do mais antigo para o mais recente
+  // positions[i] = corrida ruim, positions[i+1] = corrida seguinte
+  for (let i = 0; i < positions.length - 1; i++) {
     if (positions[i] > 5) {
-      // Check if recovered in next run
-      const recovery = (positions[i] - positions[i - 1]) / positions[i];
+      const recovery = (positions[i] - positions[i + 1]) / positions[i];
       recoveries.push(Math.max(0, recovery));
     }
   }
 
   if (recoveries.length === 0) return 0.5;
-
   return recoveries.reduce((sum, r) => sum + r, 0) / recoveries.length;
 }
 
@@ -330,36 +321,29 @@ function calculateWeightedFormAverages(
   const { figures } = form;
 
   if (figures.length === 0) {
-    return {
-      form_weighted_avg: null,
-      form_exponential_avg: null,
-    };
+    return { form_weighted_avg: null, form_exponential_avg: null };
   }
 
-  // Linear weighted average (most recent = highest weight)
+  // Peso maior para os mais recentes (últimos no array)
   let weightedSum = 0;
   let weightSum = 0;
 
   for (let i = 0; i < figures.length; i++) {
-    const weight = figures.length - i;
+    const weight = i + 1; // i=0 (mais antigo) peso 1, i=n-1 (mais recente) peso n
     weightedSum += figures[i] * weight;
     weightSum += weight;
   }
 
   const weightedAvg = weightSum > 0 ? weightedSum / weightSum : null;
 
-  // Exponential weighted average (decay factor = 0.7)
+  // EMA: começa do mais antigo e converge para o mais recente
   const alpha = 0.7;
   let ema = figures[0];
-
   for (let i = 1; i < figures.length; i++) {
     ema = alpha * figures[i] + (1 - alpha) * ema;
   }
 
-  return {
-    form_weighted_avg: weightedAvg,
-    form_exponential_avg: ema,
-  };
+  return { form_weighted_avg: weightedAvg, form_exponential_avg: ema };
 }
 
 /**
@@ -373,37 +357,29 @@ export function analyzeFormPatterns(formString: string): {
   hasDNFIssues: boolean;
 } {
   const form = parseForm(formString);
+  const reversed = [...form.figures].reverse();
 
-  // Check for winning streak (3+ consecutive wins)
   let winStreak = 0;
-  for (const fig of form.figures) {
+  for (const fig of reversed) {
     if (fig === 1) winStreak++;
     else break;
   }
-  const hasWinningStreak = winStreak >= 3;
 
-  // Check for losing streak (3+ consecutive poor finishes)
   let loseStreak = 0;
-  for (const fig of form.figures) {
+  for (const fig of reversed) {
     if (fig > 5) loseStreak++;
     else break;
   }
-  const hasLosingStreak = loseStreak >= 3;
 
-  // Check if erratic (high volatility)
   const volatility =
     form.figures.length > 1 ? calculateVolatility(form.figures) : 0;
   const isErratic = volatility > 0.7;
-
-  // Check if consistent
   const isConsistent = form.consistency_score > 0.7;
-
-  // Check for DNF issues
   const hasDNFIssues = form.indicators.length > 1;
 
   return {
-    hasWinningStreak,
-    hasLosingStreak,
+    hasWinningStreak: winStreak >= 3,
+    hasLosingStreak: loseStreak >= 3,
     isErratic,
     isConsistent,
     hasDNFIssues,

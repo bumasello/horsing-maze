@@ -31,6 +31,7 @@ interface ModelConfig {
     samplesUsed: number;
     classWeights: { [key: number]: number };
   };
+  optimalThreshold: number;
 }
 
 /**
@@ -129,7 +130,6 @@ async function checkExistingModel(): Promise<ModelConfig | null> {
 async function loadAndPrepareData() {
   console.log("📊 Carregando dados de treinamento...");
 
-  // Primeiro, contar total de registros disponíveis
   const { count: totalCount, error: countError } = await supabase
     .schema("hml")
     .from("training_enriched_horse_features")
@@ -137,12 +137,10 @@ async function loadAndPrepareData() {
     .gte("quality_score", 0.7);
 
   if (countError) throw countError;
-
   console.log(`📊 Total de registros disponíveis: ${totalCount}`);
 
-  // Carregar dados com paginação
   const allData: any[] = [];
-  const pageSize = 1000; // Tamanho seguro de página
+  const pageSize = 1000;
   let currentPage = 0;
 
   while (currentPage * pageSize < (totalCount || 0)) {
@@ -152,9 +150,9 @@ async function loadAndPrepareData() {
     const { data: pageData, error } = await supabase
       .schema("hml")
       .from("training_enriched_horse_features")
-      .select("features, target, quality_score")
+      .select("features, target, quality_score, race_date") // ← race_date adicionado
       .gte("quality_score", 0.7)
-      .order("generated_at", { ascending: true })
+      .order("race_date", { ascending: true }) // ← ordenar por data da corrida
       .range(from, to);
 
     if (error) throw error;
@@ -162,32 +160,17 @@ async function loadAndPrepareData() {
 
     allData.push(...pageData);
     currentPage++;
-
     console.log(`📥 Carregadas ${allData.length}/${totalCount} amostras...`);
   }
 
   if (allData.length === 0) throw new Error("Sem dados de treinamento");
-
   console.log(
     `✅ ${allData.length} amostras carregadas (quality_score >= 0.7)`,
   );
 
-  // Opção de limitar dados se forem muitos (para não explodir memória)
-  const maxSamples = 100000000; // Ajuste conforme sua memória disponível
-  const data =
-    allData.length > maxSamples
-      ? shuffleArray(allData).slice(0, maxSamples)
-      : allData;
-
-  if (allData.length > maxSamples) {
-    console.log(
-      `! Limitando a ${maxSamples} amostras aleatórias para economizar memória`,
-    );
-  }
-
-  // Features selecionadas (42 features importantes)
+  // Features selecionadas — v4 com novas features do pipeline
   const selectedFeatures = [
-    // Performance
+    // Performance carreira
     "career_win_rate",
     "career_place_rate",
     "career_avg_position",
@@ -195,102 +178,123 @@ async function loadAndPrepareData() {
     "career_runs",
     "career_wins",
 
-    // Curso
+    // Condições específicas
     "course_win_rate",
     "course_runs",
+    "distance_band_win_rate",
+    "going_win_rate",
+    "class_win_rate",
 
-    // Forma
+    // Form
     "form_last3_avg",
     "form_last5_avg",
     "form_consistency",
     "form_is_improving",
     "form_has_problems",
     "form_last_position",
-    "worst_recent_position",
+    "form_weighted_avg",
+    "form_exponential_avg",
+    "form_wins_in_last5",
+    "form_trend_score",
 
     // Mercado
     "sp_decimal",
     "sp_implied_prob",
     "sp_rank",
     "sp_vs_field_avg",
+    "market_confidence",
+    "is_favorite",
+    "is_outsider",
 
     // Ratings
-    "or_rating",
     "or_rating_imputed",
     "or_rank_in_race",
     "or_percentile_in_race",
     "or_diff_to_top",
+    "or_advantage_score",
 
-    // Campo
+    // Campo competitivo
     "field_avg_or",
     "field_std_or",
     "field_avg_career_wins",
     "race_field_size",
     "stronger_opponents_count",
+    "is_competitive_race",
 
     // Jockey/Trainer
     "jockey_win_rate",
+    "jockey_recent_form",
     "jockey_course_win_rate",
+    "jockey_total_runs",
     "trainer_win_rate",
+    "trainer_recent_form",
     "trainer_course_win_rate",
     "jockey_trainer_combo_win_rate",
 
-    // Condições
-    "distance_band_win_rate",
-    "going_win_rate",
+    // Condições da corrida
     "race_going_encoded",
     "race_distance_meters",
-
-    // Outros
+    "race_class",
     "days_since_last_run",
     "horse_age",
     "horse_weight_kg",
-    "race_class",
+
+    // Recente
+    "recent_avg_position",
+    "recent_runs_90d",
 
     // Lay específicos
     "out_of_top3_rate",
     "position_volatility",
     "beaten_favorite_rate",
+    "worst_recent_position",
   ];
 
-  // Extrair features e targets
-  const features: number[][] = [];
-  const targets: number[] = [];
+  // Split temporal — 80% mais antigo treina, 20% mais recente valida
+  const sortedDates = [
+    ...new Set(allData.map((r) => r.race_date as string)),
+  ].sort();
+  const splitDateIdx = Math.floor(sortedDates.length * 0.8);
+  const splitDate = sortedDates[splitDateIdx];
 
-  for (const record of data) {
-    const featureVector: number[] = [];
-    let hasNull = false;
+  console.log(`📅 Split temporal: treino até ${splitDate}`);
+  console.log(`📅 Validação: ${splitDate} em diante`);
 
-    for (const featName of selectedFeatures) {
-      let value = record.features[featName];
+  const trainData = allData.filter((r) => (r.race_date as string) < splitDate);
+  const valData = allData.filter((r) => (r.race_date as string) >= splitDate);
 
-      // Para SP, pular se null (corridas futuras não teriam)
-      if (
-        (featName === "sp_decimal" || featName === "sp_implied_prob") &&
-        (value === null || value === undefined)
-      ) {
-        hasNull = true;
-        break;
-      }
+  console.log(`📊 Treino: ${trainData.length} amostras`);
+  console.log(`📊 Validação: ${valData.length} amostras`);
 
-      // Imputar outros nulls
-      if (value === null || value === undefined) {
-        value = featName.includes("rate") ? 0.5 : 0;
-      }
+  // Extrair feature vectors
+  const trainFeatures: number[][] = [];
+  const trainTargets: number[] = [];
 
-      featureVector.push(Number(value));
-    }
-
-    if (!hasNull) {
-      features.push(featureVector);
-      targets.push(record.target);
+  for (const record of trainData) {
+    const { vector, valid } = extractFeatureVector(record, selectedFeatures);
+    if (valid) {
+      trainFeatures.push(vector);
+      trainTargets.push(record.target);
     }
   }
 
-  console.log(`✅ ${features.length} amostras válidas após limpeza`);
+  const valFeatures: number[][] = [];
+  const valTargets: number[] = [];
 
-  // Calcular class weights
-  const classCounts = targets.reduce(
+  for (const record of valData) {
+    const { vector, valid } = extractFeatureVector(record, selectedFeatures);
+    if (valid) {
+      valFeatures.push(vector);
+      valTargets.push(record.target);
+    }
+  }
+
+  console.log(`✅ ${trainFeatures.length} amostras treino válidas`);
+  console.log(`✅ ${valFeatures.length} amostras validação válidas`);
+
+  // Calcular class weights sobre todo o dataset
+  const allTargets = [...trainTargets, ...valTargets];
+  const classCounts = allTargets.reduce(
     (acc, target) => {
       acc[target] = (acc[target] || 0) + 1;
       return acc;
@@ -298,7 +302,7 @@ async function loadAndPrepareData() {
     {} as Record<number, number>,
   );
 
-  const totalSamples = targets.length;
+  const totalSamples = allTargets.length;
   const numClasses = Object.keys(classCounts).length;
   const classWeights: { [key: number]: number } = {};
 
@@ -310,13 +314,6 @@ async function loadAndPrepareData() {
   console.log(
     `⚖ Pesos de classe: 0=${classWeights[0]?.toFixed(2)}, 1=${classWeights[1]?.toFixed(2)}`,
   );
-
-  // Split 80/20
-  const splitIdx = Math.floor(features.length * 0.8);
-  const trainFeatures = features.slice(0, splitIdx);
-  const trainTargets = targets.slice(0, splitIdx);
-  const valFeatures = features.slice(splitIdx);
-  const valTargets = targets.slice(splitIdx);
 
   // Converter para tensors
   const trainX = tf.tensor2d(trainFeatures);
@@ -676,4 +673,32 @@ async function saveMetricsHistory(config: ModelConfig) {
   };
 
   await supabase.schema("hml").from("model_metrics_history").insert(history);
+}
+
+function extractFeatureVector(
+  record: any,
+  selectedFeatures: string[],
+): { vector: number[]; valid: boolean } {
+  const vector: number[] = [];
+
+  for (const featName of selectedFeatures) {
+    let value = record.features[featName];
+
+    // SP null = registro inválido para treino
+    if (
+      (featName === "sp_decimal" || featName === "sp_implied_prob") &&
+      (value === null || value === undefined)
+    ) {
+      return { vector: [], valid: false };
+    }
+
+    // Imputação conservadora — 0 para desconhecido
+    if (value === null || value === undefined) {
+      value = 0;
+    }
+
+    vector.push(Number(value));
+  }
+
+  return { vector, valid: true };
 }

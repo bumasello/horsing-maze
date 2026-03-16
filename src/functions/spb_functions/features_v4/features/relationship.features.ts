@@ -2,6 +2,7 @@
 
 import type { RaceHorseEnriched } from "../types/core.types";
 import type { HistoricalRaceData } from "./historical.features";
+import type { JockeyTrainerStatsMap } from "../pipeline/feature-orchestrator";
 import { parseDistanceToMeters } from "../converters";
 
 /**
@@ -66,11 +67,12 @@ export function extractRelationshipFeatures(
   allHistoricalData: HistoricalRaceData[],
   currentCourse: string,
   currentDistanceMeters: number,
+  jockeyTrainerStats: JockeyTrainerStatsMap,
 ): RelationshipFeatures {
   // Extract jockey features
   const jockeyFeatures = calculateJockeyFeatures(
     currentHorse.jockey,
-    allHistoricalData,
+    jockeyTrainerStats,
     currentCourse,
     currentDistanceMeters,
   );
@@ -78,7 +80,7 @@ export function extractRelationshipFeatures(
   // Extract trainer features
   const trainerFeatures = calculateTrainerFeatures(
     currentHorse.trainer,
-    allHistoricalData,
+    jockeyTrainerStats,
     currentCourse,
     currentDistanceMeters,
   );
@@ -170,7 +172,7 @@ export function extractRelationshipFeatures(
  */
 function calculateJockeyFeatures(
   jockeyName: string | null,
-  allHistory: HistoricalRaceData[],
+  stats: JockeyTrainerStatsMap,
   currentCourse: string,
   currentDistanceMeters: number,
 ): {
@@ -181,80 +183,33 @@ function calculateJockeyFeatures(
   jockey_distance_win_rate: number;
   jockey_total_runs: number;
 } {
-  if (!jockeyName) {
-    return {
-      jockey_win_rate: 0,
-      jockey_place_rate: 0,
-      jockey_recent_form: 0,
-      jockey_course_win_rate: 0,
-      jockey_distance_win_rate: 0,
-      jockey_total_runs: 0,
-    };
-  }
+  const empty = {
+    jockey_win_rate: 0,
+    jockey_place_rate: 0,
+    jockey_recent_form: 0,
+    jockey_course_win_rate: 0,
+    jockey_distance_win_rate: 0,
+    jockey_total_runs: 0,
+  };
 
-  // Filter all rides by this jockey
-  const jockeyRides = allHistory.filter(
-    ({ horse }) =>
-      horse.jockey === jockeyName &&
-      horse.position !== null &&
-      horse.position > 0,
-  );
+  if (!jockeyName) return empty;
 
-  if (jockeyRides.length === 0) {
-    return {
-      jockey_win_rate: 0,
-      jockey_place_rate: 0,
-      jockey_recent_form: 0,
-      jockey_course_win_rate: 0,
-      jockey_distance_win_rate: 0,
-      jockey_total_runs: 0,
-    };
-  }
+  const stat = stats.jockeys.get(jockeyName);
+  if (!stat || stat.runs === 0) return empty;
 
-  // Overall performance
-  const wins = jockeyRides.filter(({ horse }) => horse.position === 1).length;
-  const places = jockeyRides.filter(
-    ({ horse }) => horse.position && horse.position <= 3,
-  ).length;
-  const winRate = wins / jockeyRides.length;
-  const placeRate = places / jockeyRides.length;
+  const winRate = stat.wins / stat.runs;
+  const placeRate = stat.places / stat.runs;
 
-  // Recent form (last 20 rides)
-  const recentRides = jockeyRides
-    .sort(
-      (a, b) =>
-        new Date(b.race.date).getTime() - new Date(a.race.date).getTime(),
-    )
-    .slice(0, 20);
-  const recentWins = recentRides.filter(
-    ({ horse }) => horse.position === 1,
-  ).length;
+  const recentWins = stat.recent.filter((r) => r.position === 1).length;
   const recentForm =
-    recentRides.length > 0 ? recentWins / recentRides.length : 0;
+    stat.recent.length > 0 ? recentWins / stat.recent.length : 0;
 
-  // Course-specific
-  const courseRides = jockeyRides.filter(
-    ({ race }) => race.course === currentCourse,
-  );
-  const courseWinRate =
-    courseRides.length > 0
-      ? courseRides.filter(({ horse }) => horse.position === 1).length /
-        courseRides.length
-      : winRate; // Fallback to overall rate
+  const cs = stat.byCourse.get(currentCourse);
+  const courseWinRate = cs && cs.runs >= 3 ? cs.wins / cs.runs : 0;
 
-  // Distance-specific (within 15% of current distance)
-  const distanceRides = jockeyRides.filter(({ race }) => {
-    const raceDistance = parseDistanceToMeters(race.distance);
-    return (
-      Math.abs(raceDistance - currentDistanceMeters) / currentDistanceMeters <=
-      0.15
-    );
-  });
-  const distanceWinRate =
-    distanceRides.length > 0
-      ? distanceRides.filter(({ horse }) => horse.position === 1).length /
-        distanceRides.length
-      : winRate; // Fallback to overall rate
+  const band = Math.round(currentDistanceMeters / 200) * 200;
+  const ds = stat.byDistance.get(band);
+  const distanceWinRate = ds && ds.runs >= 3 ? ds.wins / ds.runs : 0;
 
   return {
     jockey_win_rate: winRate,
@@ -262,7 +217,7 @@ function calculateJockeyFeatures(
     jockey_recent_form: recentForm,
     jockey_course_win_rate: courseWinRate,
     jockey_distance_win_rate: distanceWinRate,
-    jockey_total_runs: jockeyRides.length,
+    jockey_total_runs: stat.runs,
   };
 }
 
@@ -270,8 +225,8 @@ function calculateJockeyFeatures(
  * Calculate trainer performance features
  */
 function calculateTrainerFeatures(
-  trainerName: string,
-  allHistory: HistoricalRaceData[],
+  trainerName: string | null,
+  stats: JockeyTrainerStatsMap,
   currentCourse: string,
   currentDistanceMeters: number,
 ): {
@@ -282,69 +237,33 @@ function calculateTrainerFeatures(
   trainer_distance_win_rate: number;
   trainer_total_runs: number;
 } {
-  // Filter all horses trained by this trainer
-  const trainerHorses = allHistory.filter(
-    ({ horse }) =>
-      horse.trainer === trainerName &&
-      horse.position !== null &&
-      horse.position > 0,
-  );
+  const empty = {
+    trainer_win_rate: 0,
+    trainer_place_rate: 0,
+    trainer_recent_form: 0,
+    trainer_course_win_rate: 0,
+    trainer_distance_win_rate: 0,
+    trainer_total_runs: 0,
+  };
 
-  if (trainerHorses.length === 0) {
-    return {
-      trainer_win_rate: 0,
-      trainer_place_rate: 0,
-      trainer_recent_form: 0,
-      trainer_course_win_rate: 0,
-      trainer_distance_win_rate: 0,
-      trainer_total_runs: 0,
-    };
-  }
+  if (!trainerName) return empty;
 
-  // Overall performance
-  const wins = trainerHorses.filter(({ horse }) => horse.position === 1).length;
-  const places = trainerHorses.filter(
-    ({ horse }) => horse.position && horse.position <= 3,
-  ).length;
-  const winRate = wins / trainerHorses.length;
-  const placeRate = places / trainerHorses.length;
+  const stat = stats.trainers.get(trainerName);
+  if (!stat || stat.runs === 0) return empty;
 
-  // Recent form (last 30 runners)
-  const recentRunners = trainerHorses
-    .sort(
-      (a, b) =>
-        new Date(b.race.date).getTime() - new Date(a.race.date).getTime(),
-    )
-    .slice(0, 30);
-  const recentWins = recentRunners.filter(
-    ({ horse }) => horse.position === 1,
-  ).length;
+  const winRate = stat.wins / stat.runs;
+  const placeRate = stat.places / stat.runs;
+
+  const recentWins = stat.recent.filter((r) => r.position === 1).length;
   const recentForm =
-    recentRunners.length > 0 ? recentWins / recentRunners.length : 0;
+    stat.recent.length > 0 ? recentWins / stat.recent.length : 0;
 
-  // Course-specific
-  const courseRunners = trainerHorses.filter(
-    ({ race }) => race.course === currentCourse,
-  );
-  const courseWinRate =
-    courseRunners.length > 0
-      ? courseRunners.filter(({ horse }) => horse.position === 1).length /
-        courseRunners.length
-      : winRate;
+  const cs = stat.byCourse.get(currentCourse);
+  const courseWinRate = cs && cs.runs >= 3 ? cs.wins / cs.runs : 0;
 
-  // Distance-specific
-  const distanceRunners = trainerHorses.filter(({ race }) => {
-    const raceDistance = parseDistanceToMeters(race.distance);
-    return (
-      Math.abs(raceDistance - currentDistanceMeters) / currentDistanceMeters <=
-      0.15
-    );
-  });
-  const distanceWinRate =
-    distanceRunners.length > 0
-      ? distanceRunners.filter(({ horse }) => horse.position === 1).length /
-        distanceRunners.length
-      : winRate;
+  const band = Math.round(currentDistanceMeters / 200) * 200;
+  const ds = stat.byDistance.get(band);
+  const distanceWinRate = ds && ds.runs >= 3 ? ds.wins / ds.runs : 0;
 
   return {
     trainer_win_rate: winRate,
@@ -352,7 +271,7 @@ function calculateTrainerFeatures(
     trainer_recent_form: recentForm,
     trainer_course_win_rate: courseWinRate,
     trainer_distance_win_rate: distanceWinRate,
-    trainer_total_runs: trainerHorses.length,
+    trainer_total_runs: stat.runs,
   };
 }
 

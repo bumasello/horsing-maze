@@ -27,7 +27,6 @@ export const getHistoryRaceDetailId = async (
 
   let currentKeyIndex = 0;
 
-  // Função para obter headers com a API key atual
   const getHeaders = (): Headers => {
     const headers = new Headers();
     headers.set("x-rapidapi-key", apiKeys[currentKeyIndex]);
@@ -35,24 +34,19 @@ export const getHistoryRaceDetailId = async (
     return headers;
   };
 
-  // Função para rotacionar para a próxima API key
   const rotateApiKey = (): Headers => {
     currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
-    console.log(
-      `Mudando para API key ${currentKeyIndex + 1}/${apiKeys.length}`,
-    );
     return getHeaders();
   };
 
-  // Função para fazer requisição com retry para uma página específica
   const makePageRequest = async (pageUrl: string): Promise<SummaryRaces> => {
     const MAX_RETRIES = 3;
     let retryCount = 0;
     let waitTime = 5000;
     let success = false;
     let headers = getHeaders();
+    let keysTriedCount = 0;
 
-    // Delay inicial
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     while (!success && retryCount < MAX_RETRIES) {
@@ -60,11 +54,20 @@ export const getHistoryRaceDetailId = async (
         const response = await fetch(pageUrl, { method: "GET", headers });
 
         if (!response.ok) {
-          // Se receber erro 429 (Too Many Requests), rotaciona a API key
-          if (response.status === 429) {
-            console.log("Erro 429: Too many requests detectado");
+          if (response.status === 429 || response.status === 403) {
+            if (response.status === 403) {
+              console.error(
+                `Erro 403 na key [${currentKeyIndex}]: ${apiKeys[currentKeyIndex]?.substring(0, 12)}...`,
+              );
+            }
+            keysTriedCount++;
+            if (keysTriedCount >= apiKeys.length) {
+              throw new Error(
+                `Todas as ${apiKeys.length} API keys falharam com ${response.status}`,
+              );
+            }
             headers = rotateApiKey();
-            continue; // Tenta novamente com a nova key sem incrementar retry
+            continue;
           }
           throw new Error(
             `Erro na requisição getHistoryRaceDetailId: ${response.statusText}`,
@@ -72,35 +75,20 @@ export const getHistoryRaceDetailId = async (
         }
 
         const data: SummaryRaces = await response.json();
-
         if (!data) throw new Error("Requisição retornou sem dados.");
 
-        // Marca como sucesso para sair do loop
         success = true;
         return data;
       } catch (error) {
         retryCount++;
-
         const errorMessage =
           error instanceof Error ? error.message : String(error);
-
         console.error(`Erro em getHistoryRaceDetailId: ${errorMessage}`);
 
-        if (errorMessage.includes("Too Many Requests")) {
-          console.log("Erro de limite de requisições, trocando de API key...");
-          headers = rotateApiKey();
-          // Reduzir o tempo de espera quando estamos apenas trocando de chave
-          waitTime = 1000;
-        } else if (retryCount < MAX_RETRIES) {
-          console.log(
-            `Aguardando ${waitTime / 1000} segundos antes de tentar novamente...`,
-          );
+        if (retryCount < MAX_RETRIES) {
           await new Promise((resolve) => setTimeout(resolve, waitTime));
-          waitTime *= 2; // Aumenta o tempo de espera exponencialmente
+          waitTime *= 2;
         } else {
-          console.error(
-            `Falha após ${MAX_RETRIES} tentativas para cavalo ${horseId}`,
-          );
           throw new Error(
             `Erro em getHistoryRaceDetailId após ${MAX_RETRIES} tentativas: ${errorMessage}`,
           );
@@ -108,18 +96,15 @@ export const getHistoryRaceDetailId = async (
       }
     }
 
-    // Se chegou aqui, todas as tentativas falharam
     throw new Error(
       `Falha na requisição após ${MAX_RETRIES} tentativas para cavalo ${horseId}`,
     );
   };
 
-  // Array para armazenar todos os id_race
   const allRaceIds: string[] = [];
   let currentPage = 1;
   let totalPages = 1;
 
-  // Loop principal de paginação
   while (currentPage <= totalPages) {
     const baseUrl = `${process.env.HORSERACINGAPIURLQUERYHORSE}${horseId}`;
     const pageUrl =
@@ -131,16 +116,13 @@ export const getHistoryRaceDetailId = async (
 
     const data = await makePageRequest(pageUrl);
 
-    // Na primeira página, capturar total de páginas
     if (currentPage === 1) {
       totalPages = Number.parseInt(data.summary.total_pages);
       console.log(`Total de páginas encontradas: ${totalPages}`);
     }
 
-    // Extrair apenas id_race e adicionar ao array
     const raceIds = data.races.map((race) => race.id_race);
     allRaceIds.push(...raceIds);
-
     console.log(
       `Página ${currentPage}: ${raceIds.length} corridas adicionadas`,
     );
@@ -149,7 +131,7 @@ export const getHistoryRaceDetailId = async (
   }
 
   console.log(
-    `Total de ${allRaceIds.length} IDs de corrida coletados para cavalo ${horseId}`,
+    `Total de ${allRaceIds.length} IDs coletados para cavalo ${horseId}`,
   );
   return allRaceIds;
 };

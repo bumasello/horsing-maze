@@ -83,4 +83,9 @@ export const apiKeys = [
   process.env.XRAPIDAPIKEY78,
   process.env.XRAPIDAPIKEY79,
   process.env.XRAPIDAPIKEY80,
+  process.env.XRAPIDAPIKEY81,
+  process.env.XRAPIDAPIKEY82,
+  process.env.XRAPIDAPIKEY83,
+  process.env.XRAPIDAPIKEY84,
+  process.env.XRAPIDAPIKEY85,
 ].filter((key): key is string => Boolean(key));

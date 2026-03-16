@@ -11,6 +11,7 @@ import type {
 } from "../types/core.types";
 
 import {
+  calculateDerivedStaticFeatures,
   extractCompetitiveFeatures,
   extractFormFeatures,
   extractHistoricalFeatures,
@@ -154,7 +155,11 @@ export async function generatePredictionFeatures_v4(
         continue;
       }
 
-      const features = await processRace(supabase, race, thresholds);
+      const features = await processRaceForPrediction(
+        supabase,
+        race,
+        thresholds,
+      );
 
       if (features.length > 0) {
         allFeatures.push(...features);
@@ -191,35 +196,38 @@ async function processRace(
   race: RaceCardEnriched,
   thresholds: QualityThresholds,
 ): Promise<HorseFeatures[]> {
-  // Fetch horses for this race
   const horses = await fetchHorsesForRace(supabase, race.id);
 
-  // Validate race quality
   const validation = validateRace(race, horses, thresholds);
   if (!validation.isValid) {
-    console.warn(`Race ${race.id_race} failed validation:`, validation.errors);
+    console.warn(
+      `Race ${race.id_race} failed validation:`,
+      validation.errors,
+      `quality=${validation.qualityScore.toFixed(2)}`,
+      validation.warnings,
+    );
     return [];
   }
 
-  // Convert to processed format
   const processedRace = convertRace(race, horses);
   const processedHorses = horses
     .filter((h) => h.non_runner !== 1)
     .map((h) => convertHorse(h));
 
-  // Fetch historical data for all horses
   const historicalData = await fetchHistoricalDataForHorses(
     supabase,
     horses.map((h) => h.id_horse),
+    race.date,
   );
 
-  // Generate features for each horse
+  // NOVO: buscar stats globais de jóqueis/treinadores para esta data
+  const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
+
   const features: HorseFeatures[] = [];
 
   for (let i = 0; i < processedHorses.length; i++) {
     const processedHorse = processedHorses[i];
     const rawHorse = horses.find((h) => h.id === processedHorse.id);
-
     if (!rawHorse) continue;
 
     try {
@@ -230,9 +238,9 @@ async function processRace(
         processedHorses,
         horses,
         historicalData.get(rawHorse.id_horse) || [],
-        race.finished === 1, // PASSAR O FINISHED COMO PARÂMETRO
+        race.finished === 1,
+        jockeyTrainerStats, // NOVO parâmetro
       );
-
       features.push(horseFeatures);
     } catch (error) {
       console.error(
@@ -255,11 +263,16 @@ async function generateHorseFeatures(
   allProcessedHorses: ProcessedHorse[],
   allRawHorses: RaceHorseEnriched[],
   historicalData: HistoricalRaceData[],
-  isFinishedRace: boolean, // NOVO PARÂMETRO
+  isFinishedRace: boolean,
+  jockeyTrainerStats: JockeyTrainerStatsMap,
 ): Promise<HorseFeatures> {
-  // Extract all feature groups
   const staticFeatures = extractStaticFeatures(race, processedHorse, rawHorse);
-  const historicalFeatures = extractHistoricalFeatures(historicalData, race);
+  const derivedStatic = calculateDerivedStaticFeatures(staticFeatures); // NOVO
+  const historicalFeatures = extractHistoricalFeatures(
+    historicalData,
+    race,
+    new Date(race.date),
+  );
   const formFeatures = extractFormFeatures(processedHorse, rawHorse);
   const marketFeatures = extractMarketFeatures(
     processedHorse,
@@ -279,31 +292,26 @@ async function generateHorseFeatures(
     historicalData,
     race.course,
     race.distance_meters,
+    jockeyTrainerStats,
   );
-
-  // Calculate lay-specific features
   const layFeatures = calculateLaySpecificFeatures(
     historicalFeatures,
     formFeatures,
     marketFeatures,
   );
 
-  // CORREÇÃO: Target só existe para corridas finalizadas
   let target: 0 | 1 | null;
-
   if (isFinishedRace) {
-    // Corrida finalizada: 1 = não ganhou (bom para lay), 0 = ganhou
     target = rawHorse.position !== null && rawHorse.position !== 1 ? 1 : 0;
   } else {
-    // Corrida futura: não tem target ainda
     target = null;
   }
 
-  // Combine all features
   return {
     // Identifiers
     race_horse_id: rawHorse.id,
     race_id: race.id,
+    race_date: race.date,
     horse_id: rawHorse.id_horse,
 
     // Static features
@@ -314,8 +322,30 @@ async function generateHorseFeatures(
     race_going_encoded: staticFeatures.race_going_encoded,
     race_class: staticFeatures.race_class,
     race_field_size: staticFeatures.race_field_size,
+    race_total_prize: staticFeatures.race_total_prize,
+    horse_number: staticFeatures.horse_number,
 
-    // Historical features
+    // Derived static (binary flags)
+    is_juvenile: derivedStatic.is_juvenile,
+    is_3yo: derivedStatic.is_3yo,
+    is_mature: derivedStatic.is_mature,
+    is_fresh: derivedStatic.is_fresh,
+    is_quick_backup: derivedStatic.is_quick_backup,
+    is_normal_rest: derivedStatic.is_normal_rest,
+    is_small_field: derivedStatic.is_small_field,
+    is_large_field: derivedStatic.is_large_field,
+    is_sprint: derivedStatic.is_sprint,
+    is_mile: derivedStatic.is_mile,
+    is_middle_distance: derivedStatic.is_middle_distance,
+    is_long_distance: derivedStatic.is_long_distance,
+    is_firm_ground: derivedStatic.is_firm_ground,
+    is_good_ground: derivedStatic.is_good_ground,
+    is_soft_ground: derivedStatic.is_soft_ground,
+    is_high_class: derivedStatic.is_high_class ?? 0,
+    is_mid_class: derivedStatic.is_mid_class ?? 0,
+    is_low_class: derivedStatic.is_low_class ?? 0,
+
+    // Historical — career
     career_runs: historicalFeatures.career_runs,
     career_wins: historicalFeatures.career_wins,
     career_places: historicalFeatures.career_places,
@@ -323,14 +353,39 @@ async function generateHorseFeatures(
     career_place_rate: historicalFeatures.career_place_rate,
     career_avg_position: historicalFeatures.career_avg_position,
     career_position_std: historicalFeatures.career_position_std,
+
+    // Historical — condition specific
     course_runs: historicalFeatures.course_runs,
+    course_wins: historicalFeatures.course_wins,
     course_win_rate: historicalFeatures.course_win_rate,
     distance_band_runs: historicalFeatures.distance_band_runs,
+    distance_band_wins: historicalFeatures.distance_band_wins,
     distance_band_win_rate: historicalFeatures.distance_band_win_rate,
     going_runs: historicalFeatures.going_runs,
+    going_wins: historicalFeatures.going_wins,
     going_win_rate: historicalFeatures.going_win_rate,
+    class_runs: historicalFeatures.class_runs,
+    class_wins: historicalFeatures.class_wins,
+    class_win_rate: historicalFeatures.class_win_rate,
 
-    // Form features
+    // Historical — recent
+    recent_runs_30d: historicalFeatures.recent_runs_30d,
+    recent_wins_30d: historicalFeatures.recent_wins_30d,
+    recent_runs_90d: historicalFeatures.recent_runs_90d,
+    recent_wins_90d: historicalFeatures.recent_wins_90d,
+    recent_avg_position: historicalFeatures.recent_avg_position,
+
+    // Historical — trends
+    improvement_rate: historicalFeatures.improvement_rate,
+    consistency_score: historicalFeatures.consistency_score,
+    peak_or_rating: historicalFeatures.peak_or_rating,
+    avg_or_rating: historicalFeatures.avg_or_rating,
+    total_prize_money: historicalFeatures.total_prize_money,
+    best_distance_meters: historicalFeatures.best_distance_meters,
+    preferred_going: historicalFeatures.preferred_going,
+    avg_days_between_runs: historicalFeatures.avg_days_between_runs,
+
+    // Form — basic
     form_last_position: formFeatures.form_last_position,
     form_last3_avg: formFeatures.form_last3_avg,
     form_last5_avg: formFeatures.form_last5_avg,
@@ -338,7 +393,31 @@ async function generateHorseFeatures(
     form_is_improving: formFeatures.form_is_improving,
     form_has_problems: formFeatures.form_has_problems,
 
-    // Rating features
+    // Form — detailed
+    form_wins_in_last5: formFeatures.form_wins_in_last5,
+    form_places_in_last5: formFeatures.form_places_in_last5,
+    form_consecutive_wins: formFeatures.form_consecutive_wins,
+    form_consecutive_places: formFeatures.form_consecutive_places,
+    form_worst_recent: formFeatures.form_worst_recent,
+    form_best_recent: formFeatures.form_best_recent,
+
+    // Form — patterns
+    form_trend_score: formFeatures.form_trend_score,
+    form_volatility: formFeatures.form_volatility,
+    form_recovery_rate: formFeatures.form_recovery_rate,
+    form_peak_position: formFeatures.form_peak_position,
+
+    // Form — quality
+    form_data_quality: formFeatures.form_data_quality,
+    form_races_recorded: formFeatures.form_races_recorded,
+    form_complete_finishes: formFeatures.form_complete_finishes,
+    form_dnf_count: formFeatures.form_dnf_count,
+
+    // Form — weighted
+    form_weighted_avg: formFeatures.form_weighted_avg,
+    form_exponential_avg: formFeatures.form_exponential_avg,
+
+    // Rating
     or_rating: rawHorse.or_rating,
     or_rating_imputed: imputeORRating(
       rawHorse,
@@ -348,35 +427,127 @@ async function generateHorseFeatures(
     or_rank_in_race: competitiveFeatures.or_rank_in_race,
     or_percentile_in_race: competitiveFeatures.or_percentile_in_race,
     or_diff_to_top: competitiveFeatures.or_diff_to_top,
+    or_diff_to_avg: competitiveFeatures.or_diff_to_avg,
 
-    // Market features
+    // Market — basic
     sp_decimal: marketFeatures.sp_decimal,
     sp_rank: marketFeatures.sp_rank,
     sp_implied_prob: marketFeatures.sp_implied_prob,
     sp_vs_field_avg: marketFeatures.sp_vs_field_avg,
 
-    // Competitive features
+    // Market — position
+    is_favorite: marketFeatures.is_favorite,
+    is_joint_favorite: marketFeatures.is_joint_favorite,
+    is_top3_market: marketFeatures.is_top3_market,
+    is_outsider: marketFeatures.is_outsider,
+
+    // Market — field
+    field_total_probability: marketFeatures.field_total_probability,
+    field_overround: marketFeatures.field_overround,
+    market_confidence: marketFeatures.market_confidence,
+    sp_concentration: marketFeatures.sp_concentration,
+
+    // Market — value
+    sp_value_rating: marketFeatures.sp_value_rating,
+    is_overbet: marketFeatures.is_overbet,
+    is_underbet: marketFeatures.is_underbet,
+    market_inefficiency: marketFeatures.market_inefficiency,
+
+    // Market — relative
+    sp_to_favorite_ratio: marketFeatures.sp_to_favorite_ratio,
+    sp_percentile: marketFeatures.sp_percentile,
+    normalized_sp: marketFeatures.normalized_sp,
+    market_share: marketFeatures.market_share,
+
+    // Competitive — field quality
     field_avg_or: competitiveFeatures.field_avg_or,
     field_std_or: competitiveFeatures.field_std_or,
-    field_avg_career_wins: competitiveFeatures.field_avg_career_wins,
-    stronger_opponents_count: competitiveFeatures.stronger_opponents_count,
+    field_max_or: competitiveFeatures.field_max_or,
+    field_min_or: competitiveFeatures.field_min_or,
+    field_or_spread: competitiveFeatures.field_or_spread,
 
-    // Relationship features
+    // Competitive — position
+    stronger_opponents_count: competitiveFeatures.stronger_opponents_count,
+    weaker_opponents_count: competitiveFeatures.weaker_opponents_count,
+
+    // Competitive — composition
+    field_avg_career_wins: competitiveFeatures.field_avg_career_wins,
+    field_avg_win_rate: competitiveFeatures.field_avg_win_rate,
+    field_avg_recent_position: competitiveFeatures.field_avg_recent_position,
+    experienced_runners_count: competitiveFeatures.experienced_runners_count,
+    maiden_runners_count: competitiveFeatures.maiden_runners_count,
+
+    // Competitive — advantages
+    or_advantage_score: competitiveFeatures.or_advantage_score,
+    experience_advantage: competitiveFeatures.experience_advantage,
+    form_advantage: competitiveFeatures.form_advantage,
+    weight_advantage: competitiveFeatures.weight_advantage,
+
+    // Competitive — race metrics
+    race_competitiveness_score: competitiveFeatures.race_competitiveness_score,
+    field_depth_score: competitiveFeatures.field_depth_score,
+    quality_concentration: competitiveFeatures.quality_concentration,
+    is_competitive_race: competitiveFeatures.is_competitive_race,
+
+    // Competitive — relative
+    better_than_field_avg: competitiveFeatures.better_than_field_avg,
+    in_top_quarter: competitiveFeatures.in_top_quarter,
+    in_bottom_quarter: competitiveFeatures.in_bottom_quarter,
+
+    // Relationship — jockey
     jockey_win_rate: relationshipFeatures.jockey_win_rate,
+    jockey_place_rate: relationshipFeatures.jockey_place_rate,
+    jockey_recent_form: relationshipFeatures.jockey_recent_form,
     jockey_course_win_rate: relationshipFeatures.jockey_course_win_rate,
-    jockey_with_horse_runs: relationshipFeatures.jockey_with_horse_runs,
-    jockey_with_horse_win_rate: relationshipFeatures.jockey_with_horse_win_rate,
+    jockey_distance_win_rate: relationshipFeatures.jockey_distance_win_rate,
+    jockey_total_runs: relationshipFeatures.jockey_total_runs,
+
+    // Relationship — trainer
     trainer_win_rate: relationshipFeatures.trainer_win_rate,
+    trainer_place_rate: relationshipFeatures.trainer_place_rate,
+    trainer_recent_form: relationshipFeatures.trainer_recent_form,
     trainer_course_win_rate: relationshipFeatures.trainer_course_win_rate,
+    trainer_distance_win_rate: relationshipFeatures.trainer_distance_win_rate,
+    trainer_total_runs: relationshipFeatures.trainer_total_runs,
+
+    // Relationship — combinations
+    jockey_with_horse_runs: relationshipFeatures.jockey_with_horse_runs,
+    jockey_with_horse_wins: relationshipFeatures.jockey_with_horse_wins,
+    jockey_with_horse_win_rate: relationshipFeatures.jockey_with_horse_win_rate,
+    jockey_with_horse_place_rate:
+      relationshipFeatures.jockey_with_horse_place_rate,
+    trainer_with_horse_runs: relationshipFeatures.trainer_with_horse_runs,
+    trainer_with_horse_wins: relationshipFeatures.trainer_with_horse_wins,
+    trainer_with_horse_win_rate:
+      relationshipFeatures.trainer_with_horse_win_rate,
+    trainer_with_horse_place_rate:
+      relationshipFeatures.trainer_with_horse_place_rate,
     jockey_trainer_combo_runs: relationshipFeatures.jockey_trainer_combo_runs,
+    jockey_trainer_combo_wins: relationshipFeatures.jockey_trainer_combo_wins,
     jockey_trainer_combo_win_rate:
       relationshipFeatures.jockey_trainer_combo_win_rate,
+    jockey_trainer_combo_place_rate:
+      relationshipFeatures.jockey_trainer_combo_place_rate,
 
-    // Lay-specific features
+    // Relationship — owner & lineage
+    owner_win_rate: relationshipFeatures.owner_win_rate,
+    owner_with_trainer_win_rate:
+      relationshipFeatures.owner_with_trainer_win_rate,
+    owner_total_runners: relationshipFeatures.owner_total_runners,
+    sire_win_rate: relationshipFeatures.sire_win_rate,
+    sire_distance_suitability: relationshipFeatures.sire_distance_suitability,
+    dam_produce_win_rate: relationshipFeatures.dam_produce_win_rate,
+
+    // Relationship — strength
+    stable_confidence: relationshipFeatures.stable_confidence,
+    jockey_reliability: relationshipFeatures.jockey_reliability,
+    partnership_strength: relationshipFeatures.partnership_strength,
+
+    // Lay-specific
     ...layFeatures,
 
-    // Target - NULL para corridas futuras
-    target: target as 0 | 1, // Type assertion necessário por causa do tipo em HorseFeatures
+    // Target
+    target: target as 0 | 1,
   };
 }
 
@@ -432,7 +603,7 @@ function convertRace(
     date: race.date,
     distance_meters: parseDistanceToMeters(race.distance),
     going_encoded: encodeGoing(race.going),
-    race_class: race.class || 0,
+    race_class: race.class ?? null,
     total_prize_numeric: parsePrize(race.prize),
     total_runners: validHorses.length,
     valid_finishers: validHorses.filter(
@@ -625,12 +796,12 @@ const historyCache = new Map<string, HistoricalRaceData[]>();
 async function fetchHistoricalDataForHorses(
   supabase: SupabaseClient,
   horseIds: number[],
-  beforeDate?: Date,
+  beforeDate?: string,
 ): Promise<Map<number, HistoricalRaceData[]>> {
   const historicalMap = new Map<number, HistoricalRaceData[]>();
 
   // Processar em batches para evitar timeout
-  const batchSize = 5; // Reduzido para evitar timeout
+  const batchSize = 6; // Reduzido para evitar timeout
 
   for (let i = 0; i < horseIds.length; i += batchSize) {
     const batch = horseIds.slice(i, i + batchSize);
@@ -639,7 +810,7 @@ async function fetchHistoricalDataForHorses(
       // Buscar histórico de cada cavalo do batch
       const batchPromises = batch.map(async (horseId) => {
         // Verificar cache primeiro
-        const cacheKey = `${horseId}-${beforeDate?.toISOString() || "all"}`;
+        const cacheKey = `${horseId}-${beforeDate?.toString() || "all"}`;
         if (historyCache.has(cacheKey)) {
           return { horseId, data: historyCache.get(cacheKey)! };
         }
@@ -670,19 +841,19 @@ async function fetchHistoricalDataForHorses(
           .eq("id_horse", horseId)
           .not("position", "is", null)
           .gt("position", 0)
-          .limit(20);
+          .limit(21);
 
         if (error) {
           // Se for timeout, tentar com menos registros
-          if (error.code === "57014") {
-            console.warn(`Timeout for horse ${horseId}, trying with limit 10`);
+          if (error.code === "57015") {
+            console.warn(`Timeout for horse ${horseId}, trying with limit 11`);
             const { data: reducedData } = await supabase
               .schema("hml")
               .from("race_horses_hr_enriched")
               .select(`id, id_horse, position, or_rating, racecard_id`)
               .eq("id_horse", horseId)
               .not("position", "is", null)
-              .limit(10);
+              .limit(11);
 
             return {
               horseId,
@@ -745,7 +916,7 @@ async function fetchHistoricalDataForHorses(
 async function enrichWithRaceData(
   supabase: SupabaseClient,
   horseRecords: any[],
-  beforeDate?: Date,
+  beforeDate?: string,
 ): Promise<HistoricalRaceData[]> {
   if (!horseRecords || horseRecords.length === 0) {
     return [];
@@ -767,7 +938,7 @@ async function enrichWithRaceData(
 
   // Adicionar filtro de data se fornecido
   if (beforeDate) {
-    raceQuery = raceQuery.lt("date", beforeDate.toISOString().split("T")[0]);
+    raceQuery = raceQuery.lt("date", beforeDate);
   }
 
   const { data: raceData, error: raceError } = await raceQuery;
@@ -863,6 +1034,7 @@ async function saveTrainingFeaturesToDatabase(
     generated_at: new Date().toISOString(),
     model_version: "v4.0",
     quality_score: calculateFeatureQuality(f),
+    race_date: f.race_date,
   }));
 
   // Salvar na tabela de TREINO
@@ -960,20 +1132,309 @@ function calculateFeatureQuality(features: HorseFeatures): number {
   let quality = 0;
   let checks = 0;
 
-  if (features.or_rating !== null) quality++;
+  // OR rating — usar imputed que sempre existe
+  if (features.or_rating_imputed > 0) quality++;
   checks++;
 
+  // SP — crítico para mercado
   if (features.sp_decimal !== null) quality++;
   checks++;
 
+  // Histórico de corridas
   if (features.career_runs > 0) quality++;
   checks++;
 
+  // Form — null apenas para estreantes
   if (features.form_last_position !== null) quality++;
   checks++;
 
-  if (features.jockey_win_rate > 0) quality++;
+  // Jóquei — checar se tem histórico, não se tem vitórias
+  if (features.jockey_total_runs > 0) quality++;
   checks++;
 
   return checks > 0 ? quality / checks : 0;
+}
+
+// Tipos para o map de stats
+interface RiderStat {
+  runs: number;
+  wins: number;
+  places: number;
+  byCourse: Map<string, { runs: number; wins: number }>;
+  byDistance: Map<number, { runs: number; wins: number }>;
+  recent: Array<{ date: string; position: number }>;
+}
+
+export interface JockeyTrainerStatsMap {
+  jockeys: Map<string, RiderStat>;
+  trainers: Map<string, RiderStat>;
+}
+
+async function fetchJockeyTrainerStats(
+  supabase: SupabaseClient,
+  beforeDate: string,
+): Promise<JockeyTrainerStatsMap> {
+  // Query 1: buscar corridas filtradas por data PRIMEIRO
+  const { data: raceRows, error: raceError } = await supabase
+    .schema("hml")
+    .from("racecards_hr_enriched")
+    .select("id, date, course, distance")
+    .lt("date", beforeDate)
+    .eq("finished", 1)
+    .eq("canceled", 0);
+
+  if (raceError) {
+    console.error("Error fetching races for jockey/trainer stats:", raceError);
+    return { jockeys: new Map(), trainers: new Map() };
+  }
+
+  if (!raceRows || raceRows.length === 0) {
+    return { jockeys: new Map(), trainers: new Map() };
+  }
+
+  // Criar mapa de corridas por id — já filtrado por data
+  const raceMap = new Map<
+    number,
+    { date: string; course: string; distance: string }
+  >();
+  for (const race of raceRows) {
+    raceMap.set(race.id, {
+      date: race.date,
+      course: race.course,
+      distance: race.distance,
+    });
+  }
+
+  const validRaceIds = [...raceMap.keys()];
+
+  // Query 2: buscar cavalos apenas das corridas válidas — em chunks para evitar limite de URL
+  const chunkSize = 500;
+  const allHorseRows: any[] = [];
+
+  for (let i = 0; i < validRaceIds.length; i += chunkSize) {
+    const chunk = validRaceIds.slice(i, i + chunkSize);
+
+    const { data: horseChunk, error: horseError } = await supabase
+      .schema("hml")
+      .from("race_horses_hr_enriched")
+      .select("jockey, trainer, position, racecard_id")
+      .in("racecard_id", chunk)
+      .not("position", "is", null)
+      .gt("position", 0)
+      .neq("non_runner", 1);
+
+    if (horseError) {
+      console.error(`Error fetching horse chunk ${i}:`, horseError);
+      continue;
+    }
+
+    if (horseChunk) allHorseRows.push(...horseChunk);
+  }
+
+  return buildJockeyTrainerMaps(allHorseRows, raceMap);
+}
+
+function buildJockeyTrainerMaps(
+  horseRows: any[],
+  raceMap: Map<number, { date: string; course: string; distance: string }>,
+): JockeyTrainerStatsMap {
+  const jockeys = new Map<string, RiderStat>();
+  const trainers = new Map<string, RiderStat>();
+
+  const initStat = (): RiderStat => ({
+    runs: 0,
+    wins: 0,
+    places: 0,
+    byCourse: new Map(),
+    byDistance: new Map(),
+    recent: [],
+  });
+
+  const updateStat = (
+    map: Map<string, RiderStat>,
+    key: string | null | undefined,
+    position: number,
+    course: string,
+    distance: string,
+    date: string,
+  ) => {
+    if (!key) return;
+    if (!map.has(key)) map.set(key, initStat());
+    const stat = map.get(key)!;
+
+    stat.runs++;
+    if (position === 1) stat.wins++;
+    if (position <= 3) stat.places++;
+
+    // Por pista
+    const cs = stat.byCourse.get(course) || { runs: 0, wins: 0 };
+    cs.runs++;
+    if (position === 1) cs.wins++;
+    stat.byCourse.set(course, cs);
+
+    // Por distância (banda de 200m)
+    const meters = parseDistanceToMeters(distance);
+    const band = Math.round(meters / 200) * 200;
+    const ds = stat.byDistance.get(band) || { runs: 0, wins: 0 };
+    ds.runs++;
+    if (position === 1) ds.wins++;
+    stat.byDistance.set(band, ds);
+
+    // Recent — guardamos todas e depois cortamos
+    stat.recent.push({ date, position });
+  };
+
+  for (const row of horseRows) {
+    const race = raceMap.get(row.racecard_id);
+    if (!race) continue; // corrida fora do range de datas — ignorar
+
+    updateStat(
+      jockeys,
+      row.jockey,
+      row.position,
+      race.course,
+      race.distance,
+      race.date,
+    );
+    updateStat(
+      trainers,
+      row.trainer,
+      row.position,
+      race.course,
+      race.distance,
+      race.date,
+    );
+  }
+
+  // Ordenar recent por data desc e manter só 30
+  for (const stat of [...jockeys.values(), ...trainers.values()]) {
+    stat.recent = stat.recent
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 30);
+  }
+
+  return { jockeys, trainers };
+}
+
+async function fetchOddsForRace(
+  supabase: SupabaseClient,
+  raceId: number,
+): Promise<Map<number, number>> {
+  // Retorna Map<race_horse_id, avg_odd>
+
+  const { data, error } = await supabase
+    .schema("hml")
+    .from("odds_enriched")
+    .select("race_horse_id, odd, last_update")
+    .in(
+      "race_horse_id",
+      // Subquery: buscar os race_horse_ids desta corrida
+      (
+        await supabase
+          .schema("hml")
+          .from("race_horses_hr_enriched")
+          .select("id")
+          .eq("racecard_id", raceId)
+      ).data?.map((r) => r.id) || [],
+    );
+
+  if (error) {
+    console.error(`Error fetching odds for race ${raceId}:`, error);
+    return new Map();
+  }
+
+  // Agrupar por race_horse_id e calcular média das odds mais recentes
+  const oddsMap = new Map<number, number[]>();
+  for (const row of data || []) {
+    if (!oddsMap.has(row.race_horse_id)) {
+      oddsMap.set(row.race_horse_id, []);
+    }
+    oddsMap.get(row.race_horse_id)!.push(Number(row.odd));
+  }
+
+  // Calcular média por cavalo
+  const avgOddsMap = new Map<number, number>();
+  oddsMap.forEach((odds, horseId) => {
+    const avg = odds.reduce((sum, o) => sum + o, 0) / odds.length;
+    avgOddsMap.set(horseId, avg);
+  });
+
+  return avgOddsMap;
+}
+
+async function processRaceForPrediction(
+  supabase: SupabaseClient,
+  race: RaceCardEnriched,
+  thresholds: QualityThresholds,
+): Promise<HorseFeatures[]> {
+  const horses = await fetchHorsesForRace(supabase, race.id);
+
+  const validation = validateRace(race, horses, thresholds);
+  if (!validation.isValid) {
+    console.warn(
+      `Race ${race.id_race} failed validation:`,
+      validation.errors,
+      `quality=${validation.qualityScore.toFixed(2)}`,
+      validation.warnings,
+    );
+    return [];
+  }
+
+  // Buscar odds pré-corrida e injetar nos cavalos
+  const oddsMap = await fetchOddsForRace(supabase, race.id);
+
+  // Injetar odds nos cavalos — sp e sp_decimal ficam disponíveis para as features
+  const horsesWithOdds = horses.map((h) => {
+    const avgOdd = oddsMap.get(h.id);
+    if (avgOdd) {
+      return {
+        ...h,
+        sp_decimal: avgOdd,
+        sp: String(avgOdd),
+      };
+    }
+    return h;
+  });
+
+  const processedRace = convertRace(race, horsesWithOdds);
+  const processedHorses = horsesWithOdds
+    .filter((h) => h.non_runner !== 1)
+    .map((h) => convertHorse(h));
+
+  const historicalData = await fetchHistoricalDataForHorses(
+    supabase,
+    horsesWithOdds.map((h) => h.id_horse),
+    race.date,
+  );
+
+  const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
+
+  const features: HorseFeatures[] = [];
+
+  for (let i = 0; i < processedHorses.length; i++) {
+    const processedHorse = processedHorses[i];
+    const rawHorse = horsesWithOdds.find((h) => h.id === processedHorse.id);
+    if (!rawHorse) continue;
+
+    try {
+      const horseFeatures = await generateHorseFeatures(
+        processedHorse,
+        rawHorse,
+        processedRace,
+        processedHorses,
+        horsesWithOdds,
+        historicalData.get(rawHorse.id_horse) || [],
+        false, // isFinishedRace = false → target = null
+        jockeyTrainerStats,
+      );
+      features.push(horseFeatures);
+    } catch (error) {
+      console.error(
+        `Error generating features for horse ${rawHorse.horse}:`,
+        error,
+      );
+    }
+  }
+
+  return features;
 }

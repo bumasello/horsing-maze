@@ -19,20 +19,54 @@ export const populateEnrichedRaceDetail_spb = async () => {
       .schema("hml")
       .from("racecards_hr_enriched")
       .select("id, id_race")
-      .eq("finished", "0")
-      .eq("canceled", "0");
+      .eq("finished", 0)
+      .eq("canceled", 0);
 
   if (unfinishedracecardsError)
     throw new Error("Erro ao carregar corridas não finalizadas no Supabase.");
 
   const totalRaces = unfinishedracecards?.length || 0;
   console.log(
-    `🏁 Iniciando processamento de ${totalRaces} corridas não finalizadas`,
+    `Iniciando processamento de ${totalRaces} corridas não finalizadas`,
   );
 
   if (totalRaces === 0) {
-    console.log("✅ Nenhuma corrida não finalizada encontrada.");
+    console.log("Nenhuma corrida não finalizada encontrada.");
     return;
+  }
+
+  // Busca todos os racecard_ids das corridas não finalizadas de uma vez
+  const racecardIds = unfinishedracecards.map((r) => r.id);
+
+  const { data: allHorses, error: allHorsesError } = await supabase
+    .schema("hml")
+    .from("race_horses_hr_enriched")
+    .select("id, racecard_id, id_horse")
+    .in("racecard_id", racecardIds);
+
+  if (allHorsesError)
+    throw new Error("Erro ao carregar cavalos das corridas não finalizadas.");
+
+  // Busca todos os id_race já existentes no Supabase de uma vez
+  const { data: existingRacecards, error: existingRacecardsError } =
+    await supabase
+      .schema("hml")
+      .from("racecards_hr_enriched")
+      .select("id_race");
+
+  if (existingRacecardsError)
+    throw new Error("Erro ao carregar corridas existentes no Supabase.");
+
+  const existingRaceIds = new Set(
+    existingRacecards.map((r) => r.id_race.toString()),
+  );
+
+  // Agrupa cavalos por corrida em memória
+  const horsesByRace = new Map<number, UnfinishedRacesHorse[]>();
+  for (const horse of allHorses as UnfinishedRacesHorse[]) {
+    const group = horsesByRace.get(horse.racecard_id) || [];
+    group.push(horse);
+    horsesByRace.set(horse.racecard_id, group);
   }
 
   let processedRaces = 0;
@@ -40,104 +74,71 @@ export const populateEnrichedRaceDetail_spb = async () => {
   for (const race of unfinishedracecards as UnfinishedRaces[]) {
     processedRaces++;
     console.log(
-      `\n🏇 [${processedRaces}/${totalRaces}] Processando corrida ID: ${race.id} (Race: ${race.id_race})`,
+      `[${processedRaces}/${totalRaces}] Processando corrida ID: ${race.id} (Race: ${race.id_race})`,
     );
 
-    const { data: raceDetail, error: raceDetailError } = await supabase
-      .schema("hml")
-      .from("race_horses_hr_enriched")
-      .select("id, racecard_id, id_horse")
-      .eq("racecard_id", race.id);
-
-    if (raceDetailError) {
-      console.error(
-        `❌ Erro ao carregar cavalos da corrida ${race.id}:`,
-        raceDetailError,
-      );
-      throw new Error(
-        "Erro ao carregar detalhes de corridas não finalizadas no Supabase.",
-      );
-    }
-
-    const totalHorses = raceDetail?.length || 0;
-    console.log(`   🐎 Total de cavalos nesta corrida: ${totalHorses}`);
+    const horses = horsesByRace.get(race.id) || [];
+    const totalHorses = horses.length;
 
     if (totalHorses === 0) {
       console.log(
-        `   ! Nenhum cavalo encontrado para a corrida ${race.id}, pulando...`,
+        `Nenhum cavalo encontrado para a corrida ${race.id}, pulando...`,
       );
       continue;
     }
 
+    console.log(`Total de cavalos nesta corrida: ${totalHorses}`);
+
     let processedHorses = 0;
 
-    for (const horse of raceDetail as UnfinishedRacesHorse[]) {
+    for (const horse of horses) {
       processedHorses++;
       console.log(
-        `   🐴 [${processedHorses}/${totalHorses}] Processando cavalo ID: ${horse.id_horse}`,
+        `[${processedHorses}/${totalHorses}] Processando cavalo ID: ${horse.id_horse}`,
       );
 
       try {
         const raceIds = await getHistoryRaceDetailId(horse.id_horse);
-
         const totalHistoricRaces = raceIds.length;
         console.log(
-          `      📊 Encontradas ${totalHistoricRaces} corridas históricas para este cavalo`,
+          `Encontradas ${totalHistoricRaces} corridas históricas para cavalo ${horse.id_horse}`,
         );
 
-        let processedHistoricRaces = 0;
         let insertedHistoricRaces = 0;
         let skippedHistoricRaces = 0;
 
         for (const raceId of raceIds) {
-          processedHistoricRaces++;
-
-          // Verificar se o race detail já existe no Supabase
-          const { data: existingRace } = await supabase
-            .schema("hml")
-            .from("racecards_hr_enriched")
-            .select("id")
-            .eq("id_race", raceId.toString())
-            .single();
-
-          if (!existingRace) {
-            await insertEnrichedRaceDetail(+raceId);
-            insertedHistoricRaces++;
-            console.log(
-              `\n✅ [${processedHistoricRaces}/${totalHistoricRaces}] Race ID ${raceId} inserida com sucesso`,
-              `\n🐴 [${processedHorses}/${totalHorses}] Processando cavalo ID: ${horse.id_horse}`,
-              `\n🏇 [${processedRaces}/${totalRaces}] Processando corrida ID: ${race.id} (Race: ${race.id_race})`,
-            );
-          } else {
+          if (existingRaceIds.has(raceId.toString())) {
             skippedHistoricRaces++;
-            console.log(
-              `\n⏭  [${processedHistoricRaces}/${totalHistoricRaces}] Race ID ${raceId} já existe, pulando...`,
-              `\n🐴 [${processedHorses}/${totalHorses}] Processando cavalo ID: ${horse.id_horse}`,
-              `\n🏇 [${processedRaces}/${totalRaces}] Processando corrida ID: ${race.id} (Race: ${race.id_race})`,
-            );
+            continue;
           }
+
+          await insertEnrichedRaceDetail(+raceId);
+          // Adiciona ao Set em memória para evitar inserções duplicadas
+          // no mesmo ciclo de processamento
+          existingRaceIds.add(raceId.toString());
+          insertedHistoricRaces++;
+          console.log(`Race ID ${raceId} inserida com sucesso`);
         }
 
         console.log(
-          `      📈 Cavalo ${horse.id_horse}: ${insertedHistoricRaces} inseridas, ${skippedHistoricRaces} puladas de ${totalHistoricRaces} total`,
+          `Cavalo ${horse.id_horse}: ${insertedHistoricRaces} inseridas, ${skippedHistoricRaces} puladas de ${totalHistoricRaces} total`,
         );
       } catch (error) {
         console.error(
-          `      ❌ Erro ao processar histórico do cavalo ${horse.id_horse}:`,
+          `Erro ao processar historico do cavalo ${horse.id_horse}:`,
           error,
         );
-        // Continua processando os outros cavalos mesmo se um falhar
       }
     }
 
-    const racesRemaining = totalRaces - processedRaces;
     const progressPercentage = ((processedRaces / totalRaces) * 100).toFixed(1);
     console.log(
-      `\n📊 Progresso: ${processedRaces}/${totalRaces} corridas (${progressPercentage}%) | Restam: ${racesRemaining} corridas`,
+      `Progresso: ${processedRaces}/${totalRaces} corridas (${progressPercentage}%) | Restam: ${totalRaces - processedRaces}`,
     );
   }
 
   console.log(
-    `\n🎉 Processamento concluído! Total de ${totalRaces} corridas processadas.`,
+    `Processamento concluido. Total de ${totalRaces} corridas processadas.`,
   );
 };

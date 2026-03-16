@@ -13,87 +13,55 @@ dotenv.config();
 
 const updateRaceCard_Hr = async () => {
   const racecards = await raceCard.getUnfinishedRaceCard_Hr(true);
-  const BATCH_SIZE = 10; // Processar 10 requisições por lote
-  const BATCH_DELAY = 60000; // 60 segundos de pausa entre lotes
-  const REQUEST_DELAY = 1000; // 1 segundo entre requisições
+
+  const BATCH_SIZE = 10;
+  const BATCH_DELAY = 60000;
+  const REQUEST_DELAY = 1000;
+
+  console.log(`Iniciando atualização de ${racecards.length} corridas...`);
 
   for (let i = 0; i < racecards.length; i++) {
     const rc = racecards[i] as IRaceCard_Hr;
-    let success = false;
-    let retryCount = 0;
-    const MAX_RETRIES = 3;
-    let waitTime = 5000; // Tempo inicial de espera para retry
 
-    // Tentar a requisição com retry e backoff exponencial
-    while (!success && retryCount < MAX_RETRIES) {
-      try {
-        await raceDetail.getRaceDetailAndStore_Hr(rc.id_race);
-        console.log(`Atualizou Racedetail: ${rc.id_race}`);
-        success = true;
-      } catch (error) {
-        retryCount++;
-        console.error(
-          `Erro ao atualizar race detail ${rc.id_race}, tentativa ${retryCount}:`,
-          error,
+    try {
+      // getRaceDetailAndStore_Hr já tem retry interno — não precisa de retry aqui
+      await raceDetail.getRaceDetailAndStore_Hr(rc.id_race);
+      console.log(`Race detail atualizado: ${rc.id_race}`);
+
+      // Busca o detail já salvo para atualizar o RaceCard
+      const stored = await raceDetail.getStoredRaceDetail_Hr(rc.id_race);
+
+      if (stored && stored.length > 0) {
+        const { _id, horses, ...raceCardData } = stored[0] as IRaceDetail_Hr;
+
+        await RaceCard.findOneAndUpdate(
+          { id_race: rc.id_race },
+          { $set: { ...raceCardData } }, // bug corrigido
+          { new: true },
         );
 
-        if (retryCount < MAX_RETRIES) {
-          console.log(
-            `Aguardando ${waitTime / 1000} segundos antes de tentar novamente...`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-          waitTime *= 2; // Backoff exponencial
-        } else {
-          console.error(
-            `Falha após ${MAX_RETRIES} tentativas para corrida ${rc.id_race}`,
-          );
-        }
+        console.log(`Race card atualizado: ${rc.id_race}`);
       }
+    } catch (error) {
+      // getRaceDetailAndStore_Hr já esgotou as tentativas — loga e continua
+      console.error(`Falha ao processar corrida ${rc.id_race}:`, error);
     }
 
-    // Se conseguiu obter os detalhes, atualiza o racecard
-    if (success) {
-      try {
-        const newRaceCard = await raceDetail.getStoredRaceDetail_Hr(rc.id_race);
-        if (newRaceCard && newRaceCard.length > 0) {
-          const raceDetailData = newRaceCard[0];
-          const {
-            _id: detailId,
-            horses,
-            ...raceCardData
-          } = raceDetailData as IRaceDetail_Hr;
-          await RaceCard.findOneAndUpdate(
-            { id_race: rc.id_race },
-            { $set: { raceCardData } },
-            {
-              new: true,
-            },
-          );
-          console.log(`Atualizou Racecard: ${rc.id_race}`);
-        }
-      } catch (error) {
-        console.error(`Erro ao atualizar race card ${rc.id_race}:`, error);
-      }
-    }
-
-    // Verificar se precisa esperar entre lotes
     if (i < racecards.length - 1) {
-      // Espera normal entre requisições
       await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY));
 
-      // Se estamos no final de um lote, faz uma pausa maior
       if ((i + 1) % BATCH_SIZE === 0) {
+        const currentBatch = Math.floor((i + 1) / BATCH_SIZE);
+        const totalBatches = Math.ceil(racecards.length / BATCH_SIZE);
         console.log(
-          `Completado lote ${Math.floor((i + 1) / BATCH_SIZE)} de ${Math.ceil(racecards.length / BATCH_SIZE)}. Pausando por ${BATCH_DELAY / 1000} segundos...`,
+          `Lote ${currentBatch}/${totalBatches} concluído. Pausando ${BATCH_DELAY / 1000}s...`,
         );
         await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
       }
     }
   }
 
-  console.log(
-    `Processo de atualização concluído para ${racecards.length} corridas.`,
-  );
+  console.log(`Atualização concluída para ${racecards.length} corridas.`);
 };
 
 const checkMissingRacecards_hr = async () => {

@@ -7,24 +7,34 @@
  * Foi projetado para ser executado como um microsserviço agendado via Node Cron.
  */
 
+import { supabase } from "..";
 import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
 import raceCards from "../functions/mdb_functions/getRaceCard_Hr";
 import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr";
 import updateRacecard_mdb from "../functions/mdb_functions/updateRaceCard_Hr";
 import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
-import { generatePredictionFeatures_v3 } from "../functions/spb_functions/features_v3/generatePredictionFeatures";
-import { generatePredictions_v3 } from "../functions/spb_functions/features_v3/generatePredictions_v3";
-import { generateTrainingFeatures_v3 } from "../functions/spb_functions/features_v3/generateTrainingFeatures";
+import {
+  generatePredictionFeatures_v4,
+  generateTrainingFeatures_v4,
+} from "../functions/spb_functions/features_v4/pipeline/feature-orchestrator";
+import {
+  updateLayBettingResults,
+  updateRacecardsAndDetails,
+} from "../functions/spb_functions/features_v4/pipeline/update_results";
 import { populateEnrichedRaceDetail_spb } from "../functions/spb_functions/populate/populateEnrichedRaceDetail";
-import { generateHorseEntries_v3 } from "../functions/spb_functions/populate/populateHorseEntries";
 import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
-import { populateRacecards_spb } from "../functions/spb_functions/populate/populateRaceCard_spb";
 import { populateRacecardsEnriched_spb } from "../functions/spb_functions/populate/populateRaceCard_spb_enriched";
 import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
 import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
 import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
-import { trainHorseData_v3 } from "../functions/tensor_functions/trainHorseData_v3";
+import {
+  generateLayBettingPicks,
+  validatePreviousPicks,
+  markFinishedPredictions,
+} from "../functions/tensor_functions/tensor_v4/ml/claude-generate-picks";
+import { generatePredictions_v4 } from "../functions/tensor_functions/tensor_v4/ml/claude-prediction-model";
+import { trainLayBettingModel } from "../functions/tensor_functions/tensor_v4/ml/sonnet-claude-training";
 
 /**
  * Interface para o objeto de configuração do pipeline
@@ -277,13 +287,13 @@ async function updateMongoDBData(): Promise<void> {
   });
 
   await metrics.measure("Atualização de Racecards SPB", async () => {
-    await updateRacecards_spb();
+    await updateRacecardsAndDetails();
     logger.info("Atualização de Racecards SPB concluída com sucesso");
   });
 
-  await metrics.measure("Atualização de Horse Entries SPB", async () => {
-    await updateHorseEntries_spb();
-    logger.info("Atualização de Horse Entries SPB concluída com sucesso");
+  await metrics.measure("Atualização de resultados dos picks", async () => {
+    await updateLayBettingResults();
+    logger.info("Resultados dos picks atualizados com sucesso");
   });
 
   logger.info("Atualização de dados no MongoDB concluída com sucesso");
@@ -377,7 +387,6 @@ async function transferToSupabase(): Promise<void> {
     },
   );
 
-  // Transferência de detalhes de corridas
   await metrics.measure(
     "Transferência de detalhes de corridas para Supabase",
     async () => {
@@ -388,18 +397,26 @@ async function transferToSupabase(): Promise<void> {
     },
   );
 
-  // Transferência de estatísticas de cavalos
+  // Adicionado: popula horse_stats_hr antes do enriched detail,
+  // pois checkHorseResultLength depende do result_count
   await metrics.measure(
     "Transferência de estatísticas de cavalos para Supabase",
     async () => {
-      await populateEnrichedRaceDetail_spb();
+      await populateHorseStats_spb();
       logger.info(
         "Estatísticas de cavalos transferidas para Supabase com sucesso",
       );
     },
   );
 
-  // Verificação de cavalos com resultados suficientes
+  await metrics.measure(
+    "Transferência de detalhes históricos de corridas para Supabase",
+    async () => {
+      await populateEnrichedRaceDetail_spb();
+      logger.info("Detalhes históricos transferidos para Supabase com sucesso");
+    },
+  );
+
   await metrics.measure(
     "Verificação de cavalos com resultados suficientes",
     async () => {
@@ -408,21 +425,64 @@ async function transferToSupabase(): Promise<void> {
     },
   );
 
-  // Atualização de race cards limpos
-  await metrics.measure("Atualização de race cards limpos", async () => {
+  await metrics.measure("Remoção de race cards não elegíveis", async () => {
     await updateCleanRacecard();
-    logger.info("Race cards limpos atualizados com sucesso");
+    logger.info("Race cards não elegíveis removidos com sucesso");
   });
 
   // Geração de features
   await metrics.measure("Geração de features para treinamento", async () => {
-    await generateTrainingFeatures_v3();
-    logger.info("Features para treinamento geradas com sucesso");
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setFullYear(startDate.getFullYear() - 2);
+
+    const trainingResult = await generateTrainingFeatures_v4(
+      supabase,
+      startDate,
+      endDate,
+      {
+        mode: "training",
+        batchSize: 50,
+        saveToDatabase: true,
+        minQualityScore: 0.7,
+      },
+    );
+
+    logger.info(
+      `Features para treinamento geradas com sucesso: ${trainingResult.racesProcessed} corridas, ${trainingResult.featuresGenerated} features`,
+    );
   });
 
   await metrics.measure("Geração de features para previsão", async () => {
-    await generatePredictionFeatures_v3();
-    logger.info("Features para previsão geradas com sucesso");
+    const { data: upcomingRaces, error } = await supabase
+      .schema("hml")
+      .from("racecards_hr_enriched")
+      .select("id_race")
+      .eq("finished", 0)
+      .eq("canceled", 0);
+
+    if (error) throw error;
+
+    if (!upcomingRaces || upcomingRaces.length === 0) {
+      logger.info("Nenhuma corrida futura encontrada para previsão, pulando.");
+      return;
+    }
+
+    const raceIds = upcomingRaces.map((r) => r.id_race);
+
+    const predictionFeatures = await generatePredictionFeatures_v4(
+      supabase,
+      raceIds,
+      {
+        mode: "prediction",
+        saveToDatabase: true,
+        minQualityScore: 0.5,
+      },
+    );
+
+    logger.info(
+      `Features para previsão geradas com sucesso: ${raceIds.length} corridas, ${predictionFeatures.length} features`,
+    );
   });
 
   logger.info(
@@ -438,19 +498,19 @@ async function trainAndPredict(): Promise<void> {
 
   // Treinamento do modelo
   await metrics.measure("Treinamento do modelo", async () => {
-    await trainHorseData_v3();
+    await trainLayBettingModel();
     logger.info("Treinamento do modelo concluído com sucesso");
   });
 
   // Geração de previsões
   await metrics.measure("Geração de previsões", async () => {
-    await generatePredictions_v3();
+    await generatePredictions_v4();
     logger.info("Previsões geradas com sucesso");
   });
 
   // Inserção de previsões no banco de dados
   await metrics.measure("Inserção de previsões no banco de dados", async () => {
-    await generateHorseEntries_v3();
+    await generateLayBettingPicks();
     logger.info("Previsões inseridas no banco de dados com sucesso");
   });
 

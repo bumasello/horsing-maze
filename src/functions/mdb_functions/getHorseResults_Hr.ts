@@ -68,10 +68,21 @@ const getHorseStatsAndStore_hr = async (racecard: IRaceCard_Hr[]) => {
             });
 
             if (!response.ok) {
+              console.log(
+                `Status recebido: ${response.status} - ${response.statusText}`,
+              );
+              // Se receber erro 429 (Too Many Requests), rotaciona a API key
               if (response.status === 429) {
-                console.log("too many requests detectado");
+                console.log("Erro 429: Too Many Requests detectado");
                 headers = rotateApiKey();
                 continue;
+              }
+
+              // Se receber erro 404 (Forbidden), rotaciona a API key
+              if (response.status === 404) {
+                console.log("Erro 404: Forbidden detectado");
+                headers = rotateApiKey();
+                continue; // Tenta novamente com a nova key sem incrementar retry
               }
               throw new Error(
                 `Erro na requisição getRaceDetailAndStore_Hr: ${response.statusText}`,

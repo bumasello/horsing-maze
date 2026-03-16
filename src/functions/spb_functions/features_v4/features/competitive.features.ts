@@ -1,5 +1,6 @@
 // features_v4/features/competitive.features.ts
 
+import { parseForm, parseSP } from "../converters";
 import type {
   ProcessedHorse,
   ProcessedRace,
@@ -61,25 +62,31 @@ export function extractCompetitiveFeatures(
   allHorses: ProcessedHorse[],
   allRawHorses: RaceHorseEnriched[],
 ): CompetitiveFeatures {
+  const activeRawHorses = allRawHorses.filter((h) => h.non_runner !== 1);
+  const activeHorses = allHorses.filter((h) => {
+    const raw = allRawHorses.find((r) => r.id === h.id);
+    return raw?.non_runner !== 1;
+  });
+
   // Calculate field quality metrics
-  const fieldQuality = calculateFieldQuality(allRawHorses);
+  const fieldQuality = calculateFieldQuality(activeRawHorses);
 
   // Calculate horse's position in field
   const positionMetrics = calculatePositionInField(
     rawHorse,
-    allRawHorses,
+    activeRawHorses,
     fieldQuality,
   );
 
   // Calculate field composition
-  const fieldComposition = calculateFieldComposition(allRawHorses);
+  const fieldComposition = calculateFieldComposition(activeRawHorses);
 
   // Calculate competitive advantages (now using race parameter)
   const advantages = calculateCompetitiveAdvantages(
     horse,
     rawHorse,
-    allHorses,
-    allRawHorses,
+    activeHorses,
+    activeRawHorses,
     fieldQuality,
     race,
   );
@@ -88,7 +95,7 @@ export function extractCompetitiveFeatures(
   const competitiveness = calculateRaceCompetitiveness(
     fieldQuality,
     fieldComposition,
-    allRawHorses,
+    activeRawHorses,
     race,
   );
 
@@ -148,9 +155,22 @@ export function extractCompetitiveFeatures(
 function calculateFieldQuality(
   horses: RaceHorseEnriched[],
 ): Partial<CompetitiveFeatures> {
-  const orRatings = horses
+  // Tentar OR ratings reais primeiro
+  let orRatings = horses
     .map((h) => h.or_rating)
     .filter((r) => r !== null && r > 0) as number[];
+
+  // Se nenhum OR real disponível, usar imputados via SP
+  if (orRatings.length === 0) {
+    orRatings = horses
+      .map((h) => {
+        if (h.or_rating) return h.or_rating;
+        const sp = parseSP(h.sp);
+        if (sp && sp < 20) return Math.round(100 - sp * 3);
+        return null;
+      })
+      .filter((r) => r !== null && r > 0) as number[];
+  }
 
   if (orRatings.length === 0) {
     return {
@@ -166,16 +186,13 @@ function calculateFieldQuality(
   const maxOR = Math.max(...orRatings);
   const minOR = Math.min(...orRatings);
   const spread = maxOR - minOR;
-
-  // Calculate standard deviation
   const variance =
     orRatings.reduce((sum, r) => sum + Math.pow(r - avgOR, 2), 0) /
     orRatings.length;
-  const stdOR = Math.sqrt(variance);
 
   return {
     field_avg_or: avgOR,
-    field_std_or: stdOR,
+    field_std_or: Math.sqrt(variance),
     field_max_or: maxOR,
     field_min_or: minOR,
     field_or_spread: spread,
@@ -190,23 +207,20 @@ function calculatePositionInField(
   allHorses: RaceHorseEnriched[],
   fieldQuality: Partial<CompetitiveFeatures>,
 ): Partial<CompetitiveFeatures> {
+  // FIX: excluir non-runners do cálculo
+  const activeHorses = allHorses.filter((h) => h.non_runner !== 1);
+
   const horseOR = horse.or_rating || fieldQuality.field_avg_or || 0;
 
-  // Get all valid OR ratings and sort
-  const allORs = allHorses
+  const allORs = activeHorses
     .map((h) => h.or_rating || 0)
     .filter((r) => r > 0)
-    .sort((a, b) => b - a); // Descending order
+    .sort((a, b) => b - a);
 
-  // Calculate rank (1 = highest OR)
   const rank = allORs.findIndex((r) => r <= horseOR) + 1;
   const percentile = allORs.length > 0 ? 1 - (rank - 1) / allORs.length : 0.5;
-
-  // Calculate differences
   const diffToTop = (fieldQuality.field_max_or || 0) - horseOR;
   const diffToAvg = horseOR - (fieldQuality.field_avg_or || 0);
-
-  // Count stronger and weaker opponents
   const strongerCount = allORs.filter((r) => r > horseOR).length;
   const weakerCount = allORs.filter((r) => r < horseOR).length;
 
@@ -226,22 +240,17 @@ function calculatePositionInField(
 function calculateFieldComposition(
   horses: RaceHorseEnriched[],
 ): Partial<CompetitiveFeatures> {
-  // Calculate career statistics for all horses
   const careerStats = horses.map((h) => {
-    const form = h.form || "";
-    const wins = (form.match(/1/g) || []).length;
-    const runs = form.replace(/[^\d]/g, "").length;
+    // FIX 1: usar parseForm em vez de reparse manual
+    const parsed = parseForm(h.form);
+    const wins = parsed.figures.filter((f) => f === 1).length;
+    const runs = parsed.figures.length;
     const winRate = runs > 0 ? wins / runs : 0;
 
-    // Recent positions from form
-    const positions =
-      form
-        .match(/\d/g)
-        ?.map((d) => Number.parseInt(d))
-        .slice(0, 3) || [];
+    const recentFigures = parsed.recent_figures;
     const avgRecent =
-      positions.length > 0
-        ? positions.reduce((sum, p) => sum + p, 0) / positions.length
+      recentFigures.length > 0
+        ? recentFigures.reduce((sum, p) => sum + p, 0) / recentFigures.length
         : 10;
 
     return {
@@ -254,8 +263,8 @@ function calculateFieldComposition(
     };
   });
 
-  // Calculate field averages
   const validStats = careerStats.filter((s) => s.runs > 0);
+
   const avgWins =
     validStats.length > 0
       ? validStats.reduce((sum, s) => sum + s.wins, 0) / validStats.length
@@ -271,15 +280,13 @@ function calculateFieldComposition(
       ? validStats.reduce((sum, s) => sum + s.avgRecent, 0) / validStats.length
       : 10;
 
-  const experiencedCount = careerStats.filter((s) => s.isExperienced).length;
-  const maidenCount = careerStats.filter((s) => s.isMaiden).length;
-
   return {
     field_avg_career_wins: avgWins,
     field_avg_win_rate: avgWinRate,
     field_avg_recent_position: avgRecentPosition,
-    experienced_runners_count: experiencedCount,
-    maiden_runners_count: maidenCount,
+    experienced_runners_count: careerStats.filter((s) => s.isExperienced)
+      .length,
+    maiden_runners_count: careerStats.filter((s) => s.isMaiden).length,
   };
 }
 
@@ -294,41 +301,37 @@ function calculateCompetitiveAdvantages(
   fieldQuality: Partial<CompetitiveFeatures>,
   race: ProcessedRace,
 ): Partial<CompetitiveFeatures> {
-  // OR advantage score (normalized)
   const horseOR = rawHorse.or_rating || fieldQuality.field_avg_or || 0;
   const orAdvantage =
     fieldQuality.field_std_or && fieldQuality.field_avg_or
       ? (horseOR - fieldQuality.field_avg_or) / fieldQuality.field_std_or
       : 0;
 
-  // Experience advantage (based on number of runs)
-  const horseRuns = (rawHorse.form || "").replace(/[^\d]/g, "").length;
+  // FIX 2: usar parseForm em vez de reparse manual
+  const horseRuns = parseForm(rawHorse.form).figures.length;
   const fieldAvgRuns =
     allRawHorses
-      .map((h) => (h.form || "").replace(/[^\d]/g, "").length)
-      .reduce((sum, r) => sum + r, 0) / allRawHorses.length;
+      .map((h) => parseForm(h.form).figures.length)
+      .reduce((sum, r) => sum + r, 0) / Math.max(allRawHorses.length, 1);
+
   const experienceAdvantage =
     (horseRuns - fieldAvgRuns) / Math.max(fieldAvgRuns, 1);
 
-  // Form advantage (based on recent positions)
   const horseFormAvg = horse.form_data.avg_position || 10;
   const fieldFormAvg =
     allHorses
       .map((h) => h.form_data.avg_position || 10)
-      .reduce((sum, p) => sum + p, 0) / allHorses.length;
-  // Lower position is better, so invert the advantage
+      .reduce((sum, p) => sum + p, 0) / Math.max(allHorses.length, 1);
   const formAdvantage =
     (fieldFormAvg - horseFormAvg) / Math.max(fieldFormAvg, 1);
 
-  // Weight advantage (lighter is generally better, adjusted for race class)
   const horseWeight = horse.weight_kg || 60;
   const fieldAvgWeight =
     allHorses
       .map((h) => h.weight_kg || 60)
       .filter((w) => w > 0)
-      .reduce((sum, w) => sum + w, 0) / allHorses.length;
+      .reduce((sum, w) => sum + w, 0) / Math.max(allHorses.length, 1);
 
-  // Adjust weight advantage based on race class (higher class = weight matters more)
   const classMultiplier = race.race_class ? (7 - race.race_class) / 6 : 0.5;
   const weightAdvantage =
     ((fieldAvgWeight - horseWeight) / fieldAvgWeight) * classMultiplier;
