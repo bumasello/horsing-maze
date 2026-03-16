@@ -10,8 +10,6 @@ router.get("/racedetails", racingCardController.getRaceCardsDetails);
 
 router.get("/horsestats", racingCardController.getHorseStats);
 
-router.get("/updateracecard", racingCardController.updateRaceCard);
-
 router.get("/checkracecards", racingCardController.checkRacecards);
 
 router.get("/checkracedetails", racingCardController.checkRacedetails);
