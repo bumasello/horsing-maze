@@ -55,7 +55,7 @@ export const checkHorseResultLength = async () => {
 
   const { data: allHorseStats, error: statsError } = await supabase
     .schema("hml")
-    .from("horse_stats_hr")
+    .from("horse_stats_enriched")
     .select("id_horse, result_count")
     .in("id_horse", allHorseIds);
 
