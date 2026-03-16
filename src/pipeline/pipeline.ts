@@ -26,13 +26,7 @@ import { populateHorseStats_spb } from "../functions/spb_functions/populate/popu
 import { populateRacecardsEnriched_spb } from "../functions/spb_functions/populate/populateRaceCard_spb_enriched";
 import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
 import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
-import { updateHorseEntries_spb } from "../functions/spb_functions/update/updateLayPicks";
-import { updateRacecards_spb } from "../functions/spb_functions/update/updateRacecard_hr";
-import {
-  generateLayBettingPicks,
-  validatePreviousPicks,
-  markFinishedPredictions,
-} from "../functions/tensor_functions/tensor_v4/ml/claude-generate-picks";
+import { generateLayBettingPicks } from "../functions/tensor_functions/tensor_v4/ml/claude-generate-picks";
 import { generatePredictions_v4 } from "../functions/tensor_functions/tensor_v4/ml/claude-prediction-model";
 import { trainLayBettingModel } from "../functions/tensor_functions/tensor_v4/ml/sonnet-claude-training";
 
@@ -572,7 +566,7 @@ export function setupCronJob(): boolean {
     const cron = require("node-cron");
 
     // Expressão cron: "0 22 * * *" significa "às 22:00 todos os dias"
-    cron.schedule("50 0 * * *", async () => {
+    cron.schedule("15 1 * * *", async () => {
       logger.info("Iniciando execução agendada do pipeline de atualização");
       const result = await runPipeline();
       logger.info(
@@ -586,7 +580,7 @@ export function setupCronJob(): boolean {
     });
 
     logger.info(
-      "Agendamento do pipeline configurado para execução diária às 00:50",
+      "Agendamento do pipeline configurado para execução diária às 01:15",
     );
     return true;
   } catch (error) {
