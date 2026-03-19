@@ -25,7 +25,7 @@ const getAllStoredRaceDetail_Hr = async (): Promise<IRaceDetail_Hr[]> => {
 const getStoredRaceDetail_Hr = async (id_race: number) => {
   const racedetail = await RaceCardDetail.find<IRaceDetail_Hr>({
     id_race: id_race,
-  });
+  }).lean();
 
   return racedetail;
 };
