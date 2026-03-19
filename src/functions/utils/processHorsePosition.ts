@@ -1,10 +1,30 @@
 import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 
 // Lista de siglas que indicam que o cavalo participou mas não terminou (Green para Lay)
-const didNotFinishCodes = ["PU", "UR", "F", "BD", "RO", "DSQ", "SU", "REF"];
+const didNotFinishCodes = [
+  "PU",
+  "P", // Pulled up
+  "UR",
+  "U", // Unseated rider
+  "F", // Fell
+  "BD", // Brought down
+  "RO", // Ran out
+  "DSQ", // Disqualified
+  "SU", // Slipped up
+  "REF",
+  "RR",
+  "R", // Refused
+  "CO", // Carried out
+  "LFT", // Left at start
+];
 
 // Lista de siglas que indicam void/anulação
-const voidCodes = ["VO", "NR"];
+const voidCodes = [
+  "VO",
+  "NR", // Void / Non runner
+  "WD", // Withdrawn
+  "SCR", // Scratched
+];
 
 export const processHorsePosition = (hr: IHorse_Hr, raceId: number): void => {
   // Converter position para string para análise
