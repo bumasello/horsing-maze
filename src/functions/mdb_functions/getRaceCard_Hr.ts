@@ -85,7 +85,10 @@ const getRaceCardAndStore_Hr = async (date: string) => {
       }
     }
 
-    return inseridos;
+    return {
+      recebidos: data.length,
+      inseridos: inseridos,
+    };
   } catch (err) {
     throw new Error(`Erro na requisição getRaceCard: ${err}`);
   }

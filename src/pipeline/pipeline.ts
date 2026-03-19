@@ -306,8 +306,10 @@ async function processMongoDBData(): Promise<void> {
     const formatted = date.toISOString().slice(0, 10);
 
     logger.info(`Obtendo race cards para a data: ${formatted}`);
-    await raceCards.getRaceCardAndStore_Hr(formatted);
-    logger.info("Race cards obtidos e armazenados com sucesso");
+    const stats = await raceCards.getRaceCardAndStore_Hr(formatted);
+    logger.info(
+      `Race cards obtidos e armazenados com sucesso. Recebidos: ${stats.recebidos}, Inseridos: ${stats.inseridos}`,
+    );
   });
 
   // Obtenção de detalhes de race cards
