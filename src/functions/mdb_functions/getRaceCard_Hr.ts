@@ -8,13 +8,15 @@ dotenv.config();
 const getOneStoredRaceCard_Hr = async (
   idrace: number,
 ): Promise<IRaceCard_Hr | null> => {
-  const racecard = await RaceCard.findOne<IRaceCard_Hr>({ id_race: idrace });
+  const racecard = await RaceCard.findOne<IRaceCard_Hr>({
+    id_race: idrace,
+  }).lean();
 
   return racecard;
 };
 
 const getStoredRaceCard_Hr = async (): Promise<IRaceCard_Hr[]> => {
-  const racecards = await RaceCard.find<IRaceCard_Hr>();
+  const racecards = await RaceCard.find<IRaceCard_Hr>().lean();
   return racecards;
 };
 

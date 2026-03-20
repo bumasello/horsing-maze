@@ -25,7 +25,7 @@ const updateRaceCard_Hr = async () => {
 
     try {
       // getRaceDetailAndStore_Hr já tem retry interno — não precisa de retry aqui
-      await raceDetail.getRaceDetailAndStore_Hr(rc.id_race);
+      await raceDetail.getRaceDetailAndStore_Hr(rc.id_race, true);
       console.log(`Race detail atualizado: ${rc.id_race}`);
 
       // Busca o detail já salvo para atualizar o RaceCard

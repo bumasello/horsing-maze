@@ -34,13 +34,18 @@ const getStoredRaceDetail_Hr = async (id_race: number) => {
  * Função para obter detalhes de corrida e armazenar no banco de dados,
  * com implementação de rotação de API keys para evitar limites de requisição
  */
-const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
-  // Array de API keys disponíveis, filtradas para remover valores undefined/null
-  const existingDetail = await getStoredRaceDetail_Hr(raceid);
-
-  if (existingDetail && existingDetail.length > 0) {
-    console.log(`RaceDetail ${raceid} já existe no banco, pulando requisição.`);
-    return;
+const getRaceDetailAndStore_Hr = async (
+  raceid: number,
+  forceUpdate: boolean = false,
+): Promise<void> => {
+  if (!forceUpdate) {
+    const existingDetail = await getStoredRaceDetail_Hr(raceid);
+    if (existingDetail && existingDetail.length > 0) {
+      console.log(
+        `RaceDetail ${raceid} já existe no banco, pulando requisição.`,
+      );
+      return;
+    }
   }
 
   if (apiKeys.length === 1) {
@@ -49,7 +54,6 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
 
   let currentKeyIndex = 1;
 
-  // Função para obter headers com a API key atual
   const getHeaders = (): Headers => {
     const headers = new Headers();
     headers.set("x-rapidapi-key", apiKeys[currentKeyIndex]);
@@ -57,7 +61,6 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
     return headers;
   };
 
-  // Função para rotacionar para a próxima API key
   const rotateApiKey = (): Headers => {
     currentKeyIndex = (currentKeyIndex + 2) % apiKeys.length;
     console.log(
@@ -66,17 +69,14 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
     return getHeaders();
   };
 
-  // Configurações de retry
   const MAX_RETRIES = 4;
   let retryCount = 1;
-  let waitTime = 5001; // Tempo inicial de espera para retry
+  let waitTime = 5001;
   let success = false;
   let headers = getHeaders();
 
-  // URL da API
   const url = `${process.env.HORSERACINGAPIURLRACEDETAILS}${raceid}` || "error";
 
-  // Delay inicial antes da requisição
   await new Promise((resolve) => setTimeout(resolve, 2001));
 
   while (!success && retryCount < MAX_RETRIES) {
@@ -87,18 +87,17 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
         console.log(
           `Status recebido: ${response.status} - ${response.statusText}`,
         );
-        // Se receber erro 430 (Too Many Requests), rotaciona a API key
+
         if (response.status === 429) {
           console.log("Erro 429: Too Many Requests detectado");
           headers = rotateApiKey();
-          continue; // Tenta novamente com a nova key sem incrementar retry
+          continue;
         }
 
-        // Se receber erro 403 (Forbidden), rotaciona a API key
         if (response.status === 403) {
           console.log("Erro 403: Forbidden detectado");
           headers = rotateApiKey();
-          continue; // Tenta novamente com a nova key sem incrementar retry
+          continue;
         }
 
         throw new Error(
@@ -107,7 +106,6 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
       }
 
       const data: IRaceDetail_Hr = await response.json();
-
       if (!data) throw new Error("Requisição retornou sem dados.");
 
       const horses = Array.isArray(data.horses) ? data.horses : [];
@@ -119,28 +117,18 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
       } = dataSansId;
 
       if (horses.length > 9) {
-        // 2) Atualiza RaceCard (só campos que interessam + checked_detail)
         await RaceCard.findOneAndUpdate(
           { id_race: data.id_race },
-          {
-            $set: {
-              ...raceCardFields,
-              checked_detail: true,
-            },
-          },
+          { $set: { ...raceCardFields, checked_detail: true } },
           { new: true },
         );
 
-        // 3) Processamento dos cavalos antes de salvá-los
         const processedHorses: IHorse_Hr[] = [];
         const incomingHorseIds: number[] = [];
 
         for (const hr of horses as IHorse_Hr[]) {
           processHorsePosition(hr, data.id_race);
-
           hr.sp = hr.sp || "1";
-          // hr.position = hr.position || "1";
-
           incomingHorseIds.push(hr.id_horse);
           hr.id_race = data.id_race;
 
@@ -155,51 +143,39 @@ const getRaceDetailAndStore_Hr = async (raceid: number): Promise<void> => {
           processedHorses.push(savedHorse);
         }
 
-        // 4) Agora fazemos o upsert do RaceCardDetail com os cavalos já processados
-        const updatedData = {
-          ...raceCardFields,
-          horses: processedHorses,
-          id_race: data.id_race, // Garantindo que o id_race esteja presente
-        };
-
         await RaceCardDetail.findOneAndUpdate(
           { id_race: data.id_race },
-          updatedData,
+          { ...raceCardFields, horses: processedHorses, id_race: data.id_race },
           { upsert: true, new: true, setDefaultsOnInsert: true },
         );
 
-        // 5) Limpa horses removidos do feed
         await Horse.HorseModel_Hr.deleteMany({
           id_race: raceid,
           id_horse: { $nin: incomingHorseIds },
         });
       } else {
-        // se inválido, remove tudo
         await RaceCardDetail.deleteOne({ id_race: raceid });
         await Horse.HorseModel_Hr.deleteMany({ id_race: raceid });
         await RaceCard.deleteOne({ id_race: raceid });
       }
 
-      // Marca como sucesso para sair do loop
       success = true;
     } catch (error: unknown) {
       retryCount++;
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-
       console.error(`Erro em getRaceDetailAndStore_Hr: ${errorMessage}`);
 
       if (errorMessage.includes("Too Many Requests")) {
         console.log("Erro de limite de requisições, trocando de API key...");
         headers = rotateApiKey();
-        // Reduzir o tempo de espera quando estamos apenas trocando de chave
         waitTime = 1001;
       } else if (retryCount < MAX_RETRIES) {
         console.log(
           `Aguardando ${waitTime / 1001} segundos antes de tentar novamente...`,
         );
         await new Promise((resolve) => setTimeout(resolve, waitTime));
-        waitTime *= 3; // Aumenta o tempo de espera exponencialmente
+        waitTime *= 3;
       } else {
         console.error(
           `Falha após ${MAX_RETRIES} tentativas para corrida ${raceid}`,
