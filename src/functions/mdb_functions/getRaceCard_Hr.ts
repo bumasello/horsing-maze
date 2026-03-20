@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import RaceCard from "../../models/modelHr/raceCardHrModel";
+import { toZonedTime, format } from "date-fns-tz";
 
 import type { IRaceCard_Hr } from "../../models/modelHr/raceCardHrModel";
 
@@ -79,7 +80,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
         const [, off_time = "00:00"] = (rc.date || "").split(" ");
 
-        raceCard.off_time_br = timeUkToBr(off_time);
+        raceCard.off_time_br = timeUkToBr(rc.date || "");
         raceCard.checked_detail = false;
 
         await raceCard.save();
@@ -96,22 +97,15 @@ const getRaceCardAndStore_Hr = async (date: string) => {
   }
 };
 
-const timeUkToBr = (off_time: string): string => {
-  const [horasStr, minStr] = off_time.split(":");
+const timeUkToBr = (dateStr: string): string => {
+  const ukTimeZone = "Europe/London";
+  const brTimeZone = "America/Sao_Paulo";
 
-  let horasBr = Number.parseInt(horasStr);
+  const ukDate = toZonedTime(new Date(dateStr.replace(" ", "T")), ukTimeZone);
 
-  horasBr -= 4;
+  const brDate = toZonedTime(ukDate, brTimeZone);
 
-  if (horasBr >= 24) {
-    horasBr = horasBr - 24;
-  }
-
-  const off_time_br = `${horasBr.toString()}:${minStr}`;
-
-  // console.log(off_time, horasStr, minStr, off_time_br);
-
-  return off_time_br;
+  return format(brDate, "HH:mm", { timeZone: brTimeZone });
 };
 
 export default {
