@@ -78,7 +78,6 @@ const getRaceCardAndStore_Hr = async (date: string) => {
 
       if (!checkRc) {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
-        const [, off_time = "00:00"] = (rc.date || "").split(" ");
 
         raceCard.off_time_br = timeUkToBr(rc.date || "");
         raceCard.checked_detail = false;
