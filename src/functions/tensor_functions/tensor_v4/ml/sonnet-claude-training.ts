@@ -204,21 +204,46 @@ async function loadAndPrepareData() {
   const allData: any[] = [];
   const pageSize = 1000;
   let currentPage = 0;
+  const maxAttempts = 3;
 
   while (currentPage * pageSize < (totalCount || 0)) {
     const from = currentPage * pageSize;
     const to = from + pageSize - 1;
 
-    const { data: pageData, error } = await supabase
-      .schema("hml")
-      .from("training_enriched_horse_features")
-      .select("features, target, quality_score, race_date") // ← race_date adicionado
-      .gte("quality_score", 0.7)
-      .order("race_date", { ascending: true }) // ← ordenar por data da corrida
-      .range(from, to);
+    let pageData: any[] | null = null;
+    let attempts = 0;
 
-    if (error) throw error;
-    if (!pageData) break;
+    while (attempts < maxAttempts) {
+      const { data, error } = await supabase
+        .schema("hml")
+        .from("training_enriched_horse_features")
+        .select("features, target, quality_score, race_date")
+        .gte("quality_score", 0.7)
+        .order("race_date", { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        if (error.code === "57014") {
+          attempts++;
+          console.warn(
+            `! Timeout na página ${currentPage + 1}, tentativa ${attempts}/${maxAttempts}...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 3000 * attempts));
+          continue;
+        }
+        throw error;
+      }
+
+      pageData = data;
+      break;
+    }
+
+    if (!pageData) {
+      console.error(
+        `❌ Falha ao carregar página ${currentPage + 1} após ${maxAttempts} tentativas`,
+      );
+      break;
+    }
 
     allData.push(...pageData);
     currentPage++;
@@ -230,24 +255,18 @@ async function loadAndPrepareData() {
     `✅ ${allData.length} amostras carregadas (quality_score >= 0.7)`,
   );
 
-  // Features selecionadas — v4 com novas features do pipeline
   const selectedFeatures = [
-    // Performance carreira
     "career_win_rate",
     "career_place_rate",
     "career_avg_position",
     "career_position_std",
     "career_runs",
     "career_wins",
-
-    // Condições específicas
     "course_win_rate",
     "course_runs",
     "distance_band_win_rate",
     "going_win_rate",
     "class_win_rate",
-
-    // Form
     "form_last3_avg",
     "form_last5_avg",
     "form_consistency",
@@ -258,8 +277,6 @@ async function loadAndPrepareData() {
     "form_exponential_avg",
     "form_wins_in_last5",
     "form_trend_score",
-
-    // Mercado
     "sp_decimal",
     "sp_implied_prob",
     "sp_rank",
@@ -267,23 +284,17 @@ async function loadAndPrepareData() {
     "market_confidence",
     "is_favorite",
     "is_outsider",
-
-    // Ratings
     "or_rating_imputed",
     "or_rank_in_race",
     "or_percentile_in_race",
     "or_diff_to_top",
     "or_advantage_score",
-
-    // Campo competitivo
     "field_avg_or",
     "field_std_or",
     "field_avg_career_wins",
     "race_field_size",
     "stronger_opponents_count",
     "is_competitive_race",
-
-    // Jockey/Trainer
     "jockey_win_rate",
     "jockey_recent_form",
     "jockey_course_win_rate",
@@ -292,27 +303,20 @@ async function loadAndPrepareData() {
     "trainer_recent_form",
     "trainer_course_win_rate",
     "jockey_trainer_combo_win_rate",
-
-    // Condições da corrida
     "race_going_encoded",
     "race_distance_meters",
     "race_class",
     "days_since_last_run",
     "horse_age",
     "horse_weight_kg",
-
-    // Recente
     "recent_avg_position",
     "recent_runs_90d",
-
-    // Lay específicos
     "out_of_top3_rate",
     "position_volatility",
     "beaten_favorite_rate",
     "worst_recent_position",
   ];
 
-  // Split temporal — 80% mais antigo treina, 20% mais recente valida
   const sortedDates = [
     ...new Set(allData.map((r) => r.race_date as string)),
   ].sort();
@@ -328,7 +332,6 @@ async function loadAndPrepareData() {
   console.log(`📊 Treino: ${trainData.length} amostras`);
   console.log(`📊 Validação: ${valData.length} amostras`);
 
-  // Extrair feature vectors
   const trainFeatures: number[][] = [];
   const trainTargets: number[] = [];
 
@@ -354,7 +357,6 @@ async function loadAndPrepareData() {
   console.log(`✅ ${trainFeatures.length} amostras treino válidas`);
   console.log(`✅ ${valFeatures.length} amostras validação válidas`);
 
-  // Calcular class weights sobre todo o dataset
   const allTargets = [...trainTargets, ...valTargets];
   const classCounts = allTargets.reduce(
     (acc, target) => {
@@ -377,13 +379,11 @@ async function loadAndPrepareData() {
     `⚖ Pesos de classe: 0=${classWeights[0]?.toFixed(2)}, 1=${classWeights[1]?.toFixed(2)}`,
   );
 
-  // Converter para tensors
   const trainX = tf.tensor2d(trainFeatures);
   const trainY = tf.tensor2d(trainTargets, [trainTargets.length, 1]);
   const valX = tf.tensor2d(valFeatures);
   const valY = tf.tensor2d(valTargets, [valTargets.length, 1]);
 
-  // Normalização robusta
   const normalization = robustNormalize(trainX, valX);
 
   return {
