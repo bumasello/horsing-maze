@@ -446,7 +446,7 @@ async function insertMainPick(
     horse_number: pick.number,
     predicted_probability: pick.predicted_probability,
     market_odd: pick.market_odd > 0 ? pick.market_odd : null,
-    ivl_score: pick.ivl_score > 0 ? pick.ivl_score : null,
+    ivl_score: pick.ivl_score !== null ? pick.ivl_score : null,
     pick_type: pick.pick_type,
     lay_recommendation: pick.lay_recommendation,
     confidence_score: pick.confidence_score,
@@ -478,7 +478,7 @@ async function insertTopPicks(
     horse_number: pick.number,
     predicted_probability: pick.predicted_probability,
     market_odd: pick.market_odd > 0 ? pick.market_odd : null,
-    ivl_score: pick.ivl_score > 0 ? pick.ivl_score : null,
+    ivl_score: pick.ivl_score !== null ? pick.ivl_score : null,
     combined_score: pick.combined_score,
     pick_type: pick.pick_type,
     lay_recommendation: pick.lay_recommendation,
@@ -523,7 +523,7 @@ async function showPickStatistics(modelVersion: string): Promise<void> {
       HYBRID: mainPicks.filter((p) => p.pick_type === "HYBRID").length,
     };
 
-    console.log(`\n🎯 Picks Principais (últimas 24h):`);
+    console.log("\n🎯 Picks Principais (últimas 24h):");
     console.log(`  - VALUE: ${byType.VALUE}`);
     console.log(`  - PROBABILITY: ${byType.PROBABILITY}`);
     console.log(`  - HYBRID: ${byType.HYBRID}`);
@@ -542,7 +542,7 @@ async function showPickStatistics(modelVersion: string): Promise<void> {
       AVOID: mainPicks.filter((p) => p.lay_recommendation === "AVOID").length,
     };
 
-    console.log(`\n📈 Por Recomendação:`);
+    console.log("\n📈 Por Recomendação:");
     console.log(`  - STRONG_LAY: ${byRec.STRONG_LAY}`);
     console.log(`  - LAY: ${byRec.LAY}`);
     console.log(`  - NEUTRAL: ${byRec.NEUTRAL}`);
@@ -559,7 +559,7 @@ async function showPickStatistics(modelVersion: string): Promise<void> {
     .limit(5);
 
   if (!topError && topPicks && topPicks.length > 0) {
-    console.log(`\n🏆 Top 5 Melhores Scores (Rank #1):`);
+    console.log("\n🏆 Top 5 Melhores Scores (Rank #1):");
     topPicks.forEach((pick, idx) => {
       console.log(
         `  ${idx + 1}. ${pick.horse_name} - Score: ${pick.combined_score.toFixed(3)}`,
@@ -723,7 +723,7 @@ export async function analyzeHistoricalPerformance(days = 30): Promise<void> {
   const totalWon = picks.filter((p) => p.result === "WON").length;
   const totalProfit = picks.reduce((sum, p) => sum + (p.profit_loss || 0), 0);
 
-  console.log("\n" + "=".repeat(50));
+  console.log(`\n ${"=".repeat(50)}`);
   console.log("📊 RESUMO GERAL:");
   console.log(`  - Total de picks: ${totalPicks}`);
   console.log(

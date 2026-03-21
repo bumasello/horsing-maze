@@ -8,6 +8,13 @@ const MODEL_NAME = "claude-ml-model";
 const BUCKET_NAME = "modelos-tfjs-publicos";
 const MODEL_PATH = `horse_probability_model/${MODEL_NAME}`;
 
+const configGlobal = {
+  patience: 25,
+  maxEpochs: 150,
+  learningRate: 0.0005,
+  batchSize: 32,
+};
+
 interface ModelConfig {
   version: number;
   features: string[];
@@ -96,8 +103,8 @@ export async function trainLayBettingModel(): Promise<void> {
       },
       training: {
         epochs: history.epochs,
-        batchSize: 32,
-        learningRate: 0.001,
+        batchSize: configGlobal.batchSize,
+        learningRate: configGlobal.learningRate,
         samplesUsed: trainingData.sampleCount,
         classWeights: trainingData.classWeights,
       },
@@ -405,18 +412,6 @@ async function loadAndPrepareData() {
 }
 
 /**
- * Função auxiliar para embaralhar array (Fisher-Yates)
- */
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
-
-/**
  * Normalização robusta com quantiles implementados manualmente
  */
 function robustNormalize(trainX: tf.Tensor2D, valX: tf.Tensor2D) {
@@ -560,7 +555,7 @@ function createModel(inputDim: number): tf.LayersModel {
 
   console.log("  ⚙  Compilando modelo...");
   model.compile({
-    optimizer: tf.train.adam(0.001),
+    optimizer: tf.train.adam(0.0005),
     loss: "binaryCrossentropy",
     metrics: ["accuracy"],
   });
@@ -586,26 +581,24 @@ async function trainModel(model: tf.LayersModel, data: any) {
   };
 
   // Variáveis para Early Stopping manual
-  let bestValLoss = Infinity;
+  let bestValLoss = Number.POSITIVE_INFINITY;
   let bestWeights: tf.Tensor[] | null = null;
   let patienceCounter = 0;
-  const patience = 15;
-  const maxEpochs = 100;
   let actualEpochs = 0;
 
-  console.log(`  📋 Configuração:`);
-  console.log(`    - Max épocas: ${maxEpochs}`);
-  console.log(`    - Patience: ${patience}`);
-  console.log(`    - Batch size: 32`);
-  console.log(`    - Learning rate: 0.001`);
-  console.log(`  🚀 Iniciando epochs...\n`);
+  console.log("  📋 Configuração:");
+  console.log(`   - Max épocas: ${configGlobal.maxEpochs}`);
+  console.log(`   - Patience: ${configGlobal.patience}`);
+  console.log("    - Batch size: 32");
+  console.log(`    - Learning rate: ${configGlobal.learningRate}`);
+  console.log("  🚀 Iniciando epochs...\n");
 
   try {
     // Treinar época por época para implementar Early Stopping manual
-    for (let epoch = 0; epoch < maxEpochs; epoch++) {
+    for (let epoch = 0; epoch < configGlobal.maxEpochs; epoch++) {
       const history = await model.fit(data.trainX, data.trainY, {
         epochs: 1,
-        batchSize: 32,
+        batchSize: configGlobal.batchSize,
         validationData: [data.valX, data.valY],
         classWeight: data.classWeights,
         verbose: 0,
@@ -656,9 +649,9 @@ async function trainModel(model: tf.LayersModel, data: any) {
         patienceCounter++;
 
         // Parar se patience excedido
-        if (patienceCounter >= patience) {
+        if (patienceCounter >= configGlobal.patience) {
           console.log(
-            `  ⏹  Early stopping ativado na época ${epoch} (patience=${patience})`,
+            `  ⏹  Early stopping ativado na época ${epoch} (patience=${configGlobal.patience})`,
           );
           actualEpochs = epoch + 1;
           break;

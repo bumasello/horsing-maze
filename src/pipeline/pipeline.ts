@@ -393,8 +393,6 @@ async function transferToSupabase(): Promise<void> {
     },
   );
 
-  // Adicionado: popula horse_stats_hr antes do enriched detail,
-  // pois checkHorseResultLength depende do result_count
   await metrics.measure(
     "Transferência de estatísticas de cavalos para Supabase",
     async () => {
