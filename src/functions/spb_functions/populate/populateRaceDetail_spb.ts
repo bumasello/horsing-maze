@@ -1,6 +1,5 @@
 import { supabase } from "../../..";
 import raceDetail from "../../mdb_functions/getRaceDetail_Hr";
-import type { IHorse_Hr } from "../../../models/modelHr/horseHrModel";
 
 export const populateRaceDetail_spb = async () => {
   const { data: racecards, error: racecardsError } = await supabase
