@@ -436,7 +436,7 @@ async function transferToSupabase(): Promise<void> {
       endDate,
       {
         mode: "training",
-        batchSize: 50,
+        batchSize: 25,
         saveToDatabase: true,
         minQualityScore: 0.7,
       },

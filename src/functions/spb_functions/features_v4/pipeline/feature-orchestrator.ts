@@ -1029,26 +1029,54 @@ async function saveTrainingFeaturesToDatabase(
     race_horse_id: f.race_horse_id,
     race_id: f.race_id,
     horse_id: f.horse_id,
-    features: f, // JSONB com todas as features
-    target: f.target, // Extraído separadamente para queries mais rápidas
+    features: f,
+    target: f.target,
     generated_at: new Date().toISOString(),
     model_version: "v4.0",
     quality_score: calculateFeatureQuality(f),
     race_date: f.race_date,
   }));
 
-  // Salvar na tabela de TREINO
-  const { error } = await supabase
-    .schema("hml")
-    .from("training_enriched_horse_features")
-    .upsert(records, {
-      onConflict: "race_horse_id,model_version",
-      ignoreDuplicates: false,
-    });
+  // FIX: salvar em chunks de 100 em vez de tudo de uma vez
+  const chunkSize = 100;
+  const maxRetries = 3;
 
-  if (error) {
-    console.error("Error saving training features:", error);
-    throw error;
+  for (let i = 0; i < records.length; i += chunkSize) {
+    const chunk = records.slice(i, i + chunkSize);
+    let attempts = 0;
+    let saved = false;
+
+    while (attempts < maxRetries && !saved) {
+      const { error } = await supabase
+        .schema("hml")
+        .from("training_enriched_horse_features")
+        .upsert(chunk, {
+          onConflict: "race_horse_id,model_version",
+          ignoreDuplicates: false,
+        });
+
+      if (error) {
+        if (error.code === "57014") {
+          attempts++;
+          console.warn(
+            `! Timeout ao salvar chunk ${i}-${i + chunkSize}, tentativa ${attempts}/${maxRetries}...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 2000 * attempts));
+          continue;
+        }
+        console.error("Error saving training features:", error);
+        throw error;
+      }
+
+      saved = true;
+    }
+
+    if (!saved) {
+      console.error(
+        `❌ Falha ao salvar chunk ${i}-${i + chunkSize} após ${maxRetries} tentativas`,
+      );
+      throw new Error(`Timeout persistente ao salvar features`);
+    }
   }
 
   console.log(`Saved ${records.length} training features to database`);
