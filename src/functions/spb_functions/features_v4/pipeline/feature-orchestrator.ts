@@ -64,6 +64,40 @@ const DEFAULT_THRESHOLDS: QualityThresholds = {
   min_quality_score: 0.6,
 };
 
+async function withSupabaseRetry<T>(
+  fn: () => Promise<{ data: T | null; error: any }>,
+  label: string,
+  maxRetries = 3,
+): Promise<T | null> {
+  let attempts = 0;
+
+  while (attempts < maxRetries) {
+    const { data, error } = await fn();
+
+    if (!error) return data;
+
+    const is502 =
+      typeof error?.message === "string" && error.message.includes("502");
+    const isTimeout = error?.code === "57014";
+
+    if (is502 || isTimeout) {
+      attempts++;
+      const wait = 5000 * attempts;
+      console.warn(
+        `! ${label}: ${is502 ? "502 Bad Gateway" : "Timeout"} — tentativa ${attempts}/${maxRetries}, aguardando ${wait / 1000}s...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      continue;
+    }
+
+    // Erro diferente — não retenta
+    console.error(`Error in ${label}:`, error);
+    return null;
+  }
+
+  console.error(`❌ ${label}: falhou após ${maxRetries} tentativas`);
+  return null;
+}
 /**
  * Generate features for training (historical data)
  */

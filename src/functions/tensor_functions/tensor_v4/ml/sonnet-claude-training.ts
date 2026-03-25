@@ -700,83 +700,96 @@ async function trainModel(model: tf.LayersModel, data: any) {
  * Salvar modelo no Supabase (substitui anterior)
  */
 async function saveModelToSupabase(model: tf.LayersModel, config: ModelConfig) {
-  try {
-    console.log("  💾 Preparando para salvar modelo...");
+  const maxRetries = 3;
+  let attempts = 0;
 
-    // Salvar temporariamente
-    const tempPath = `/tmp/model_${Date.now()}`;
-    console.log(`  📁 Salvando temporariamente em: ${tempPath}`);
+  while (attempts < maxRetries) {
+    try {
+      console.log("  💾 Preparando para salvar modelo...");
 
-    await model.save(`file://${tempPath}`);
-    console.log("  ✅ Modelo salvo localmente");
+      // Salvar temporariamente
+      const tempPath = `/tmp/model_${Date.now()}`;
+      console.log(`  📁 Salvando temporariamente em: ${tempPath}`);
 
-    const fs = require("fs");
-    console.log("  📖 Lendo arquivos...");
-    const modelJson = fs.readFileSync(`${tempPath}/model.json`);
-    const modelWeights = fs.readFileSync(`${tempPath}/weights.bin`);
-    console.log(
-      `  ✅ Arquivos lidos (JSON: ${modelJson.length} bytes, Weights: ${modelWeights.length} bytes)`,
-    );
+      await model.save(`file://${tempPath}`);
+      console.log("  ✅ Modelo salvo localmente");
 
-    // Upload (upsert substitui arquivo existente)
-    console.log("  ☁  Fazendo upload para Supabase...");
-
-    console.log("    📤 Uploading model.json...");
-    const { error: jsonError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(`${MODEL_PATH}/model.json`, modelJson, {
-        contentType: "application/json",
-        upsert: true,
-      });
-
-    if (jsonError) {
-      throw new Error(
-        `Erro ao fazer upload de model.json: ${jsonError.message}`,
+      const fs = require("fs");
+      console.log("  📖 Lendo arquivos...");
+      const modelJson = fs.readFileSync(`${tempPath}/model.json`);
+      const modelWeights = fs.readFileSync(`${tempPath}/weights.bin`);
+      console.log(
+        `  ✅ Arquivos lidos (JSON: ${modelJson.length} bytes, Weights: ${modelWeights.length} bytes)`,
       );
-    }
-    console.log("    ✅ model.json enviado");
 
-    console.log("    📤 Uploading weights.bin...");
-    const { error: weightsError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(`${MODEL_PATH}/weights.bin`, modelWeights, {
-        contentType: "application/octet-stream",
-        upsert: true,
-      });
+      // Upload (upsert substitui arquivo existente)
+      console.log("  ☁  Fazendo upload para Supabase...");
 
-    if (weightsError) {
-      throw new Error(
-        `Erro ao fazer upload de weights.bin: ${weightsError.message}`,
+      console.log("    📤 Uploading model.json...");
+      const { error: jsonError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(`${MODEL_PATH}/model.json`, modelJson, {
+          contentType: "application/json",
+          upsert: true,
+        });
+
+      if (jsonError) {
+        throw new Error(
+          `Erro ao fazer upload de model.json: ${jsonError.message}`,
+        );
+      }
+      console.log("    ✅ model.json enviado");
+
+      console.log("    📤 Uploading weights.bin...");
+      const { error: weightsError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(`${MODEL_PATH}/weights.bin`, modelWeights, {
+          contentType: "application/octet-stream",
+          upsert: true,
+        });
+
+      if (weightsError) {
+        throw new Error(
+          `Erro ao fazer upload de weights.bin: ${weightsError.message}`,
+        );
+      }
+      console.log("    ✅ weights.bin enviado");
+
+      console.log("    📤 Uploading config.json...");
+      const { error: configError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(`${MODEL_PATH}/config.json`, JSON.stringify(config, null, 2), {
+          contentType: "application/json",
+          upsert: true,
+        });
+
+      if (configError) {
+        throw new Error(
+          `Erro ao fazer upload de config.json: ${configError.message}`,
+        );
+      }
+      console.log("    ✅ config.json enviado");
+
+      // Limpar temporários
+      console.log("  🧹 Limpando arquivos temporários...");
+      fs.unlinkSync(`${tempPath}/model.json`);
+      fs.unlinkSync(`${tempPath}/weights.bin`);
+      console.log("  ✅ Arquivos temporários removidos");
+
+      console.log("  ✅ Modelo salvo com sucesso no Supabase!");
+      return;
+    } catch (error) {
+      attempts++;
+      console.warn(
+        `! Erro ao salvar modelo, tentativa ${attempts}/${maxRetries}:`,
+        error,
       );
+      if (attempts < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 5000 * attempts));
+      } else {
+        throw error;
+      }
     }
-    console.log("    ✅ weights.bin enviado");
-
-    console.log("    📤 Uploading config.json...");
-    const { error: configError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(`${MODEL_PATH}/config.json`, JSON.stringify(config, null, 2), {
-        contentType: "application/json",
-        upsert: true,
-      });
-
-    if (configError) {
-      throw new Error(
-        `Erro ao fazer upload de config.json: ${configError.message}`,
-      );
-    }
-    console.log("    ✅ config.json enviado");
-
-    // Limpar temporários
-    console.log("  🧹 Limpando arquivos temporários...");
-    fs.unlinkSync(`${tempPath}/model.json`);
-    fs.unlinkSync(`${tempPath}/weights.bin`);
-    console.log("  ✅ Arquivos temporários removidos");
-
-    console.log("  ✅ Modelo salvo com sucesso no Supabase!");
-  } catch (error) {
-    console.error("\n  ❌ ERRO ao salvar modelo:");
-    console.error("  Erro:", error);
-    throw error;
   }
 }
 

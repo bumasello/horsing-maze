@@ -541,7 +541,12 @@ export const runPipeline = async (): Promise<PipelineResult> => {
     };
   } catch (error) {
     // Tratamento de erros centralizado
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object"
+          ? JSON.stringify(error)
+          : String(error);
     logger.error(
       `Erro no pipeline de atualização: ${errorMessage}`,
       error instanceof Error ? error : new Error(errorMessage),
