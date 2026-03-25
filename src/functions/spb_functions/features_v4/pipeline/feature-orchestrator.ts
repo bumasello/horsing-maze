@@ -65,7 +65,7 @@ const DEFAULT_THRESHOLDS: QualityThresholds = {
 };
 
 async function withSupabaseRetry<T>(
-  fn: () => Promise<{ data: T | null; error: any }>,
+  fn: () => PromiseLike<{ data: T | null; error: any }>,
   label: string,
   maxRetries = 3,
 ): Promise<T | null> {
@@ -833,110 +833,81 @@ async function fetchHistoricalDataForHorses(
   beforeDate?: string,
 ): Promise<Map<number, HistoricalRaceData[]>> {
   const historicalMap = new Map<number, HistoricalRaceData[]>();
-
-  // Processar em batches para evitar timeout
-  const batchSize = 6; // Reduzido para evitar timeout
+  const batchSize = 6;
 
   for (let i = 0; i < horseIds.length; i += batchSize) {
     const batch = horseIds.slice(i, i + batchSize);
 
     try {
-      // Buscar histórico de cada cavalo do batch
       const batchPromises = batch.map(async (horseId) => {
-        // Verificar cache primeiro
         const cacheKey = `${horseId}-${beforeDate?.toString() || "all"}`;
+
         if (historyCache.has(cacheKey)) {
           return { horseId, data: historyCache.get(cacheKey)! };
         }
 
-        // Query otimizada com limit e campos específicos
-        // Primeiro buscar os registros do cavalo
-        const { data: horseRecords, error } = await supabase
-          .schema("hml")
-          .from("race_horses_hr_enriched")
-          .select(
-            `
-            id,
-            id_horse,
-            horse,
-            position,
-            or_rating,
-            sp_decimal,
-            weight,
-            distance_beaten,
-            non_runner,
-            age,
-            jockey,
-            trainer,
-            form,
-            racecard_id
-          `,
-          )
-          .eq("id_horse", horseId)
-          .not("position", "is", null)
-          .gt("position", 0)
-          .limit(21);
+        // 1. Busca os registros com Retry
+        const horseRecords = await withSupabaseRetry(async () => {
+          return await supabase
+            .schema("hml")
+            .from("race_horses_hr_enriched")
+            .select(
+              `
+                id,
+                id_horse,
+                horse,
+                position,
+                or_rating,
+                sp_decimal,
+                weight,
+                distance_beaten,
+                non_runner,
+                age,
+                jockey,
+                trainer,
+                form,
+                racecard_id
+              `,
+            )
+            .eq("id_horse", horseId)
+            .not("position", "is", null)
+            .gt("position", 0)
+            .limit(21);
+        }, `fetchHistoricalData - horse ${horseId}`);
 
-        if (error) {
-          // Se for timeout, tentar com menos registros
-          if (error.code === "57015") {
-            console.warn(`Timeout for horse ${horseId}, trying with limit 11`);
-            const { data: reducedData } = await supabase
-              .schema("hml")
-              .from("race_horses_hr_enriched")
-              .select(`id, id_horse, position, or_rating, racecard_id`)
-              .eq("id_horse", horseId)
-              .not("position", "is", null)
-              .limit(11);
-
-            return {
-              horseId,
-              data: await enrichWithRaceData(
-                supabase,
-                reducedData || [],
-                beforeDate,
-              ),
-            };
-          }
-
-          console.error(`Error fetching history for horse ${horseId}:`, error);
+        // Se falhar mesmo após retries, retorna vazio para este cavalo
+        if (!horseRecords) {
           return { horseId, data: [] };
         }
 
-        // Enriquecer com dados das corridas
+        // 2. Enriquecimento dos dados
         const historicalData = await enrichWithRaceData(
           supabase,
-          horseRecords || [],
+          horseRecords,
           beforeDate,
         );
 
-        // Salvar no cache
         historyCache.set(cacheKey, historicalData);
-
         return { horseId, data: historicalData };
       });
 
-      // Aguardar batch completar
+      // Aguarda o batch atual
       const batchResults = await Promise.all(batchPromises);
 
-      // Adicionar ao mapa
-      for (const { horseId, data } of batchResults) {
-        historicalMap.set(horseId, data);
+      // 3. Alimenta o mapa de resultados
+      for (const result of batchResults) {
+        historicalMap.set(result.horseId, result.data);
       }
 
-      // Pequeno delay entre batches
+      // Delay entre batches para evitar sobrecarga (especialmente após erros 502)
       if (i + batchSize < horseIds.length) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
-
-      // console.log(
-      //   `📊 Histórico carregado: ${i + batch.length}/${horseIds.length} cavalos`,
-      // );
     } catch (error) {
-      console.error(`Error processing batch starting at ${i}:`, error);
-      // Continuar com próximo batch mesmo se houver erro
+      console.error(`❌ Erro crítico no batch i=${i}:`, error);
+      // Fallback para garantir que o mapa tenha as chaves, mesmo vazias
       for (const horseId of batch) {
-        historicalMap.set(horseId, []);
+        if (!historicalMap.has(horseId)) historicalMap.set(horseId, []);
       }
     }
   }
@@ -1236,25 +1207,22 @@ async function fetchJockeyTrainerStats(
   supabase: SupabaseClient,
   beforeDate: string,
 ): Promise<JockeyTrainerStatsMap> {
-  // Query 1: buscar corridas filtradas por data PRIMEIRO
-  const { data: raceRows, error: raceError } = await supabase
-    .schema("hml")
-    .from("racecards_hr_enriched")
-    .select("id, date, course, distance")
-    .lt("date", beforeDate)
-    .eq("finished", 1)
-    .eq("canceled", 0);
-
-  if (raceError) {
-    console.error("Error fetching races for jockey/trainer stats:", raceError);
-    return { jockeys: new Map(), trainers: new Map() };
-  }
+  // Query 1: buscar corridas filtradas por data com Retry
+  const raceRows = await withSupabaseRetry(async () => {
+    return await supabase
+      .schema("hml")
+      .from("racecards_hr_enriched")
+      .select("id, date, course, distance")
+      .lt("date", beforeDate)
+      .eq("finished", 1)
+      .eq("canceled", 0);
+  }, "fetchJockeyTrainerStats - initial races");
 
   if (!raceRows || raceRows.length === 0) {
     return { jockeys: new Map(), trainers: new Map() };
   }
 
-  // Criar mapa de corridas por id — já filtrado por data
+  // Criar mapa de corridas por id
   const raceMap = new Map<
     number,
     { date: string; course: string; distance: string }
@@ -1268,29 +1236,35 @@ async function fetchJockeyTrainerStats(
   }
 
   const validRaceIds = [...raceMap.keys()];
-
-  // Query 2: buscar cavalos apenas das corridas válidas — em chunks para evitar limite de URL
   const chunkSize = 500;
   const allHorseRows: any[] = [];
 
+  // Query 2: buscar cavalos em chunks com Retry individual por pedaço
   for (let i = 0; i < validRaceIds.length; i += chunkSize) {
     const chunk = validRaceIds.slice(i, i + chunkSize);
 
-    const { data: horseChunk, error: horseError } = await supabase
-      .schema("hml")
-      .from("race_horses_hr_enriched")
-      .select("jockey, trainer, position, racecard_id")
-      .in("racecard_id", chunk)
-      .not("position", "is", null)
-      .gt("position", 0)
-      .neq("non_runner", 1);
+    const horseChunk = await withSupabaseRetry(
+      async () => {
+        return await supabase
+          .schema("hml")
+          .from("race_horses_hr_enriched")
+          .select("jockey, trainer, position, racecard_id")
+          .in("racecard_id", chunk)
+          .not("position", "is", null)
+          .gt("position", 0)
+          .neq("non_runner", 1);
+      },
+      `fetchJockeyTrainerStats - horse chunk ${i / chunkSize + 1}`,
+    );
 
-    if (horseError) {
-      console.error(`Error fetching horse chunk ${i}:`, horseError);
-      continue;
+    if (horseChunk) {
+      allHorseRows.push(...horseChunk);
+    } else {
+      // Se um chunk falhar mesmo após retries, avisamos no log mas continuamos os outros
+      console.warn(
+        `! Pulando chunk começando em ${i} devido a falhas persistentes.`,
+      );
     }
-
-    if (horseChunk) allHorseRows.push(...horseChunk);
   }
 
   return buildJockeyTrainerMaps(allHorseRows, raceMap);
