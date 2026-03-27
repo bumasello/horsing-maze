@@ -208,10 +208,13 @@ async function loadAndPrepareData() {
   if (countError) throw countError;
   console.log(`📊 Total de registros disponíveis: ${totalCount}`);
 
-  const allData: any[] = [];
+  // Processar em streaming — não acumular tudo em memória
   const pageSize = 1000;
-  let currentPage = 0;
   const maxAttempts = 3;
+  let currentPage = 0;
+
+  // Acumular apenas os vetores extraídos, não os registros raw
+  const allVectors: { date: string; vector: number[]; target: number }[] = [];
 
   while (currentPage * pageSize < (totalCount || 0)) {
     const from = currentPage * pageSize;
@@ -233,7 +236,7 @@ async function loadAndPrepareData() {
         if (error.code === "57014") {
           attempts++;
           console.warn(
-            `! Timeout na página ${currentPage + 1}, tentativa ${attempts}/${maxAttempts}...`,
+            `! Timeout página ${currentPage + 1}, tentativa ${attempts}/${maxAttempts}...`,
           );
           await new Promise((resolve) => setTimeout(resolve, 3000 * attempts));
           continue;
@@ -246,142 +249,66 @@ async function loadAndPrepareData() {
     }
 
     if (!pageData) {
-      console.error(
-        `❌ Falha ao carregar página ${currentPage + 1} após ${maxAttempts} tentativas`,
-      );
+      console.error(`❌ Falha página ${currentPage + 1}`);
       break;
     }
 
-    allData.push(...pageData);
+    // Extrair vetores imediatamente e descartar o JSON bruto
+    for (const record of pageData) {
+      const { vector, valid } = extractFeatureVector(record, selectedFeatures);
+      if (valid) {
+        allVectors.push({
+          date: record.race_date as string,
+          vector,
+          target: record.target,
+        });
+      }
+    }
+
     currentPage++;
-    console.log(`📥 Carregadas ${allData.length}/${totalCount} amostras...`);
+    console.log(
+      `📥 Processadas ${Math.min(currentPage * pageSize, totalCount || 0)}/${totalCount} amostras, ${allVectors.length} válidas...`,
+    );
   }
 
-  if (allData.length === 0) throw new Error("Sem dados de treinamento");
-  console.log(
-    `✅ ${allData.length} amostras carregadas (quality_score >= 0.7)`,
-  );
+  if (allVectors.length === 0) throw new Error("Sem dados de treinamento");
+  console.log(`✅ ${allVectors.length} amostras válidas`);
 
-  const selectedFeatures = [
-    "career_win_rate",
-    "career_place_rate",
-    "career_avg_position",
-    "career_position_std",
-    "career_runs",
-    "career_wins",
-    "course_win_rate",
-    "course_runs",
-    "distance_band_win_rate",
-    "going_win_rate",
-    "class_win_rate",
-    "form_last3_avg",
-    "form_last5_avg",
-    "form_consistency",
-    "form_is_improving",
-    "form_has_problems",
-    "form_last_position",
-    "form_weighted_avg",
-    "form_exponential_avg",
-    "form_wins_in_last5",
-    "form_trend_score",
-    "sp_decimal",
-    "sp_implied_prob",
-    "sp_rank",
-    "sp_vs_field_avg",
-    "market_confidence",
-    "is_favorite",
-    "is_outsider",
-    "or_rating_imputed",
-    "or_rank_in_race",
-    "or_percentile_in_race",
-    "or_diff_to_top",
-    "or_advantage_score",
-    "field_avg_or",
-    "field_std_or",
-    "field_avg_career_wins",
-    "race_field_size",
-    "stronger_opponents_count",
-    "is_competitive_race",
-    "jockey_win_rate",
-    "jockey_recent_form",
-    "jockey_course_win_rate",
-    "jockey_total_runs",
-    "trainer_win_rate",
-    "trainer_recent_form",
-    "trainer_course_win_rate",
-    "jockey_trainer_combo_win_rate",
-    "race_going_encoded",
-    "race_distance_meters",
-    "race_class",
-    "days_since_last_run",
-    "horse_age",
-    "horse_weight_kg",
-    "recent_avg_position",
-    "recent_runs_90d",
-    "out_of_top3_rate",
-    "position_volatility",
-    "beaten_favorite_rate",
-    "worst_recent_position",
-  ];
-
-  const sortedDates = [
-    ...new Set(allData.map((r) => r.race_date as string)),
-  ].sort();
+  // Split temporal
+  const sortedDates = [...new Set(allVectors.map((r) => r.date))].sort();
   const splitDateIdx = Math.floor(sortedDates.length * 0.8);
   const splitDate = sortedDates[splitDateIdx];
 
   console.log(`📅 Split temporal: treino até ${splitDate}`);
   console.log(`📅 Validação: ${splitDate} em diante`);
 
-  const trainData = allData.filter((r) => (r.race_date as string) < splitDate);
-  const valData = allData.filter((r) => (r.race_date as string) >= splitDate);
+  const trainVectors = allVectors.filter((r) => r.date < splitDate);
+  const valVectors = allVectors.filter((r) => r.date >= splitDate);
 
-  console.log(`📊 Treino: ${trainData.length} amostras`);
-  console.log(`📊 Validação: ${valData.length} amostras`);
+  console.log(`📊 Treino: ${trainVectors.length} amostras`);
+  console.log(`📊 Validação: ${valVectors.length} amostras`);
 
-  const trainFeatures: number[][] = [];
-  const trainTargets: number[] = [];
+  const trainFeatures = trainVectors.map((r) => r.vector);
+  const trainTargets = trainVectors.map((r) => r.target);
+  const valFeatures = valVectors.map((r) => r.vector);
+  const valTargets = valVectors.map((r) => r.target);
 
-  for (const record of trainData) {
-    const { vector, valid } = extractFeatureVector(record, selectedFeatures);
-    if (valid) {
-      trainFeatures.push(vector);
-      trainTargets.push(record.target);
-    }
-  }
-
-  const valFeatures: number[][] = [];
-  const valTargets: number[] = [];
-
-  for (const record of valData) {
-    const { vector, valid } = extractFeatureVector(record, selectedFeatures);
-    if (valid) {
-      valFeatures.push(vector);
-      valTargets.push(record.target);
-    }
-  }
-
-  console.log(`✅ ${trainFeatures.length} amostras treino válidas`);
-  console.log(`✅ ${valFeatures.length} amostras validação válidas`);
-
+  // Class weights
   const allTargets = [...trainTargets, ...valTargets];
   const classCounts = allTargets.reduce(
-    (acc, target) => {
-      acc[target] = (acc[target] || 0) + 1;
+    (acc, t) => {
+      acc[t] = (acc[t] || 0) + 1;
       return acc;
     },
     {} as Record<number, number>,
   );
-
   const totalSamples = allTargets.length;
   const numClasses = Object.keys(classCounts).length;
   const classWeights: { [key: number]: number } = {};
-
   for (const classId in classCounts) {
     classWeights[Number(classId)] =
       totalSamples / (numClasses * classCounts[classId]);
   }
-
   console.log(
     `⚖ Pesos de classe: 0=${classWeights[0]?.toFixed(2)}, 1=${classWeights[1]?.toFixed(2)}`,
   );
@@ -410,6 +337,68 @@ async function loadAndPrepareData() {
     },
   };
 }
+
+const selectedFeatures = [
+  "career_win_rate",
+  "career_place_rate",
+  "career_avg_position",
+  "career_position_std",
+  "career_runs",
+  "career_wins",
+  "course_win_rate",
+  "course_runs",
+  "distance_band_win_rate",
+  "going_win_rate",
+  "class_win_rate",
+  "form_last3_avg",
+  "form_last5_avg",
+  "form_consistency",
+  "form_is_improving",
+  "form_has_problems",
+  "form_last_position",
+  "form_weighted_avg",
+  "form_exponential_avg",
+  "form_wins_in_last5",
+  "form_trend_score",
+  "sp_decimal",
+  "sp_implied_prob",
+  "sp_rank",
+  "sp_vs_field_avg",
+  "market_confidence",
+  "is_favorite",
+  "is_outsider",
+  "or_rating_imputed",
+  "or_rank_in_race",
+  "or_percentile_in_race",
+  "or_diff_to_top",
+  "or_advantage_score",
+  "field_avg_or",
+  "field_std_or",
+  "field_avg_career_wins",
+  "race_field_size",
+  "stronger_opponents_count",
+  "is_competitive_race",
+  "jockey_win_rate",
+  "jockey_recent_form",
+  "jockey_course_win_rate",
+  "jockey_total_runs",
+  "trainer_win_rate",
+  "trainer_recent_form",
+  "trainer_course_win_rate",
+  "jockey_trainer_combo_win_rate",
+  "race_going_encoded",
+  "race_distance_meters",
+  "race_class",
+  "days_since_last_run",
+  "horse_age",
+  "horse_weight_kg",
+  "recent_avg_position",
+  "recent_runs_90d",
+  "out_of_top3_rate",
+  "position_volatility",
+  "beaten_favorite_rate",
+  "worst_recent_position",
+];
 
 /**
  * Normalização robusta com quantiles implementados manualmente
