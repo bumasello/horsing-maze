@@ -116,7 +116,7 @@ export async function generateTrainingFeatures_v4(
   );
 
   // Fetch races in date range
-  const races = await fetchRacesInRange(supabase, startDate, endDate);
+  const races = await fetchRacesWithoutFeatures(supabase, startDate, endDate);
   console.log(`Found ${races.length} races to process`);
 
   let totalFeaturesGenerated = 0;
@@ -726,6 +726,35 @@ function validateRace(
   };
 }
 
+async function fetchRacesWithoutFeatures(
+  supabase: SupabaseClient,
+  startDate: Date,
+  endDate: Date,
+): Promise<any[]> {
+  // Buscar IDs de corridas que já têm features geradas
+  const { data: existingFeatures } = await supabase
+    .schema("hml")
+    .from("training_enriched_horse_features")
+    .select("race_id")
+    .eq("model_version", "v4.0");
+
+  const existingRaceIds = new Set(
+    (existingFeatures || []).map((f) => f.race_id),
+  );
+
+  // Buscar todas as corridas no range
+  const allRaces = await fetchRacesInRange(supabase, startDate, endDate);
+
+  // Retornar apenas as que ainda não têm features
+  const newRaces = allRaces.filter((r) => !existingRaceIds.has(r.id));
+
+  console.log(
+    `📊 ${allRaces.length} corridas no range, ${newRaces.length} sem features ainda`,
+  );
+
+  return newRaces;
+}
+
 /**
  * Database operations using Supabase
  */
@@ -770,6 +799,7 @@ async function fetchRacesInRange(
       .eq("canceled", 0)
       .order("date", { ascending: true })
       .order("off_time_br", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, to);
 
     if (error) {
@@ -1043,7 +1073,7 @@ async function saveTrainingFeaturesToDatabase(
   }));
 
   // FIX: salvar em chunks de 100 em vez de tudo de uma vez
-  const chunkSize = 100;
+  const chunkSize = 50;
   const maxRetries = 3;
 
   for (let i = 0; i < records.length; i += chunkSize) {
@@ -1080,7 +1110,7 @@ async function saveTrainingFeaturesToDatabase(
       console.error(
         `❌ Falha ao salvar chunk ${i}-${i + chunkSize} após ${maxRetries} tentativas`,
       );
-      throw new Error(`Timeout persistente ao salvar features`);
+      throw new Error("Timeout persistente ao salvar features");
     }
   }
 
