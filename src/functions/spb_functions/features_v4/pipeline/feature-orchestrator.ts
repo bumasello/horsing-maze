@@ -146,6 +146,10 @@ export async function generateTrainingFeatures_v4(
       totalFeaturesGenerated += batchFeatures.length;
     }
 
+    // ⚡ FIX OOM: limpar cache de histórico entre batches para evitar acúmulo
+    // Sem isso, o cache cresce indefinidamente (50k+ entries em pipelines grandes)
+    clearHistoryCache();
+
     console.log(
       `Processed ${i + raceBatch.length}/${races.length} races, ${totalFeaturesGenerated} features generated`,
     );
@@ -180,7 +184,8 @@ export async function generatePredictionFeatures_v4(
     { features: HorseFeatures[]; raceDate: Date }
   >();
 
-  for (const raceId of raceIds) {
+  for (let idx = 0; idx < raceIds.length; idx++) {
+    const raceId = raceIds[idx];
     try {
       const race = await fetchRaceById(supabase, raceId);
 
@@ -205,6 +210,11 @@ export async function generatePredictionFeatures_v4(
     } catch (error) {
       console.error(`Error processing race ${raceId} for prediction:`, error);
     }
+
+    // ⚡ FIX OOM: limpar cache a cada 50 corridas durante predição
+    if ((idx + 1) % 50 === 0) {
+      clearHistoryCache();
+    }
   }
 
   // MUDANÇA: Salvar em tabela de predição com data da corrida
@@ -217,6 +227,9 @@ export async function generatePredictionFeatures_v4(
       );
     }
   }
+
+  // ⚡ FIX OOM: limpar cache ao final da predição
+  clearHistoryCache();
 
   console.log(`Generated ${allFeatures.length} prediction features`);
   return allFeatures;
@@ -855,7 +868,27 @@ async function fetchHorsesForRace(
   return data || [];
 }
 
+// ⚡ FIX OOM: Cache com tamanho máximo (substitui Map sem limite)
+// Antes: const historyCache = new Map<string, HistoricalRaceData[]>();
+// Problema: crescia para 50k+ entries durante generateTrainingFeatures_v4,
+// cada entry com ~20 objetos HistoricalRaceData (~2-3KB cada) = 150MB+ sem limpar
+const MAX_CACHE_SIZE = 500;
 const historyCache = new Map<string, HistoricalRaceData[]>();
+
+/**
+ * Adicionar ao cache com eviction quando cheio
+ */
+function cacheSet(key: string, value: HistoricalRaceData[]): void {
+  // Se atingiu o limite, limpar as entries mais antigas (FIFO simples)
+  if (historyCache.size >= MAX_CACHE_SIZE && !historyCache.has(key)) {
+    // Deletar os primeiros 100 entries para não ter que limpar a cada insert
+    const keysToDelete = [...historyCache.keys()].slice(0, 100);
+    for (const k of keysToDelete) {
+      historyCache.delete(k);
+    }
+  }
+  historyCache.set(key, value);
+}
 
 async function fetchHistoricalDataForHorses(
   supabase: SupabaseClient,
@@ -917,7 +950,8 @@ async function fetchHistoricalDataForHorses(
           beforeDate,
         );
 
-        historyCache.set(cacheKey, historicalData);
+        // ⚡ FIX OOM: usar cacheSet com limite em vez de historyCache.set direto
+        cacheSet(cacheKey, historicalData);
         return { horseId, data: historicalData };
       });
 
@@ -1049,11 +1083,14 @@ async function enrichWithRaceData(
 }
 
 /**
- * Limpar cache periodicamente (adicionar ao final do processamento)
+ * Limpar cache periodicamente
  */
 function clearHistoryCache(): void {
+  const size = historyCache.size;
   historyCache.clear();
-  console.log("♻ Cache de histórico limpo");
+  if (size > 0) {
+    console.log(`♻ Cache de histórico limpo (${size} entries removidas)`);
+  }
 }
 
 async function saveTrainingFeaturesToDatabase(

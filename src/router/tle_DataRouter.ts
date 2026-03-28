@@ -6,7 +6,6 @@ import { message, message2 } from "../controller/tleController";
 import { tleUserModel } from "../models/modelTle/tle_userModel";
 
 import type { Response, Request, NextFunction } from "express";
-import { pendingRaces } from "../functions/tensor_functions/loadData";
 
 const router = express.Router();
 
