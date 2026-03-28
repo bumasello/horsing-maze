@@ -193,10 +193,57 @@ async function checkExistingModel(): Promise<ModelConfig | null> {
   }
 }
 
+// ============================================================================
+// UTILITÁRIOS DE MEMÓRIA (NOVO)
+// ============================================================================
+
 /**
- * Carregar e preparar dados com paginação
+ * Tenta forçar GC quando disponível (Node com --expose-gc)
  */
+function tryGC(): void {
+  if (global.gc) {
+    global.gc();
+  }
+}
+
+/**
+ * Log de memória para diagnóstico
+ */
+function logMemory(label: string): void {
+  const mem = process.memoryUsage();
+  console.log(
+    `  📊 [MEM ${label}] RSS: ${(mem.rss / 1024 / 1024).toFixed(0)}MB | ` +
+      `Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(0)}/${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB`,
+  );
+}
+
+// ============================================================================
+// loadAndPrepareData — REESCRITO PARA ELIMINAR OOM
+// ============================================================================
+//
+// PROBLEMA ORIGINAL (6 cópias dos dados em memória):
+//   1. JSON bruto do Supabase (pageData)
+//   2. allVectors[] — array de objetos { date, vector, target }
+//   3. trainFeatures/valFeatures — .map(r => r.vector)
+//   4. tf.tensor2d(trainFeatures) — tensor bruto
+//   5. robustNormalize: trainX.arraySync() — tensor → JS array de volta
+//   6. normalizedTrain[] + tf.tensor2d(normalizedTrain) — array + tensor final
+//   Pico: ~1.1GB para 95k registros × 59 features → OOM
+//
+// SOLUÇÃO (máximo 2 cópias):
+//   1. Float32Array pré-alocado (buffer compacto, ~22MB para 95k × 59)
+//   2. Normalização in-place nos buffers (sem criar arrays intermediários)
+//   3. tf.tensor2d(Float32Array) — tensor final (aceita typed array direto)
+//   Pico estimado: ~200-300MB
+//
+// INTERFACE DE RETORNO: idêntica à versão anterior — nada mais muda no código.
+// ============================================================================
+
 async function loadAndPrepareData() {
+  const featureCount = selectedFeatures.length;
+  logMemory("INÍCIO");
+
+  // ─── FASE 1: Contar registros ───
   console.log("📊 Carregando dados de treinamento...");
 
   const { count: totalCount, error: countError } = await supabase
@@ -206,23 +253,38 @@ async function loadAndPrepareData() {
     .gte("quality_score", 0.7);
 
   if (countError) throw countError;
+  if (!totalCount || totalCount === 0)
+    throw new Error("Sem dados de treinamento");
   console.log(`📊 Total de registros disponíveis: ${totalCount}`);
 
-  // Processar em streaming — não acumular tudo em memória
+  // ─── FASE 2: Streaming → Float32Array ───
+  // Em vez de acumular objetos JS { date, vector, target },
+  // usamos arrays tipados paralelos: compactos e sem overhead de objetos.
+  //   - vectors:    Float32Array plano (N × featureCount) — ~22MB para 95k × 59
+  //   - targets:    Uint8Array (N) — target é 0 ou 1, 1 byte cada
+  //   - dateEpochs: Float64Array (N) — epoch em ms para split temporal
+
+  let capacity = Math.min(totalCount + 1000, 150000);
+  let vectors = new Float32Array(capacity * featureCount);
+  let targets = new Uint8Array(capacity);
+  let dateEpochs = new Float64Array(capacity);
+  let validCount = 0;
+
   const pageSize = 1000;
   const maxAttempts = 3;
   let currentPage = 0;
 
-  // Acumular apenas os vetores extraídos, não os registros raw
-  const allVectors: { date: string; vector: number[]; target: number }[] = [];
+  console.log("📥 Iniciando streaming de dados...");
+  logMemory("ANTES_STREAMING");
 
-  while (currentPage * pageSize < (totalCount || 0)) {
+  while (currentPage * pageSize < totalCount) {
     const from = currentPage * pageSize;
     const to = from + pageSize - 1;
 
     let pageData: any[] | null = null;
     let attempts = 0;
 
+    // Retry com backoff para timeout 57014
     while (attempts < maxAttempts) {
       const { data, error } = await supabase
         .schema("hml")
@@ -249,94 +311,273 @@ async function loadAndPrepareData() {
     }
 
     if (!pageData) {
-      console.error(`❌ Falha página ${currentPage + 1}`);
-      break;
+      console.error(`❌ Falha página ${currentPage + 1}, pulando...`);
+      currentPage++;
+      continue;
     }
 
-    // Extrair vetores imediatamente e descartar o JSON bruto
+    // Extrair vetores DIRETO para os buffers tipados
     for (const record of pageData) {
-      const { vector, valid } = extractFeatureVector(record, selectedFeatures);
-      if (valid) {
-        allVectors.push({
-          date: record.race_date as string,
-          vector,
-          target: record.target,
-        });
+      const features = record.features;
+      if (!features) continue;
+
+      // SP null = registro inválido (regra do projeto)
+      if (
+        features["sp_decimal"] === null ||
+        features["sp_decimal"] === undefined
+      ) {
+        continue;
       }
+
+      // Expandir buffers se necessário
+      if (validCount >= capacity) {
+        capacity = Math.floor(capacity * 1.5);
+        console.log(`  📦 Expandindo buffers para ${capacity}...`);
+
+        const newVectors = new Float32Array(capacity * featureCount);
+        newVectors.set(vectors);
+        vectors = newVectors;
+
+        const newTargets = new Uint8Array(capacity);
+        newTargets.set(targets);
+        targets = newTargets;
+
+        const newDateEpochs = new Float64Array(capacity);
+        newDateEpochs.set(dateEpochs);
+        dateEpochs = newDateEpochs;
+      }
+
+      // Extrair vetor de features direto no buffer
+      const offset = validCount * featureCount;
+      let isValid = true;
+
+      for (let i = 0; i < featureCount; i++) {
+        const featName = selectedFeatures[i];
+        let value = features[featName];
+
+        // SP null = inválido
+        if (
+          (featName === "sp_decimal" || featName === "sp_implied_prob") &&
+          (value === null || value === undefined)
+        ) {
+          isValid = false;
+          break;
+        }
+
+        // Imputação: null → 0 (regra do projeto)
+        if (value === null || value === undefined) value = 0;
+
+        vectors[offset + i] = Number(value);
+      }
+
+      if (!isValid) continue;
+
+      targets[validCount] = record.target ?? 0;
+      dateEpochs[validCount] = new Date(record.race_date).getTime();
+      validCount++;
     }
+
+    // CRÍTICO: permitir GC coletar o JSON bruto desta página
+    pageData = null;
 
     currentPage++;
-    console.log(
-      `📥 Processadas ${Math.min(currentPage * pageSize, totalCount || 0)}/${totalCount} amostras, ${allVectors.length} válidas...`,
-    );
+    if (currentPage % 10 === 0 || currentPage * pageSize >= totalCount) {
+      console.log(
+        `📥 Processadas ${Math.min(currentPage * pageSize, totalCount)}/${totalCount}, ${validCount} válidas...`,
+      );
+    }
   }
 
-  if (allVectors.length === 0) throw new Error("Sem dados de treinamento");
-  console.log(`✅ ${allVectors.length} amostras válidas`);
+  if (validCount === 0) throw new Error("Sem dados de treinamento válidos");
+  console.log(`✅ ${validCount} amostras válidas extraídas`);
+  logMemory("APÓS_STREAMING");
+  tryGC();
 
-  // Split temporal
-  const sortedDates = [...new Set(allVectors.map((r) => r.date))].sort();
-  const splitDateIdx = Math.floor(sortedDates.length * 0.8);
-  const splitDate = sortedDates[splitDateIdx];
+  // Trim para tamanho exato (libera memória não usada)
+  vectors = vectors.slice(0, validCount * featureCount);
+  targets = targets.slice(0, validCount);
+  dateEpochs = dateEpochs.slice(0, validCount);
+
+  // ─── FASE 3: Split temporal direto nos buffers ───
+
+  console.log("📅 Calculando split temporal...");
+
+  // Encontrar datas únicas e split point (80/20)
+  const uniqueEpochs = [...new Set(dateEpochs)].sort((a, b) => a - b);
+  const splitIdx = Math.floor(uniqueEpochs.length * 0.8);
+  const splitEpoch = uniqueEpochs[splitIdx];
+  const splitDate = new Date(splitEpoch).toISOString().split("T")[0];
+
+  // Contar treino vs validação
+  let trainCount = 0;
+  for (let i = 0; i < validCount; i++) {
+    if (dateEpochs[i] < splitEpoch) trainCount++;
+  }
+  const valCount = validCount - trainCount;
 
   console.log(`📅 Split temporal: treino até ${splitDate}`);
-  console.log(`📅 Validação: ${splitDate} em diante`);
+  console.log(`📊 Treino: ${trainCount} | Validação: ${valCount}`);
 
-  const trainVectors = allVectors.filter((r) => r.date < splitDate);
-  const valVectors = allVectors.filter((r) => r.date >= splitDate);
+  // Preencher buffers separados train/val
+  const trainVectors = new Float32Array(trainCount * featureCount);
+  const trainTargets = new Float32Array(trainCount);
+  const valVectors = new Float32Array(valCount * featureCount);
+  const valTargets = new Float32Array(valCount);
 
-  console.log(`📊 Treino: ${trainVectors.length} amostras`);
-  console.log(`📊 Validação: ${valVectors.length} amostras`);
-
-  const trainFeatures = trainVectors.map((r) => r.vector);
-  const trainTargets = trainVectors.map((r) => r.target);
-  const valFeatures = valVectors.map((r) => r.vector);
-  const valTargets = valVectors.map((r) => r.target);
-
-  // Class weights
-  const allTargets = [...trainTargets, ...valTargets];
-  const classCounts = allTargets.reduce(
-    (acc, t) => {
-      acc[t] = (acc[t] || 0) + 1;
-      return acc;
-    },
-    {} as Record<number, number>,
-  );
-  const totalSamples = allTargets.length;
-  const numClasses = Object.keys(classCounts).length;
-  const classWeights: { [key: number]: number } = {};
-  for (const classId in classCounts) {
-    classWeights[Number(classId)] =
-      totalSamples / (numClasses * classCounts[classId]);
+  let tIdx = 0;
+  let vIdx = 0;
+  for (let i = 0; i < validCount; i++) {
+    const srcOffset = i * featureCount;
+    if (dateEpochs[i] < splitEpoch) {
+      trainVectors.set(
+        vectors.subarray(srcOffset, srcOffset + featureCount),
+        tIdx * featureCount,
+      );
+      trainTargets[tIdx] = targets[i];
+      tIdx++;
+    } else {
+      valVectors.set(
+        vectors.subarray(srcOffset, srcOffset + featureCount),
+        vIdx * featureCount,
+      );
+      valTargets[vIdx] = targets[i];
+      vIdx++;
+    }
   }
+
+  // Liberar buffers originais — não precisamos mais
+  // @ts-ignore — atribuir null para permitir GC
+  vectors = null as any;
+  // @ts-ignore
+  targets = null as any;
+  // @ts-ignore
+  dateEpochs = null as any;
+  tryGC();
+  logMemory("APÓS_SPLIT");
+
+  // ─── FASE 4: Normalização robusta IN-PLACE nos buffers ───
+  // (substitui a função robustNormalize que foi removida)
+  //
+  // Antes: criava 4 cópias extras (arraySync → arrays JS → arrays normalizados → tensores)
+  // Agora: computa quantiles direto nos Float32Array e normaliza in-place
+
+  console.log("📏 Calculando normalização robusta...");
+
+  const median: number[] = new Array(featureCount);
+  const iqr: number[] = new Array(featureCount);
+  const mean: number[] = new Array(featureCount);
+  const std: number[] = new Array(featureCount);
+
+  // Buffer reutilizável para extrair/ordenar cada coluna
+  const columnBuffer = new Float32Array(trainCount);
+
+  for (let col = 0; col < featureCount; col++) {
+    // Extrair coluna do buffer plano
+    for (let row = 0; row < trainCount; row++) {
+      columnBuffer[row] = trainVectors[row * featureCount + col];
+    }
+
+    // Ordenar para calcular quantiles
+    const sorted = columnBuffer.slice().sort();
+
+    const idx25 = Math.floor(trainCount * 0.25);
+    const idx50 = Math.floor(trainCount * 0.5);
+    const idx75 = Math.floor(trainCount * 0.75);
+
+    median[col] = sorted[idx50];
+    const rawIqr = sorted[idx75] - sorted[idx25];
+    iqr[col] = rawIqr > 0 ? rawIqr : 1; // Evitar divisão por zero
+
+    // Calcular mean e std para compatibilidade com config
+    let sum = 0;
+    for (let row = 0; row < trainCount; row++) {
+      sum += columnBuffer[row];
+    }
+    mean[col] = sum / trainCount;
+
+    let sumSqDiff = 0;
+    for (let row = 0; row < trainCount; row++) {
+      const diff = columnBuffer[row] - mean[col];
+      sumSqDiff += diff * diff;
+    }
+    std[col] = Math.sqrt(sumSqDiff / trainCount) + 1e-7;
+  }
+
+  console.log("📏 Aplicando normalização in-place...");
+
+  // Normalizar treino in-place (zero alocação extra)
+  for (let row = 0; row < trainCount; row++) {
+    for (let col = 0; col < featureCount; col++) {
+      const idx = row * featureCount + col;
+      const normalized = (trainVectors[idx] - median[col]) / iqr[col];
+      trainVectors[idx] = Math.max(-3, Math.min(3, normalized)); // Clipping ±3
+    }
+  }
+
+  // Normalizar validação in-place (usando parâmetros do TREINO — regra do projeto)
+  for (let row = 0; row < valCount; row++) {
+    for (let col = 0; col < featureCount; col++) {
+      const idx = row * featureCount + col;
+      const normalized = (valVectors[idx] - median[col]) / iqr[col];
+      valVectors[idx] = Math.max(-3, Math.min(3, normalized)); // Clipping ±3
+    }
+  }
+
+  logMemory("APÓS_NORMALIZAÇÃO");
+
+  // ─── FASE 5: Criar tensores UMA vez (já normalizados) ───
+
+  console.log("🔢 Criando tensores finais...");
+
+  const trainX = tf.tensor2d(trainVectors, [trainCount, featureCount]);
+  const trainY = tf.tensor2d(trainTargets, [trainCount, 1]);
+  const valX = tf.tensor2d(valVectors, [valCount, featureCount]);
+  const valY = tf.tensor2d(valTargets, [valCount, 1]);
+
+  // Class weights (calculado nos buffers, sem criar arrays extras)
+  let class0 = 0;
+  let class1 = 0;
+  for (let i = 0; i < trainCount; i++) {
+    if (trainTargets[i] === 0) class0++;
+    else class1++;
+  }
+  for (let i = 0; i < valCount; i++) {
+    if (valTargets[i] === 0) class0++;
+    else class1++;
+  }
+  const total = class0 + class1;
+  const classWeights: { [key: number]: number } = {
+    0: total / (2 * class0),
+    1: total / (2 * class1),
+  };
+
   console.log(
     `⚖ Pesos de classe: 0=${classWeights[0]?.toFixed(2)}, 1=${classWeights[1]?.toFixed(2)}`,
   );
+  logMemory("FINAL");
 
-  const trainX = tf.tensor2d(trainFeatures);
-  const trainY = tf.tensor2d(trainTargets, [trainTargets.length, 1]);
-  const valX = tf.tensor2d(valFeatures);
-  const valY = tf.tensor2d(valTargets, [valTargets.length, 1]);
-
-  const normalization = robustNormalize(trainX, valX);
-
+  // Retorno com MESMA interface da versão anterior
   return {
-    trainX: normalization.trainX,
+    trainX,
     trainY,
-    valX: normalization.valX,
+    valX,
     valY,
     features: selectedFeatures,
     featureCount: selectedFeatures.length,
-    sampleCount: trainFeatures.length,
+    sampleCount: trainCount,
     classWeights,
     normalization: {
-      mean: normalization.mean,
-      std: normalization.std,
-      median: normalization.median,
-      iqr: normalization.iqr,
+      mean,
+      std,
+      median,
+      iqr,
     },
   };
 }
+
+// ============================================================================
+// TUDO ABAIXO É IDÊNTICO AO ORIGINAL
+// ============================================================================
 
 const selectedFeatures = [
   "career_win_rate",
@@ -400,94 +641,8 @@ const selectedFeatures = [
   "worst_recent_position",
 ];
 
-/**
- * Normalização robusta com quantiles implementados manualmente
- */
-function robustNormalize(trainX: tf.Tensor2D, valX: tf.Tensor2D) {
-  console.log("    🔄 Convertendo tensors para arrays...");
-  // Converter para array para calcular quantiles
-  const trainData = trainX.arraySync() as number[][];
-  const valData = valX.arraySync() as number[][];
-
-  console.log("    📊 Calculando quantiles...");
-  // Calcular quantiles manualmente para cada feature
-  const q25: number[] = [];
-  const q50: number[] = [];
-  const q75: number[] = [];
-
-  for (let col = 0; col < trainData[0].length; col++) {
-    // Extrair e ordenar coluna
-    const column = trainData.map((row) => row[col]).sort((a, b) => a - b);
-    const n = column.length;
-
-    // Calcular índices dos quantiles
-    const idx25 = Math.floor(n * 0.25);
-    const idx50 = Math.floor(n * 0.5);
-    const idx75 = Math.floor(n * 0.75);
-
-    q25.push(column[idx25]);
-    q50.push(column[idx50]);
-    q75.push(column[idx75]);
-  }
-
-  console.log("    📏 Calculando IQR...");
-  // Calcular IQR (Interquartile Range)
-  const iqr = q75.map((v, i) => {
-    const range = v - q25[i];
-    return range > 0 ? range : 1; // Evitar divisão por zero
-  });
-
-  console.log("    🔄 Normalizando dados...");
-  // Normalizar dados usando mediana e IQR
-  const normalizedTrain: number[][] = [];
-  const normalizedVal: number[][] = [];
-
-  // Normalizar conjunto de treino
-  for (let row = 0; row < trainData.length; row++) {
-    const normalizedRow: number[] = [];
-    for (let col = 0; col < trainData[0].length; col++) {
-      const value = (trainData[row][col] - q50[col]) / iqr[col];
-      // Clipping para lidar com outliers extremos
-      normalizedRow.push(Math.max(-3, Math.min(3, value)));
-    }
-    normalizedTrain.push(normalizedRow);
-  }
-
-  // Normalizar conjunto de validação
-  for (let row = 0; row < valData.length; row++) {
-    const normalizedRow: number[] = [];
-    for (let col = 0; col < valData[0].length; col++) {
-      const value = (valData[row][col] - q50[col]) / iqr[col];
-      // Clipping para lidar com outliers extremos
-      normalizedRow.push(Math.max(-3, Math.min(3, value)));
-    }
-    normalizedVal.push(normalizedRow);
-  }
-
-  console.log("    🔢 Convertendo de volta para tensors...");
-  // Converter de volta para tensors
-  const normalizedTrainX = tf.tensor2d(normalizedTrain);
-  const normalizedValX = tf.tensor2d(normalizedVal);
-
-  console.log("    📊 Calculando mean e std...");
-  // Calcular mean e std também (para compatibilidade)
-  const { mean, variance } = tf.moments(trainX, 0);
-  const std = variance.sqrt().add(1e-7);
-
-  // Cleanup tensors temporários
-  variance.dispose();
-
-  console.log("    ✅ Normalização concluída");
-
-  return {
-    trainX: normalizedTrainX,
-    valX: normalizedValX,
-    mean: mean.arraySync() as number[],
-    std: std.arraySync() as number[],
-    median: q50,
-    iqr: iqr,
-  };
-}
+// NOTA: robustNormalize foi REMOVIDA — a lógica está incorporada
+// na Fase 4 de loadAndPrepareData acima.
 
 /**
  * Criar modelo
@@ -607,7 +762,7 @@ async function trainModel(model: tf.LayersModel, data: any) {
         epochs: epoch + 1,
       };
 
-      // Log a cada 10 épocas
+      // Log a cada 10 épocas (com memória para monitorar)
       if (epoch % 10 === 0) {
         console.log(
           `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)}, ` +
@@ -615,6 +770,7 @@ async function trainModel(model: tf.LayersModel, data: any) {
             `val_loss=${valLoss.toFixed(4)}, ` +
             `val_acc=${valAcc.toFixed(4)}`,
         );
+        logMemory(`Epoch ${epoch}`);
       }
 
       // Early Stopping manual
