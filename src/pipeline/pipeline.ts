@@ -571,7 +571,7 @@ export function setupCronJob(): boolean {
     const cron = require("node-cron");
 
     // Expressão cron: "0 22 * * *" significa "às 22:00 todos os dias"
-    cron.schedule("30 1 * * *", async () => {
+    cron.schedule("00 23 * * *", async () => {
       logger.info("Iniciando execução agendada do pipeline de atualização");
       const result = await runPipeline();
       logger.info(
@@ -585,7 +585,7 @@ export function setupCronJob(): boolean {
     });
 
     logger.info(
-      "Agendamento do pipeline configurado para execução diária às 01:30",
+      "Agendamento do pipeline configurado para execução diária às 23:00",
     );
     return true;
   } catch (error) {
