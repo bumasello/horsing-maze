@@ -409,7 +409,7 @@ export function setupCronJob(): boolean {
     });
 
     logger.info(
-      "Agendamento do pipeline configurado para execução diária às 23:00",
+      "Agendamento do pipeline configurado para execução diária às 00:00",
     );
     return true;
   } catch (error) {
