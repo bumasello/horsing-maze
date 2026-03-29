@@ -6,48 +6,32 @@
  *
  * Foi projetado para ser executado como um microsserviço agendado via Node Cron.
  */
+import { logger, metrics } from "../shared/logger";
+import { withRetry } from "../shared/retry";
+import { CONFIG } from "../shared/config";
 
 import { supabase } from "..";
-import horseStats from "../functions/mdb_functions/getHorseResults_Hr";
-import raceCards from "../functions/mdb_functions/getRaceCard_Hr";
-import raceDetails from "../functions/mdb_functions/getRaceDetail_Hr";
-import updateRacecard_mdb from "../functions/mdb_functions/updateRaceCard_Hr";
-import { checkHorseResultLength } from "../functions/spb_functions/entries/checkHorseResultLength";
+import horseStats from "../integrations/mongodb/getHorseResults_Hr";
+import raceCards from "../integrations/mongodb/getRaceCard_Hr";
+import raceDetails from "../integrations/mongodb/getRaceDetail_Hr";
+import updateRacecard_mdb from "../integrations/mongodb/updateRaceCard_Hr";
+import { checkHorseResultLength } from "../services/data-sync/checkHorseResultLength";
 import {
   generatePredictionFeatures_v4,
   generateTrainingFeatures_v4,
-} from "../functions/spb_functions/features_v4/pipeline/feature-orchestrator";
+} from "../services/features/pipeline/feature-orchestrator";
 import {
   updateLayBettingResults,
   updateRacecardsAndDetails,
-} from "../functions/spb_functions/features_v4/pipeline/update_results";
-import { populateEnrichedRaceDetail_spb } from "../functions/spb_functions/populate/populateEnrichedRaceDetail";
-import { populateHorseStats_spb } from "../functions/spb_functions/populate/populateHorseStats_spb";
-import { populateRacecardsEnriched_spb } from "../functions/spb_functions/populate/populateRaceCard_spb_enriched";
-import { populateRaceDetail_spb } from "../functions/spb_functions/populate/populateRaceDetail_spb";
-import { updateCleanRacecard } from "../functions/spb_functions/update/updateCleanRacecard";
-import { generateLayBettingPicks } from "../functions/tensor_functions/tensor_v4/ml/claude-generate-picks";
-import { generatePredictions_v4 } from "../functions/tensor_functions/tensor_v4/ml/claude-prediction-model";
-import { trainLayBettingModel } from "../functions/tensor_functions/tensor_v4/ml/sonnet-claude-training";
-
-/**
- * Interface para o objeto de configuração do pipeline
- */
-interface PipelineConfig {
-  batchProcessing: {
-    batchSize: number;
-    batchDelay: number;
-    requestDelay: number;
-  };
-  retry: {
-    maxRetries: number;
-    initialWaitTime: number;
-    backoffFactor: number;
-  };
-  dates: {
-    daysToAdd: number;
-  };
-}
+} from "../services/features/pipeline/update_results";
+import { populateEnrichedRaceDetail_spb } from "../services/data-sync/populateEnrichedRaceDetail";
+import { populateHorseStats_spb } from "../services/data-sync/populateHorseStats_spb";
+import { populateRacecardsEnriched_spb } from "../services/data-sync/populateRaceCard_spb_enriched";
+import { populateRaceDetail_spb } from "../services/data-sync/populateRaceDetail_spb";
+import { updateCleanRacecard } from "../services/data-sync/updateCleanRacecard";
+import { generateLayBettingPicks } from "../services/ml/claude-generate-picks";
+import { generatePredictions_v4 } from "../services/ml/claude-prediction-model";
+import { trainLayBettingModel } from "../services/ml/sonnet-claude-training";
 
 /**
  * Interface para o resultado do pipeline
@@ -59,10 +43,6 @@ interface PipelineResult {
 }
 
 /**
- * Interface para o objeto de race card
- */
-
-/**
  * Interface para opções de processamento em lotes
  */
 interface BatchProcessingOptions {
@@ -70,112 +50,6 @@ interface BatchProcessingOptions {
   batchDelay?: number;
   requestDelay?: number;
 }
-
-/**
- * Interface para opções de retry
- */
-interface RetryOptions {
-  maxRetries?: number;
-  initialWaitTime?: number;
-  backoffFactor?: number;
-}
-
-/**
- * Configurações centralizadas do pipeline
- */
-const CONFIG: PipelineConfig = {
-  batchProcessing: {
-    batchSize: 10, // Número de requisições por lote
-    batchDelay: 60000, // 60 segundos de pausa entre lotes
-    requestDelay: 2000, // 2 segundos entre requisições individuais
-  },
-  retry: {
-    maxRetries: 3, // Número máximo de tentativas
-    initialWaitTime: 5000, // 5 segundos de espera inicial
-    backoffFactor: 2, // Fator de multiplicação para backoff exponencial
-  },
-  dates: {
-    daysToAdd: 0, // 0 = data atual, 1 = amanhã, etc.
-  },
-};
-
-/**
- * Interface para o sistema de logging
- */
-interface Logger {
-  info(message: string): void;
-  warn(message: string): void;
-  error(message: string, error?: Error): void;
-}
-
-/**
- * Sistema de logging aprimorado
- */
-const logger: Logger = {
-  info: (message: string): void => {
-    const timestamp = new Date().toISOString();
-    console.info(`[INFO] [${timestamp}] ${message}`);
-    // Aqui poderia ser adicionada integração com sistemas de log externos
-  },
-  warn: (message: string): void => {
-    const timestamp = new Date().toISOString();
-    console.warn(`[WARN] [${timestamp}] ${message}`);
-  },
-  error: (message: string, error?: Error): void => {
-    const timestamp = new Date().toISOString();
-    console.error(`[ERROR] [${timestamp}] ${message}`);
-    if (error?.stack) {
-      console.error(`[ERROR] [${timestamp}] Stack: ${error.stack}`);
-    }
-  },
-};
-
-/**
- * Interface para o sistema de métricas
- */
-interface Metrics {
-  startTimes: Record<string, number>;
-  start(label: string): void;
-  end(label: string): number | undefined;
-  measure<T>(label: string, fn: () => Promise<T>): Promise<T>;
-}
-
-/**
- * Sistema de métricas para monitoramento de desempenho
- */
-const metrics: Metrics = {
-  startTimes: {},
-
-  start: (label: string): void => {
-    metrics.startTimes[label] = Date.now();
-    logger.info(`Iniciando: ${label}`);
-  },
-
-  end: (label: string): number | undefined => {
-    const startTime = metrics.startTimes[label];
-    if (!startTime) {
-      logger.warn(`Métrica não iniciada para: ${label}`);
-      return undefined;
-    }
-
-    const duration = Date.now() - startTime;
-    logger.info(
-      `Concluído: ${label} - Duração: ${duration}ms (${(duration / 1000).toFixed(2)}s)`,
-    );
-    delete metrics.startTimes[label];
-    return duration;
-  },
-
-  // Método auxiliar para envolver uma função com métricas
-  async measure<T>(label: string, fn: () => Promise<T>): Promise<T> {
-    metrics.start(label);
-    try {
-      return await fn();
-    } finally {
-      metrics.end(label);
-    }
-  },
-};
 
 /**
  * Função utilitária para processamento em lotes
@@ -217,56 +91,6 @@ async function processBatch<T>(
   }
 
   logger.info(`Processamento em lotes concluído para ${items.length} itens`);
-}
-
-/**
- * Função utilitária para retry com backoff exponencial
- * @param fn - Função a ser executada com retry
- * @param options - Opções de configuração
- * @param label - Rótulo para identificação nos logs
- */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  options: RetryOptions = {},
-  label = "operação",
-): Promise<T> {
-  const maxRetries = options.maxRetries || CONFIG.retry.maxRetries;
-  let waitTime = options.initialWaitTime || CONFIG.retry.initialWaitTime;
-  const backoffFactor = options.backoffFactor || CONFIG.retry.backoffFactor;
-
-  let success = false;
-  let retryCount = 0;
-  let result: T;
-
-  while (!success && retryCount < maxRetries) {
-    try {
-      result = await fn();
-
-      success = true;
-      return result;
-    } catch (error) {
-      retryCount++;
-      logger.error(
-        `Erro na ${label}, tentativa ${retryCount}: ${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error : new Error(String(error)),
-      );
-
-      if (retryCount < maxRetries) {
-        logger.info(
-          `Aguardando ${waitTime / 1000} segundos antes de tentar novamente...`,
-        );
-        await new Promise<void>((resolve) => setTimeout(resolve, waitTime));
-        waitTime *= backoffFactor; // Backoff exponencial
-      } else {
-        logger.error(`Falha após ${maxRetries} tentativas para ${label}`);
-        throw error; // Propaga o erro após esgotar as tentativas
-      }
-    }
-  }
-
-  // Esta linha nunca deve ser alcançada devido ao return dentro do try,
-  // mas é necessária para satisfazer o TypeScript
-  throw new Error("Falha inesperada no sistema de retry");
 }
 
 /**

@@ -1,14 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
-import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import mongoose from "mongoose";
+import apiRouter from "./api/routes";
 import { runPipeline, setupCronJob } from "./pipeline/pipeline";
-import mdb_dataRouter from "./router/mdb_DataRouter";
-import spb_dataRouter from "./router/spb_DataRouter";
-import tle_dataRouter, { initBot } from "./router/tle_DataRouter";
-import tsr_dataRouter from "./router/tsr_DataRouter";
-import upt_dataRouter from "./router/upt_DataRouter";
+
+import type { NextFunction, Request, Response } from "express";
 
 interface CustomError extends Error {
   status?: number;
@@ -67,12 +64,7 @@ function getNextScheduledTime(): string {
 }
 
 // Rotas da API (comentadas conforme seu código)
-app.use("/mdb_data", mdb_dataRouter);
-app.use("/spb_data", spb_dataRouter);
-// app.use("/tle_data", tle_dataRouter);
-app.use("/tsr_data", tsr_dataRouter);
-app.use("/upt_data", upt_dataRouter);
-
+app.use("/api", apiRouter);
 app.use(
   (error: CustomError, _req: Request, res: Response, _next: NextFunction) => {
     const status = error.status || 500;
