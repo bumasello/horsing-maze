@@ -114,9 +114,9 @@ export async function generateTrainingFeatures_v4(
       totalFeaturesGenerated += batchFeatures.length;
     }
 
-    // ⚡ FIX OOM: limpar cache de histórico entre batches para evitar acúmulo
-    // Sem isso, o cache cresce indefinidamente (50k+ entries em pipelines grandes)
+    // ⚡ FIX OOM: limpar caches entre batches para evitar acúmulo
     clearHistoryCache();
+    clearJockeyTrainerStatsCache();
 
     console.log(
       `Processed ${i + raceBatch.length}/${races.length} races, ${totalFeaturesGenerated} features generated`,
@@ -179,7 +179,8 @@ export async function generatePredictionFeatures_v4(
       console.error(`Error processing race ${raceId} for prediction:`, error);
     }
 
-    // ⚡ FIX OOM: limpar cache a cada 50 corridas durante predição
+    // ⚡ FIX OOM: limpar cache de histórico a cada 50 corridas durante predição
+    // (NÃO limpar jockeyTrainerStatsCache aqui — queremos que ele persista entre corridas do mesmo dia)
     if ((idx + 1) % 50 === 0) {
       clearHistoryCache();
     }
@@ -196,8 +197,9 @@ export async function generatePredictionFeatures_v4(
     }
   }
 
-  // ⚡ FIX OOM: limpar cache ao final da predição
+  // ⚡ Limpar todos os caches ao final da predição
   clearHistoryCache();
+  clearJockeyTrainerStatsCache();
 
   console.log(`Generated ${allFeatures.length} prediction features`);
   return allFeatures;
@@ -836,20 +838,30 @@ async function fetchHorsesForRace(
   return data || [];
 }
 
-// ⚡ FIX OOM: Cache com tamanho máximo (substitui Map sem limite)
-// Antes: const historyCache = new Map<string, HistoricalRaceData[]>();
-// Problema: crescia para 50k+ entries durante generateTrainingFeatures_v4,
-// cada entry com ~20 objetos HistoricalRaceData (~2-3KB cada) = 150MB+ sem limpar
+// ============================================================================
+// CACHES
+// ============================================================================
+
+// ⚡ OTIMIZAÇÃO #2: Cache de jockey/trainer stats por data
+// Problema: fetchJockeyTrainerStats é chamado 1x por corrida.
+// 30 corridas de amanhã = 30 queries gigantes com resultado IDÊNTICO.
+// Solução: cachear por data. 30 corridas = 1 query real + 29 cache hits.
+const jockeyTrainerStatsCache = new Map<string, JockeyTrainerStatsMap>();
+
+function clearJockeyTrainerStatsCache(): void {
+  const size = jockeyTrainerStatsCache.size;
+  jockeyTrainerStatsCache.clear();
+  if (size > 0) {
+    console.log(`♻ Cache de jockey/trainer stats limpo (${size} entries)`);
+  }
+}
+
+// ⚡ FIX OOM: Cache de histórico com tamanho máximo
 const MAX_CACHE_SIZE = 500;
 const historyCache = new Map<string, HistoricalRaceData[]>();
 
-/**
- * Adicionar ao cache com eviction quando cheio
- */
 function cacheSet(key: string, value: HistoricalRaceData[]): void {
-  // Se atingiu o limite, limpar as entries mais antigas (FIFO simples)
   if (historyCache.size >= MAX_CACHE_SIZE && !historyCache.has(key)) {
-    // Deletar os primeiros 100 entries para não ter que limpar a cada insert
     const keysToDelete = [...historyCache.keys()].slice(0, 100);
     for (const k of keysToDelete) {
       historyCache.delete(k);
@@ -857,6 +869,18 @@ function cacheSet(key: string, value: HistoricalRaceData[]): void {
   }
   historyCache.set(key, value);
 }
+
+function clearHistoryCache(): void {
+  const size = historyCache.size;
+  historyCache.clear();
+  if (size > 0) {
+    console.log(`♻ Cache de histórico limpo (${size} entries removidas)`);
+  }
+}
+
+// ============================================================================
+// FETCH FUNCTIONS
+// ============================================================================
 
 async function fetchHistoricalDataForHorses(
   supabase: SupabaseClient,
@@ -918,7 +942,6 @@ async function fetchHistoricalDataForHorses(
           beforeDate,
         );
 
-        // ⚡ FIX OOM: usar cacheSet com limite em vez de historyCache.set direto
         cacheSet(cacheKey, historicalData);
         return { horseId, data: historicalData };
       });
@@ -1048,17 +1071,6 @@ async function enrichWithRaceData(
   });
 
   return historicalData;
-}
-
-/**
- * Limpar cache periodicamente
- */
-function clearHistoryCache(): void {
-  const size = historyCache.size;
-  historyCache.clear();
-  if (size > 0) {
-    console.log(`♻ Cache de histórico limpo (${size} entries removidas)`);
-  }
 }
 
 async function saveTrainingFeaturesToDatabase(
@@ -1223,6 +1235,10 @@ function calculateFeatureQuality(features: HorseFeatures): number {
   return checks > 0 ? quality / checks : 0;
 }
 
+// ============================================================================
+// JOCKEY / TRAINER STATS
+// ============================================================================
+
 // Tipos para o map de stats
 interface RiderStat {
   runs: number;
@@ -1242,6 +1258,16 @@ async function fetchJockeyTrainerStats(
   supabase: SupabaseClient,
   beforeDate: string,
 ): Promise<JockeyTrainerStatsMap> {
+  // ⚡ OTIMIZAÇÃO #2: verificar cache antes de qualquer query
+  if (jockeyTrainerStatsCache.has(beforeDate)) {
+    console.log(`📋 Cache hit: jockey/trainer stats (${beforeDate})`);
+    return jockeyTrainerStatsCache.get(beforeDate)!;
+  }
+
+  console.log(
+    `🔍 Buscando jockey/trainer stats (${beforeDate}) — sem cache, executando queries...`,
+  );
+
   // Query 1: buscar corridas filtradas por data com Retry
   const raceRows = await withSupabaseRetry(async () => {
     return await supabase
@@ -1302,7 +1328,13 @@ async function fetchJockeyTrainerStats(
     }
   }
 
-  return buildJockeyTrainerMaps(allHorseRows, raceMap);
+  // ⚡ OTIMIZAÇÃO #2: salvar no cache antes de retornar
+  const result = buildJockeyTrainerMaps(allHorseRows, raceMap);
+  jockeyTrainerStatsCache.set(beforeDate, result);
+  console.log(
+    `💾 Jockey/trainer stats cacheados para ${beforeDate} (${allHorseRows.length} registros processados)`,
+  );
+  return result;
 }
 
 function buildJockeyTrainerMaps(
