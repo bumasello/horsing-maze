@@ -103,6 +103,7 @@ export const insertEnrichedRaceDetail = async (
           course: data.course || null,
           date: data.date || null,
           off_time_br: data.off_time_br || null,
+          off_time_uk: data.off_time_uk || null,
           title: data.title || null,
           distance: data.distance || null,
           age: data.age || null,

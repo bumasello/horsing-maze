@@ -79,7 +79,9 @@ const getRaceCardAndStore_Hr = async (date: string) => {
       if (!checkRc) {
         const raceCard = new RaceCard<IRaceCard_Hr>(rc);
 
-        raceCard.off_time_br = timeUkToBr(rc.date || "");
+        const times = timeUkToBr(rc.date || "");
+        raceCard.off_time_br = times.br;
+        raceCard.off_time_uk = times.uk;
         raceCard.checked_detail = false;
 
         await raceCard.save();
@@ -96,7 +98,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
   }
 };
 
-const timeUkToBr = (dateStr: string): string => {
+const timeUkToBr = (dateStr: string): { br: string; uk: string } => {
   const ukTimeZone = "Europe/London";
   const brTimeZone = "America/Sao_Paulo";
 
@@ -106,8 +108,12 @@ const timeUkToBr = (dateStr: string): string => {
   );
 
   const brDate = toZonedTime(utcDate, brTimeZone);
+  const ukDate = toZonedTime(utcDate, ukTimeZone);
 
-  return format(brDate, "HH:mm", { timeZone: brTimeZone });
+  return {
+    br: format(brDate, "HH:mm", { timeZone: brTimeZone }),
+    uk: format(ukDate, "HH:mm", { timeZone: ukTimeZone }),
+  };
 };
 
 export default {

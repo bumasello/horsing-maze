@@ -6,6 +6,7 @@ export interface IRaceCard_Hr {
   course: string;
   date: string;
   off_time_br: string;
+  off_time_uk: string;
   title: string;
   distance: string;
   age: number;
