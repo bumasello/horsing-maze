@@ -98,7 +98,7 @@ const getRaceCardAndStore_Hr = async (date: string) => {
   }
 };
 
-const timeUkToBr = (dateStr: string): { br: string; uk: string } => {
+export const timeUkToBr = (dateStr: string): { br: string; uk: string } => {
   const ukTimeZone = "Europe/London";
   const brTimeZone = "America/Sao_Paulo";
 
@@ -112,7 +112,7 @@ const timeUkToBr = (dateStr: string): { br: string; uk: string } => {
 
   return {
     br: format(brDate, "HH:mm", { timeZone: brTimeZone }),
-    uk: format(ukDate, "HH:mm", { timeZone: ukTimeZone }),
+    uk: format(ukDate, "h:mm", { timeZone: ukTimeZone }),
   };
 };
 

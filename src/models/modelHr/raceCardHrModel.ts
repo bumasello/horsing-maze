@@ -26,6 +26,7 @@ const RaceCard_Hr = new mongoose.Schema<IRaceCard_HrModel>({
   course: String,
   date: String,
   off_time_br: String,
+  off_time_uk: String,
   title: String,
   distance: String,
   age: Number,

@@ -4,6 +4,7 @@ export interface IRaceCard_Spb {
   course: string | null;
   date: string | null; // armazenado como date (formato "YYYY-MM-DD")
   off_time_br: string | null;
+  off_time_uk: string | null;
   title: string | null;
   distance: string | null;
   age: number | null;
