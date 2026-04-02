@@ -83,7 +83,10 @@ const uri = process.env.MONGOOSE || "error";
 mongoose.connect(uri).then(() => {
   app.listen(port, () => {
     console.log(`API ativa na porta ${port} às ${new Date().toISOString()}`);
+    const begin = Date.now();
     setupCronJob();
+    const end = Date.now() - begin;
+    console.log(`Levou ${end} ms`);
     // runPipeline().then((result) => {
     //   console.log(result);
     // });
