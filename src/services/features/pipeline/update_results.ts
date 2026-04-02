@@ -3,6 +3,7 @@
 import { supabase } from "../../..";
 import mdbFunctions_RaceCard from "../../../integrations/mongodb/getRaceCard_Hr";
 import mdbFunctions_RaceDetail from "../../../integrations/mongodb/getRaceDetail_Hr";
+import { parseSP } from "../converters";
 
 /**
  * Atualiza racecards e race details do MongoDB para Supabase
@@ -159,7 +160,7 @@ export const updateRacecardsAndDetails = async (): Promise<void> => {
                 position: Number(horse.position),
                 sire: horse.sire,
                 sp: horse.sp,
-                sp_decimal: convertSpToDecimal(horse.sp),
+                sp_decimal: parseSP(horse.sp),
                 trainer: horse.trainer,
                 weight: horse.weight,
               },

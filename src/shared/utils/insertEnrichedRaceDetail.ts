@@ -5,6 +5,7 @@ import type { IHorse_Hr } from "../../models/modelHr/horseHrModel";
 import type { IRaceDetail_Hr } from "../../models/modelHr/raceDetailHrModel";
 import { cleanNumericValue } from "./cleanNumericValue";
 import { processHorsePosition } from "./processHorsePosition";
+import { parseSP } from "../../services/features/converters";
 
 dotenv.config();
 
@@ -147,6 +148,7 @@ export const insertEnrichedRaceDetail = async (
             dam: horse.dam || null,
             or_rating: cleanNumericValue(horse.OR),
             sp: horse.sp || null,
+            sp_decimal: parseSP(horse.sp || null),
           };
 
           const { error: upsertError } = await supabase
