@@ -40,6 +40,7 @@ interface PipelineResult {
   success: boolean;
   message?: string;
   error?: string;
+  time: string;
 }
 
 /**
@@ -199,41 +200,39 @@ async function transferToSupabase(): Promise<void> {
   logger.info("Iniciando transferência e preparação de dados no Supabase");
 
   // Transferência de race cards
-  await metrics.measure(
-    "Transferência de race cards para Supabase",
-    async () => {
+  await Promise.all([
+    metrics.measure("Transferência de race cards para Supabase", async () => {
       await populateRacecardsEnriched_spb();
       logger.info("Race cards transferidos para Supabase com sucesso");
-    },
-  );
-
-  await metrics.measure(
-    "Transferência de detalhes de corridas para Supabase",
-    async () => {
-      await populateRaceDetail_spb();
-      logger.info(
-        "Detalhes de corridas transferidos para Supabase com sucesso",
-      );
-    },
-  );
-
-  await metrics.measure(
-    "Transferência de estatísticas de cavalos para Supabase",
-    async () => {
-      await populateHorseStats_spb();
-      logger.info(
-        "Estatísticas de cavalos transferidas para Supabase com sucesso",
-      );
-    },
-  );
-
-  await metrics.measure(
-    "Transferência de detalhes históricos de corridas para Supabase",
-    async () => {
-      await populateEnrichedRaceDetail_spb();
-      logger.info("Detalhes históricos transferidos para Supabase com sucesso");
-    },
-  );
+    }),
+    metrics.measure(
+      "Transferência de detalhes de corridas para Supabase",
+      async () => {
+        await populateRaceDetail_spb();
+        logger.info(
+          "Detalhes de corridas transferidos para Supabase com sucesso",
+        );
+      },
+    ),
+    metrics.measure(
+      "Transferência de estatísticas de cavalos para Supabase",
+      async () => {
+        await populateHorseStats_spb();
+        logger.info(
+          "Estatísticas de cavalos transferidas para Supabase com sucesso",
+        );
+      },
+    ),
+    metrics.measure(
+      "Transferência de detalhes históricos de corridas para Supabase",
+      async () => {
+        await populateEnrichedRaceDetail_spb();
+        logger.info(
+          "Detalhes históricos transferidos para Supabase com sucesso",
+        );
+      },
+    ),
+  ]);
 
   await metrics.measure(
     "Verificação de cavalos com resultados suficientes",
@@ -252,7 +251,7 @@ async function transferToSupabase(): Promise<void> {
   await metrics.measure("Geração de features para treinamento", async () => {
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setFullYear(startDate.getFullYear() - 2);
+    startDate.setDate(startDate.getDate() - 7);
 
     const trainingResult = await generateTrainingFeatures_v4(
       supabase,
@@ -341,6 +340,7 @@ async function trainAndPredict(): Promise<void> {
  * Função principal do pipeline que executa todas as etapas em sequência
  */
 export const runPipeline = async (): Promise<PipelineResult> => {
+  const begin = Date.now();
   try {
     logger.info("Iniciando pipeline de atualização de dados de corridas");
 
@@ -362,6 +362,7 @@ export const runPipeline = async (): Promise<PipelineResult> => {
     return {
       success: true,
       message: "Pipeline de atualização concluído com sucesso",
+      time: formatMS(Date.now() - begin),
     };
   } catch (error) {
     // Tratamento de erros centralizado
@@ -381,6 +382,7 @@ export const runPipeline = async (): Promise<PipelineResult> => {
     return {
       success: false,
       error: errorMessage,
+      time: formatMS(Date.now() - begin),
     };
   }
 };
@@ -401,6 +403,7 @@ export function setupCronJob(): boolean {
       logger.info(
         `Resultado da execução agendada: ${result.success ? "Sucesso" : "Falha"}`,
       );
+      logger.info(`Tempo da execução agendada: ${result.time}`);
 
       if (!result.success) {
         logger.error(`Falha na execução agendada: ${result.error}`);
@@ -420,6 +423,22 @@ export function setupCronJob(): boolean {
     );
     return false;
   }
+}
+
+function formatMS(ms: number): string {
+  // Calculando as unidades
+  const segundosTotais = Math.floor(ms / 1000);
+
+  const horas = Math.floor(segundosTotais / 3600);
+  const minutos = Math.floor((segundosTotais % 3600) / 60);
+  const segundos = segundosTotais % 60;
+
+  // Formatando para string HH:mm:ss
+  const hDisplay = String(horas).padStart(2, "0");
+  const mDisplay = String(minutos).padStart(2, "0");
+  const sDisplay = String(segundos).padStart(2, "0");
+
+  return `${hDisplay}:${mDisplay}:${sDisplay}`;
 }
 
 /**

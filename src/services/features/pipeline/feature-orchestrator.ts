@@ -882,87 +882,194 @@ function clearHistoryCache(): void {
 // FETCH FUNCTIONS
 // ============================================================================
 
+// ⚡ OTIMIZAÇÃO #3: Batch query em vez de 1 query por cavalo
+// ANTES: 12 cavalos = 12 queries individuais + 12 queries de enrichment = 24 queries
+// DEPOIS: 12 cavalos = 1-2 queries batch + 1-2 queries enrichment = 2-4 queries
 async function fetchHistoricalDataForHorses(
   supabase: SupabaseClient,
   horseIds: number[],
   beforeDate?: string,
 ): Promise<Map<number, HistoricalRaceData[]>> {
   const historicalMap = new Map<number, HistoricalRaceData[]>();
-  const batchSize = 6;
 
-  for (let i = 0; i < horseIds.length; i += batchSize) {
-    const batch = horseIds.slice(i, i + batchSize);
+  // ─── PASSO 1: Separar cavalos cacheados dos não-cacheados ───
+  const uncachedHorseIds: number[] = [];
+  for (const horseId of horseIds) {
+    const cacheKey = `${horseId}-${beforeDate?.toString() || "all"}`;
+    if (historyCache.has(cacheKey)) {
+      historicalMap.set(horseId, historyCache.get(cacheKey)!);
+    } else {
+      uncachedHorseIds.push(horseId);
+    }
+  }
 
-    try {
-      const batchPromises = batch.map(async (horseId) => {
-        const cacheKey = `${horseId}-${beforeDate?.toString() || "all"}`;
+  if (uncachedHorseIds.length === 0) {
+    return historicalMap;
+  }
 
-        if (historyCache.has(cacheKey)) {
-          return { horseId, data: historyCache.get(cacheKey)! };
-        }
+  console.log(
+    `  📊 fetchHistoricalData: ${horseIds.length} cavalos total, ${uncachedHorseIds.length} sem cache`,
+  );
 
-        // 1. Busca os registros com Retry
-        const horseRecords = await withSupabaseRetry(async () => {
+  try {
+    // ─── PASSO 2: Batch query — buscar registros de TODOS os cavalos de uma vez ───
+    // Em vez de 1 query por cavalo (.eq("id_horse", id)), fazemos 1 query com .in()
+    const allHorseRecords: any[] = [];
+    const inChunkSize = 50; // Limite seguro para cláusula .in() do Supabase
+
+    for (let i = 0; i < uncachedHorseIds.length; i += inChunkSize) {
+      const chunk = uncachedHorseIds.slice(i, i + inChunkSize);
+
+      const records = await withSupabaseRetry(
+        async () => {
           return await supabase
             .schema("hml")
             .from("race_horses_hr_enriched")
             .select(
-              `
-                id,
-                id_horse,
-                horse,
-                position,
-                or_rating,
-                sp_decimal,
-                weight,
-                distance_beaten,
-                non_runner,
-                age,
-                jockey,
-                trainer,
-                form,
-                racecard_id
-              `,
+              `id, id_horse, horse, position, or_rating, sp_decimal, weight,
+             distance_beaten, non_runner, age, jockey, trainer, form, racecard_id`,
             )
-            .eq("id_horse", horseId)
+            .in("id_horse", chunk)
             .not("position", "is", null)
-            .gt("position", 0)
-            .limit(21);
-        }, `fetchHistoricalData - horse ${horseId}`);
+            .gt("position", 0);
+        },
+        `fetchHistoricalData - batch horses ${Math.floor(i / inChunkSize) + 1}`,
+      );
 
-        // Se falhar mesmo após retries, retorna vazio para este cavalo
-        if (!horseRecords) {
-          return { horseId, data: [] };
+      if (records) {
+        allHorseRecords.push(...records);
+      }
+    }
+
+    // ─── PASSO 3: Agrupar por cavalo e limitar a 21 registros (mesmo que o .limit(21) original) ───
+    const recordsByHorse = new Map<number, any[]>();
+    for (const record of allHorseRecords) {
+      const hId = record.id_horse;
+      if (!recordsByHorse.has(hId)) {
+        recordsByHorse.set(hId, []);
+      }
+      const arr = recordsByHorse.get(hId)!;
+      if (arr.length < 21) {
+        arr.push(record);
+      }
+    }
+
+    // ─── PASSO 4: Batch enrichment — buscar dados de TODAS as corridas referenciadas de uma vez ───
+    // Em vez de 1 query por cavalo no enrichWithRaceData, fazemos 1 query para todos
+    const allRacecardIds = new Set<number>();
+    for (const records of recordsByHorse.values()) {
+      for (const r of records) {
+        allRacecardIds.add(r.racecard_id);
+      }
+    }
+
+    const raceMap = new Map<number, any>();
+    const racecardIdArray = [...allRacecardIds];
+    const raceChunkSize = 200; // Limite seguro para .in() com dados maiores
+
+    for (let i = 0; i < racecardIdArray.length; i += raceChunkSize) {
+      const chunk = racecardIdArray.slice(i, i + raceChunkSize);
+
+      const raceData = await withSupabaseRetry(
+        async () => {
+          let query = supabase
+            .schema("hml")
+            .from("racecards_hr_enriched")
+            .select(
+              "id, date, course, distance, going, class, finished, canceled, title, prize, id_race, off_time_br",
+            )
+            .in("id", chunk)
+            .eq("finished", 1)
+            .eq("canceled", 0);
+
+          if (beforeDate) {
+            query = query.lt("date", beforeDate);
+          }
+
+          return await query;
+        },
+        `fetchHistoricalData - enrichment batch ${Math.floor(i / raceChunkSize) + 1}`,
+      );
+
+      if (raceData) {
+        for (const race of raceData) {
+          raceMap.set(race.id, race);
         }
+      }
+    }
 
-        // 2. Enriquecimento dos dados
-        const historicalData = await enrichWithRaceData(
-          supabase,
-          horseRecords,
-          beforeDate,
-        );
+    // ─── PASSO 5: Montar HistoricalRaceData por cavalo (mesma lógica do enrichWithRaceData) ───
+    for (const horseId of uncachedHorseIds) {
+      const horseRecords = recordsByHorse.get(horseId) || [];
+      const historicalData: HistoricalRaceData[] = [];
 
-        cacheSet(cacheKey, historicalData);
-        return { horseId, data: historicalData };
+      for (const horse of horseRecords) {
+        const race = raceMap.get(horse.racecard_id);
+        if (!race) continue;
+
+        historicalData.push({
+          horse: {
+            id: horse.id,
+            id_horse: horse.id_horse,
+            horse: horse.horse,
+            position: horse.position,
+            or_rating: horse.or_rating,
+            sp_decimal: horse.sp_decimal,
+            weight: horse.weight,
+            distance_beaten: horse.distance_beaten,
+            non_runner: horse.non_runner,
+            age: horse.age,
+            jockey: horse.jockey,
+            trainer: horse.trainer,
+            form: horse.form,
+            racecard_id: horse.racecard_id,
+            number: horse.number || null,
+            dam: horse.dam || null,
+            sire: horse.sire || null,
+            owner: horse.owner || null,
+            last_ran_days_ago: horse.last_ran_days_ago || null,
+            sp: horse.sp || null,
+          } as RaceHorseEnriched,
+          race: {
+            id: race.id,
+            date: race.date,
+            course: race.course,
+            distance: race.distance,
+            going: race.going,
+            class: race.class,
+            finished: race.finished,
+            canceled: race.canceled,
+            title: race.title || "",
+            prize: race.prize || "",
+            id_race: race.id_race || "",
+            off_time_br: race.off_time_br || "",
+            age: race.age || null,
+            finish_time: race.finish_time || null,
+          } as RaceCardEnriched,
+        });
+      }
+
+      // Ordenar por data (mais recente primeiro) — mesmo que enrichWithRaceData
+      historicalData.sort((a, b) => {
+        const dateA = new Date(a.race.date).getTime();
+        const dateB = new Date(b.race.date).getTime();
+        return dateB - dateA;
       });
 
-      // Aguarda o batch atual
-      const batchResults = await Promise.all(batchPromises);
-
-      // 3. Alimenta o mapa de resultados
-      for (const result of batchResults) {
-        historicalMap.set(result.horseId, result.data);
-      }
-
-      // Delay entre batches para evitar sobrecarga (especialmente após erros 502)
-      if (i + batchSize < horseIds.length) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    } catch (error) {
-      console.error(`❌ Erro crítico no batch i=${i}:`, error);
-      // Fallback para garantir que o mapa tenha as chaves, mesmo vazias
-      for (const horseId of batch) {
-        if (!historicalMap.has(horseId)) historicalMap.set(horseId, []);
+      // Cache e armazenar resultado
+      const cacheKey = `${horseId}-${beforeDate?.toString() || "all"}`;
+      cacheSet(cacheKey, historicalData);
+      historicalMap.set(horseId, historicalData);
+    }
+  } catch (error) {
+    console.error(
+      "❌ Erro crítico no fetchHistoricalDataForHorses batch:",
+      error,
+    );
+    // Fallback: garantir que todos os cavalos tenham uma entrada (mesmo vazia)
+    for (const horseId of uncachedHorseIds) {
+      if (!historicalMap.has(horseId)) {
+        historicalMap.set(horseId, []);
       }
     }
   }
@@ -972,6 +1079,8 @@ async function fetchHistoricalDataForHorses(
 
 /**
  * Enriquecer registros de cavalos com dados das corridas
+ * NOTA: Esta função não é mais chamada por fetchHistoricalDataForHorses (otimização #3),
+ * que agora faz o enrichment em batch. Mantida para uso em outros contextos se necessário.
  */
 async function enrichWithRaceData(
   supabase: SupabaseClient,
