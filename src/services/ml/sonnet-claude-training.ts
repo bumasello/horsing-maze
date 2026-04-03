@@ -228,7 +228,19 @@ async function loadAndPrepareData() {
     .select("*", { count: "exact", head: true })
     .gte("quality_score", 0.7);
 
-  if (countError) throw countError;
+  if (countError) {
+    console.error(
+      "❌ Erro detalhado no count:",
+      JSON.stringify(countError, null, 2),
+    );
+    console.error("❌ Code:", countError.code);
+    console.error("❌ Details:", countError.details);
+    console.error("❌ Hint:", countError.hint);
+    throw new Error(
+      `Count query falhou: code=${countError.code} message=${countError.message} details=${countError.details} hint=${countError.hint}`,
+    );
+  }
+
   if (!totalCount || totalCount === 0)
     throw new Error("Sem dados de treinamento");
   console.log(`📊 Total de registros disponíveis: ${totalCount}`);
