@@ -2,8 +2,6 @@
 
 import { supabase } from "../..";
 
-import type { ModelConfig } from "../../shared/types/ml.types";
-
 // Configurações
 const MIN_IVL_THRESHOLD = 1.1;
 const MIN_ODD_THRESHOLD = 4.0;
@@ -16,6 +14,7 @@ interface PredictionData {
   horse_id: number;
   predicted_probability: number;
   lay_recommendation: string;
+  model_version: string;
   course?: string;
   race_date?: Date;
   off_time_br?: string;
@@ -33,25 +32,9 @@ interface EnrichedPick extends PredictionData {
   selection_reason: string;
 }
 
-// FIX 1: carregar MODEL_VERSION do config dinamicamente
-async function getModelVersion(): Promise<string> {
-  const BUCKET_NAME = "modelos-tfjs-publicos";
-  const MODEL_PATH = "horse_probability_model/claude-ml-model";
-
-  try {
-    const { data, error } = await supabase.storage
-      .from(BUCKET_NAME)
-      .download(`${MODEL_PATH}/config.json`);
-
-    if (error || !data) return "v1";
-
-    const text = await data.text();
-    const config = JSON.parse(text) as ModelConfig;
-    return `v${config.version}`;
-  } catch {
-    return "v1";
-  }
-}
+// ============================================================================
+// PIPELINE PRINCIPAL
+// ============================================================================
 
 export async function generateLayBettingPicks(): Promise<void> {
   console.log("\n" + "=".repeat(50));
@@ -59,11 +42,8 @@ export async function generateLayBettingPicks(): Promise<void> {
   console.log("=".repeat(50));
 
   try {
-    // FIX 1: carregar versão do modelo antes de tudo
-    const modelVersion = await getModelVersion();
-    console.log(`📦 Usando modelo versão: ${modelVersion}`);
-
-    const upcomingRaces = await getUpcomingRacesWithPredictions(modelVersion);
+    // Buscar todas as corridas com predições PENDING (flat ou jump)
+    const upcomingRaces = await getUpcomingRacesWithPredictions();
 
     if (upcomingRaces.length === 0) {
       console.log("i Nenhuma corrida com predições para processar");
@@ -77,7 +57,7 @@ export async function generateLayBettingPicks(): Promise<void> {
 
     for (const raceId of upcomingRaces) {
       try {
-        await processRaceForPicks(raceId, modelVersion);
+        await processRaceForPicks(raceId);
         successCount++;
       } catch (error) {
         console.error(`❌ Erro ao processar corrida ${raceId}:`, error);
@@ -92,47 +72,65 @@ export async function generateLayBettingPicks(): Promise<void> {
     console.log(`❌ Corridas com erro: ${errorCount}`);
     console.log("=".repeat(50));
 
-    await showPickStatistics(modelVersion);
+    await showPickStatistics();
   } catch (error) {
     console.error("❌ Erro no pipeline de geração de picks:", error);
     throw error;
   }
 }
 
-async function getUpcomingRacesWithPredictions(
-  modelVersion: string,
-): Promise<number[]> {
+// ============================================================================
+// BUSCAR CORRIDAS COM PREDIÇÕES
+// ============================================================================
+
+async function getUpcomingRacesWithPredictions(): Promise<number[]> {
+  // Buscar todas as predições PENDING de modelos flat ou jump
   const { data, error } = await supabase
     .schema("hml")
     .from("prediction_enriched_horse_features")
-    .select("race_id")
+    .select("race_id, model_version")
     .eq("prediction_status", "PENDING")
-    .eq("model_version", modelVersion); // FIX 1: filtrar pela versão correta
+    .like("model_version", "v%-flat")
+    .or("model_version.like.v%-jump");
 
-  if (error) throw error;
+  if (error) {
+    // Fallback: se o filtro OR não funcionar, buscar todos os PENDING
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .schema("hml")
+      .from("prediction_enriched_horse_features")
+      .select("race_id")
+      .eq("prediction_status", "PENDING");
+
+    if (fallbackError) throw fallbackError;
+    return [...new Set(fallbackData?.map((d) => d.race_id) || [])];
+  }
 
   return [...new Set(data?.map((d) => d.race_id) || [])];
 }
 
-async function processRaceForPicks(
-  raceId: number,
-  modelVersion: string,
-): Promise<void> {
+// ============================================================================
+// PROCESSAR CORRIDA
+// ============================================================================
+
+async function processRaceForPicks(raceId: number): Promise<void> {
   console.log(`\n🏇 Processando corrida ${raceId}...`);
 
-  const predictions = await getPredictionsForRace(raceId, modelVersion);
+  const predictions = await getPredictionsForRace(raceId);
 
   if (predictions.length === 0) {
     console.log(`  ! Sem predições para corrida ${raceId}`);
     return;
   }
 
-  console.log(`  📊 ${predictions.length} cavalos com predições`);
+  // Extrair model_version das predições (todas do mesmo tipo para uma corrida)
+  const modelVersion = predictions[0].model_version;
+  console.log(
+    `  📊 ${predictions.length} cavalos com predições (${modelVersion})`,
+  );
 
   const enrichedPicks = await enrichPredictionsWithMarketData(predictions);
   const rankedPicks = rankPicks(enrichedPicks);
 
-  // FIX 2: selectMainPick não retorna AVOID
   const mainPick = selectMainPick(rankedPicks);
 
   if (!mainPick) {
@@ -142,7 +140,6 @@ async function processRaceForPicks(
 
   await insertMainPick(mainPick, raceId, modelVersion);
 
-  // FIX 3: top 3 em vez de top 4
   const top3 = rankedPicks.slice(0, 3);
   await insertTopPicks(top3, raceId, modelVersion);
 
@@ -161,15 +158,13 @@ async function processRaceForPicks(
 
 async function getPredictionsForRace(
   raceId: number,
-  modelVersion: string,
 ): Promise<PredictionData[]> {
   const { data: predictions, error: predError } = await supabase
     .schema("hml")
     .from("prediction_enriched_horse_features")
     .select("*")
     .eq("race_id", raceId)
-    .eq("prediction_status", "PENDING")
-    .eq("model_version", modelVersion); // FIX 1
+    .eq("prediction_status", "PENDING");
 
   if (predError) throw predError;
   if (!predictions || predictions.length === 0) return [];
@@ -202,6 +197,7 @@ async function getPredictionsForRace(
       horse_id: pred.horse_id,
       predicted_probability: pred.predicted_probability,
       lay_recommendation: pred.lay_recommendation,
+      model_version: pred.model_version,
       course: raceData?.course,
       race_date: raceData?.date,
       off_time_br: raceData?.off_time_br,
@@ -211,6 +207,10 @@ async function getPredictionsForRace(
     };
   });
 }
+
+// ============================================================================
+// ENRICHMENT COM DADOS DE MERCADO
+// ============================================================================
 
 async function enrichPredictionsWithMarketData(
   predictions: PredictionData[],
@@ -269,6 +269,10 @@ async function getAverageOdd(raceHorseId: number): Promise<number | null> {
 
   return data.reduce((sum, r) => sum + Number(r.odd), 0) / data.length;
 }
+
+// ============================================================================
+// CÁLCULOS
+// ============================================================================
 
 function calculateLayValueIndex(
   probability: number,
@@ -398,17 +402,19 @@ function generateSelectionReason(
   return reasons.join("; ");
 }
 
+// ============================================================================
+// RANKING E SELEÇÃO
+// ============================================================================
+
 function rankPicks(picks: EnrichedPick[]): EnrichedPick[] {
   return picks.sort((a, b) => b.combined_score - a.combined_score);
 }
 
 function selectMainPick(rankedPicks: EnrichedPick[]): EnrichedPick | null {
-  // FIX 2: nunca retornar AVOID como pick principal
   const eligiblePicks = rankedPicks.filter(
     (p) => p.lay_recommendation !== "AVOID",
   );
 
-  // Prioridade 1: VALUE com odds e IVL dentro dos limites
   const valuePicks = eligiblePicks.filter(
     (p) =>
       p.pick_type === "VALUE" &&
@@ -418,18 +424,20 @@ function selectMainPick(rankedPicks: EnrichedPick[]): EnrichedPick | null {
   );
   if (valuePicks.length > 0) return valuePicks[0];
 
-  // Prioridade 2: probabilidade alta
   const probPicks = eligiblePicks.filter((p) => p.predicted_probability > 0.65);
   if (probPicks.length > 0) return probPicks[0];
 
-  // Prioridade 3: qualquer pick não-AVOID
   return eligiblePicks.length > 0 ? eligiblePicks[0] : null;
 }
+
+// ============================================================================
+// INSERÇÃO NO BANCO
+// ============================================================================
 
 async function insertMainPick(
   pick: EnrichedPick,
   raceId: number,
-  modelVersion: string, // FIX 1
+  modelVersion: string,
 ): Promise<void> {
   const record = {
     racecard_id: raceId,
@@ -448,7 +456,7 @@ async function insertMainPick(
     pick_type: pick.pick_type,
     lay_recommendation: pick.lay_recommendation,
     confidence_score: pick.confidence_score,
-    model_version: modelVersion, // FIX 1
+    model_version: modelVersion,
     generated_at: new Date().toISOString(),
   };
 
@@ -461,10 +469,9 @@ async function insertMainPick(
 }
 
 async function insertTopPicks(
-  // FIX 3: top 3
   picks: EnrichedPick[],
   raceId: number,
-  modelVersion: string, // FIX 1
+  modelVersion: string,
 ): Promise<void> {
   const records = picks.map((pick, index) => ({
     racecard_id: raceId,
@@ -481,7 +488,7 @@ async function insertTopPicks(
     pick_type: pick.pick_type,
     lay_recommendation: pick.lay_recommendation,
     selection_reason: pick.selection_reason,
-    model_version: modelVersion, // FIX 1
+    model_version: modelVersion,
     generated_at: new Date().toISOString(),
     score_diff_to_first:
       index === 0
@@ -498,22 +505,35 @@ async function insertTopPicks(
   if (error) throw error;
 }
 
-async function showPickStatistics(modelVersion: string): Promise<void> {
-  // FIX 1
+// ============================================================================
+// ESTATÍSTICAS
+// ============================================================================
+
+async function showPickStatistics(): Promise<void> {
   console.log("\n📊 ESTATÍSTICAS DOS PICKS GERADOS");
   console.log("-".repeat(40));
 
   const { data: mainPicks, error: mainError } = await supabase
     .schema("hml")
     .from("lay_betting_picks")
-    .select("pick_type, lay_recommendation, confidence_score")
-    .eq("model_version", modelVersion) // FIX 1
+    .select("pick_type, lay_recommendation, confidence_score, model_version")
     .gte(
       "generated_at",
       new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     );
 
   if (!mainError && mainPicks && mainPicks.length > 0) {
+    const flatPicks = mainPicks.filter((p) =>
+      p.model_version?.includes("flat"),
+    );
+    const jumpPicks = mainPicks.filter((p) =>
+      p.model_version?.includes("jump"),
+    );
+
+    console.log(
+      `\n🏇 Flat: ${flatPicks.length} picks | Jump: ${jumpPicks.length} picks`,
+    );
+
     const byType = {
       VALUE: mainPicks.filter((p) => p.pick_type === "VALUE").length,
       PROBABILITY: mainPicks.filter((p) => p.pick_type === "PROBABILITY")
@@ -550,23 +570,31 @@ async function showPickStatistics(modelVersion: string): Promise<void> {
   const { data: topPicks, error: topError } = await supabase
     .schema("hml")
     .from("lay_betting_top_picks")
-    .select("pick_rank, horse_name, combined_score")
-    .eq("model_version", modelVersion) // FIX 1
+    .select("pick_rank, horse_name, combined_score, model_version")
     .eq("pick_rank", 1)
+    .gte(
+      "generated_at",
+      new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    )
     .order("combined_score", { ascending: false })
     .limit(5);
 
   if (!topError && topPicks && topPicks.length > 0) {
     console.log("\n🏆 Top 5 Melhores Scores (Rank #1):");
     topPicks.forEach((pick, idx) => {
+      const type = pick.model_version?.includes("flat") ? "F" : "J";
       console.log(
-        `  ${idx + 1}. ${pick.horse_name} - Score: ${pick.combined_score.toFixed(3)}`,
+        `  ${idx + 1}. [${type}] ${pick.horse_name} - Score: ${pick.combined_score.toFixed(3)}`,
       );
     });
   }
 
   console.log("-".repeat(40));
 }
+
+// ============================================================================
+// VALIDAÇÃO E ANÁLISE (sem mudanças de lógica, removido filtro model_version fixo)
+// ============================================================================
 
 export async function validatePreviousPicks(): Promise<void> {
   console.log("\n🔍 Validando resultados de picks anteriores...");
@@ -657,6 +685,14 @@ export async function analyzeHistoricalPerformance(days = 30): Promise<void> {
     return;
   }
 
+  // Análise por modelo (flat vs jump)
+  const flatPicks = picks.filter((p) => p.model_version?.includes("flat"));
+  const jumpPicks = picks.filter((p) => p.model_version?.includes("jump"));
+
+  console.log(
+    `\n🏇 Flat: ${flatPicks.length} picks | Jump: ${jumpPicks.length} picks`,
+  );
+
   const analysisByType = {
     VALUE: { total: 0, won: 0, profit: 0 },
     PROBABILITY: { total: 0, won: 0, profit: 0 },
@@ -732,22 +768,6 @@ export async function analyzeHistoricalPerformance(days = 30): Promise<void> {
     `  - ROI geral: ${((totalProfit / (totalPicks * 100)) * 100).toFixed(1)}%`,
   );
   console.log("=".repeat(50));
-
-  const successfulPicks = picks.filter(
-    (p) => p.result === "WON" && p.ivl_score && p.ivl_score > 0,
-  );
-
-  if (successfulPicks.length > 0) {
-    const avgIVL =
-      successfulPicks.reduce((sum, p) => sum + p.ivl_score, 0) /
-      successfulPicks.length;
-    const avgOdd =
-      successfulPicks.reduce((sum, p) => sum + (p.market_odd || 0), 0) /
-      successfulPicks.length;
-    console.log("\n💡 INSIGHTS DOS PICKS VENCEDORES:");
-    console.log(`  - IVL médio: ${avgIVL.toFixed(2)}`);
-    console.log(`  - Odd média: ${avgOdd.toFixed(2)}`);
-  }
 }
 
 export async function markFinishedPredictions(): Promise<void> {

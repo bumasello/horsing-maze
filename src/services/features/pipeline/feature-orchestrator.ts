@@ -330,6 +330,8 @@ async function generateHorseFeatures(
     race_id: race.id,
     race_date: race.date,
     horse_id: rawHorse.id_horse,
+    race_type: race.race_type || undefined,
+    surface_encoded: race.surface === "AW" ? 1 : 0,
 
     // Static features
     horse_age: staticFeatures.horse_age,
@@ -618,6 +620,8 @@ function convertRace(
     race_id: race.id_race,
     course: race.course,
     date: race.date,
+    race_type: race.race_type || undefined,
+    surface_encoded: race.surface === "AW" ? 1 : 0,
     distance_meters: parseDistanceToMeters(race.distance),
     going_encoded: encodeGoing(race.going),
     race_class: race.class ?? null,
@@ -1196,6 +1200,7 @@ async function saveTrainingFeaturesToDatabase(
     model_version: "v4.0",
     quality_score: calculateFeatureQuality(f),
     race_date: f.race_date,
+    race_type: f.race_type || null,
   }));
 
   // FIX: salvar em chunks de 100 em vez de tudo de uma vez

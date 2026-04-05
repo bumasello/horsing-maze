@@ -8,14 +8,37 @@ import type { ModelConfig } from "../../shared/types/ml.types";
 
 dotenv.config();
 
-// Configuração
-const MODEL_NAME = "claude-ml-model";
-const BUCKET_NAME = "modelos-tfjs-publicos";
-const MODEL_PATH = `horse_probability_model/${MODEL_NAME}`;
+// ============================================================================
+// CONFIGURAÇÃO — MESMA DO TRAINING
+// ============================================================================
 
-// URL do Supabase - compatível com Next.js
+const BUCKET_NAME = "modelos-tfjs-publicos";
+
+type ModelType = "flat" | "jump";
+
+const MODEL_TYPE_CONFIG = {
+  flat: {
+    name: "claude-ml-model-flat",
+    raceTypes: ["Flat"],
+    label: "Flat",
+  },
+  jump: {
+    name: "claude-ml-model-jump",
+    raceTypes: ["Hurdle", "Chase", "NHF"],
+    label: "Jump",
+  },
+};
+
+function getModelPath(modelType: ModelType): string {
+  return `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
+}
+
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface RaceForPrediction {
   id: number;
@@ -27,6 +50,7 @@ interface RaceForPrediction {
   class: number;
   distance: string;
   going: string;
+  race_type: string | null;
 }
 
 interface HorseForPrediction {
@@ -38,66 +62,147 @@ interface HorseForPrediction {
   features: any;
 }
 
+interface LoadedModel {
+  model: tf.LayersModel;
+  config: ModelConfig;
+  modelType: ModelType;
+}
+
+// ============================================================================
+// PIPELINE PRINCIPAL
+// ============================================================================
+
 /**
- * Pipeline principal de predições
+ * Pipeline principal de predições — carrega ambos os modelos e aplica o correto por corrida
  */
 export async function generatePredictions_v4(): Promise<void> {
   console.log("🔮 Iniciando geração de predições...\n");
 
   try {
-    // 1. Carregar modelo do Supabase
-    const { model, config } = await loadModelFromSupabase();
-    console.log(`✅ Modelo carregado - Versão: ${config.version}`);
-    console.log(`📊 Features: ${config.features.length}`);
+    // 1. Carregar ambos os modelos
+    console.log("📥 Carregando modelos Flat e Jump...");
+    const models = await loadAllModels();
 
-    // 2. Buscar corridas futuras
+    if (!models.flat && !models.jump) {
+      console.error("❌ Nenhum modelo disponível. Abortando predições.");
+      return;
+    }
+
+    if (models.flat) {
+      console.log(
+        `  ✅ Modelo Flat carregado — versão ${models.flat.config.version}, ${models.flat.config.features.length} features`,
+      );
+    } else {
+      console.warn(
+        "  ! Modelo Flat não encontrado — corridas Flat serão ignoradas",
+      );
+    }
+
+    if (models.jump) {
+      console.log(
+        `  ✅ Modelo Jump carregado — versão ${models.jump.config.version}, ${models.jump.config.features.length} features`,
+      );
+    } else {
+      console.warn(
+        "  ! Modelo Jump não encontrado — corridas Jump serão ignoradas",
+      );
+    }
+
+    // 2. Buscar corridas futuras (agora inclui race_type)
     const upcomingRaces = await getUpcomingRaces();
     console.log(`\n🏇 ${upcomingRaces.length} corridas futuras encontradas`);
 
     if (upcomingRaces.length === 0) {
       console.log("i Nenhuma corrida futura para processar");
+      disposeModels(models);
       return;
     }
 
-    // 3. Processar cada corrida
+    // Separar por tipo
+    const flatRaces = upcomingRaces.filter((r) => r.race_type === "Flat");
+    const jumpRaces = upcomingRaces.filter((r) =>
+      ["Hurdle", "Chase", "NHF"].includes(r.race_type || ""),
+    );
+    const unknownRaces = upcomingRaces.filter(
+      (r) =>
+        !r.race_type ||
+        !["Flat", "Hurdle", "Chase", "NHF"].includes(r.race_type),
+    );
+
+    console.log(
+      `  🏇 Flat: ${flatRaces.length} | Jump: ${jumpRaces.length} | Sem tipo: ${unknownRaces.length}`,
+    );
+
+    if (unknownRaces.length > 0) {
+      console.warn(
+        `  ! ${unknownRaces.length} corridas sem race_type — serão processadas com modelo Flat (fallback)`,
+      );
+    }
+
+    // 3. Processar corridas
     let totalPredictions = 0;
     let racesProcessed = 0;
 
-    for (const race of upcomingRaces) {
+    // Processar Flat
+    if (models.flat && (flatRaces.length > 0 || unknownRaces.length > 0)) {
+      const racesToProcess = [...flatRaces, ...unknownRaces];
       console.log(
-        `\n📍 Processando corrida ${race.id_race} - ${race.course} (${race.date})`,
+        `\n🏇 Processando ${racesToProcess.length} corridas com modelo Flat...`,
       );
 
-      try {
-        const predictionsCount = await processRaceAfterTraining(
-          race,
-          model,
-          config,
-        );
-        totalPredictions += predictionsCount;
-        racesProcessed++;
+      for (const race of racesToProcess) {
+        try {
+          const count = await processRaceAfterTraining(
+            race,
+            models.flat.model,
+            models.flat.config,
+            "flat",
+          );
+          totalPredictions += count;
+          racesProcessed++;
+        } catch (error) {
+          console.error(`❌ Erro corrida ${race.id_race}:`, error);
+        }
+      }
+    }
 
-        console.log(
-          `✅ ${predictionsCount} predições geradas para esta corrida`,
-        );
-      } catch (error) {
-        console.error(`❌ Erro ao processar corrida ${race.id}:`, error);
-        continue;
+    // Processar Jump
+    if (models.jump && jumpRaces.length > 0) {
+      console.log(
+        `\n🏇 Processando ${jumpRaces.length} corridas com modelo Jump...`,
+      );
+
+      for (const race of jumpRaces) {
+        try {
+          const count = await processRaceAfterTraining(
+            race,
+            models.jump.model,
+            models.jump.config,
+            "jump",
+          );
+          totalPredictions += count;
+          racesProcessed++;
+        } catch (error) {
+          console.error(`❌ Erro corrida ${race.id_race}:`, error);
+        }
       }
     }
 
     // 4. Cleanup
-    model.dispose();
+    disposeModels(models);
 
-    // 5. Resumo final
+    // 5. Resumo
     console.log("\n" + "=".repeat(50));
     console.log("🎯 RESUMO DAS PREDIÇÕES");
     console.log("=".repeat(50));
     console.log(
       `📊 Corridas processadas: ${racesProcessed}/${upcomingRaces.length}`,
     );
-    console.log(`💾 Total de predições inseridas: ${totalPredictions}`);
-    console.log(`📅 Versão do modelo: ${config.version}`);
+    console.log(`💾 Total de predições: ${totalPredictions}`);
+    if (models.flat)
+      console.log(`🏇 Modelo Flat v${models.flat.config.version}`);
+    if (models.jump)
+      console.log(`🏇 Modelo Jump v${models.jump.config.version}`);
     console.log("=".repeat(50));
   } catch (error) {
     console.error("❌ Erro no pipeline de predições:", error);
@@ -105,49 +210,72 @@ export async function generatePredictions_v4(): Promise<void> {
   }
 }
 
-/**
- * Carregar modelo do Supabase Storage
- */
-async function loadModelFromSupabase(): Promise<{
-  model: tf.LayersModel;
-  config: ModelConfig;
-}> {
-  console.log("📥 Baixando modelo do Supabase Storage...");
+// ============================================================================
+// CARREGAR MODELOS
+// ============================================================================
 
-  // Baixar configuração
+async function loadAllModels(): Promise<{
+  flat: LoadedModel | null;
+  jump: LoadedModel | null;
+}> {
+  const [flat, jump] = await Promise.all([
+    loadModelFromSupabase("flat").catch((err) => {
+      console.warn(`! Falha ao carregar modelo Flat: ${err.message}`);
+      return null;
+    }),
+    loadModelFromSupabase("jump").catch((err) => {
+      console.warn(`! Falha ao carregar modelo Jump: ${err.message}`);
+      return null;
+    }),
+  ]);
+
+  return { flat, jump };
+}
+
+async function loadModelFromSupabase(
+  modelType: ModelType,
+): Promise<LoadedModel> {
+  const modelPath = getModelPath(modelType);
+  console.log(`  📥 Baixando modelo ${modelType} de ${modelPath}...`);
+
   const { data: configData, error: configError } = await supabase.storage
     .from(BUCKET_NAME)
-    .download(`${MODEL_PATH}/config.json`);
+    .download(`${modelPath}/config.json`);
 
   if (configError || !configData) {
-    throw new Error(
-      `Erro ao baixar configuração do modelo: ${configError?.message}`,
-    );
+    throw new Error(`Config ${modelType}: ${configError?.message}`);
   }
 
   const configText = await configData.text();
   const config = JSON.parse(configText) as ModelConfig;
 
-  // Baixar modelo - usar URL do Supabase já definida no topo
-  const modelUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${MODEL_PATH}/model.json`;
+  const modelUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${modelPath}/model.json`;
   const model = await tf.loadLayersModel(modelUrl);
 
-  return { model, config };
+  return { model, config, modelType };
 }
 
-/**
- * Buscar corridas futuras
- */
+function disposeModels(models: {
+  flat: LoadedModel | null;
+  jump: LoadedModel | null;
+}): void {
+  if (models.flat) models.flat.model.dispose();
+  if (models.jump) models.jump.model.dispose();
+}
+
+// ============================================================================
+// BUSCAR CORRIDAS
+// ============================================================================
+
 async function getUpcomingRaces(): Promise<RaceForPrediction[]> {
   const { data, error } = await supabase
     .schema("hml")
     .from("racecards_hr_enriched")
     .select(
-      "id, id_race, course, date, off_time_br, title, class, distance, going",
+      "id, id_race, course, date, off_time_br, title, class, distance, going, race_type",
     )
     .eq("finished", 0)
     .eq("canceled", 0)
-    // .gte("date", new Date().toISOString().split("T")[0]) // Apenas corridas de hoje em diante
     .order("date", { ascending: true })
     .order("off_time_br", { ascending: true });
 
@@ -155,24 +283,29 @@ async function getUpcomingRaces(): Promise<RaceForPrediction[]> {
   return data || [];
 }
 
-/**
- * Processar uma corrida individual
- */
+// ============================================================================
+// PROCESSAR CORRIDA
+// ============================================================================
+
 async function processRaceAfterTraining(
   race: RaceForPrediction,
   model: tf.LayersModel,
   config: ModelConfig,
+  modelType: ModelType,
 ): Promise<number> {
+  console.log(
+    `  📍 ${race.id_race} - ${race.course} (${race.race_type || "unknown"}) [${modelType}]`,
+  );
+
   const horses = await getHorsesWithFeatures(race.id);
   if (horses.length === 0) {
-    console.log(`! Nenhum cavalo com features para corrida ${race.id}`);
+    console.log(`  ! Nenhum cavalo com features`);
     return 0;
   }
-  console.log(`🐴 ${horses.length} cavalos encontrados com features`);
 
   const { inputTensor, validHorses } = prepareInputData(horses, config);
   if (validHorses.length === 0) {
-    console.log("! Nenhum cavalo válido após preparação");
+    console.log("  ! Nenhum cavalo válido após preparação");
     inputTensor.dispose();
     return 0;
   }
@@ -180,7 +313,6 @@ async function processRaceAfterTraining(
   const predictions = model.predict(inputTensor) as tf.Tensor;
   const probabilities = await predictions.data();
 
-  // Thresholds calibrados — derivados do optimalThreshold salvo no config
   const strongLayThreshold = config.optimalThreshold;
   const layThreshold = config.optimalThreshold - 0.1;
   const neutralThreshold = config.optimalThreshold - 0.2;
@@ -207,7 +339,7 @@ async function processRaceAfterTraining(
       predicted_probability: probability,
       lay_recommendation: layRecommendation,
       race_date: race.date,
-      model_version: `v${config.version}`,
+      model_version: `v${config.version}-${modelType}`,
       quality_score: qualityScore,
       prediction_status: "PENDING",
       generated_at: new Date().toISOString(),
@@ -235,7 +367,7 @@ async function processRaceAfterTraining(
       });
 
     if (error) {
-      console.error("Erro ao inserir predições:", error);
+      console.error("  Erro ao inserir predições:", error);
       throw error;
     }
 
@@ -247,14 +379,10 @@ async function processRaceAfterTraining(
     );
 
     if (strongLays.length > 0) {
-      console.log(
-        `  🔥 ${strongLays.length} STRONG LAY (threshold >= ${strongLayThreshold.toFixed(2)})`,
-      );
+      console.log(`  🔥 ${strongLays.length} STRONG LAY`);
     }
     if (regularLays.length > 0) {
-      console.log(
-        `  ✅ ${regularLays.length} LAY (threshold >= ${layThreshold.toFixed(2)})`,
-      );
+      console.log(`  ✅ ${regularLays.length} LAY`);
     }
   }
 
@@ -264,9 +392,10 @@ async function processRaceAfterTraining(
   return predictionRecords.length;
 }
 
-/**
- * Buscar cavalos com features para uma corrida
- */
+// ============================================================================
+// PREPARAR DADOS
+// ============================================================================
+
 async function getHorsesWithFeatures(
   raceId: number,
 ): Promise<HorseForPrediction[]> {
@@ -277,14 +406,11 @@ async function getHorsesWithFeatures(
     .eq("race_id", raceId);
 
   if (error) {
-    console.error(`Erro ao buscar features para corrida ${raceId}:`, error);
+    console.error(`  Erro ao buscar features para corrida ${raceId}:`, error);
     return [];
   }
 
   if (!data || data.length === 0) {
-    console.warn(
-      `Nenhuma feature de previsão encontrada para corrida ${raceId}`,
-    );
     return [];
   }
 
@@ -298,9 +424,6 @@ async function getHorsesWithFeatures(
   }));
 }
 
-/**
- * Preparar dados de entrada para o modelo
- */
 function prepareInputData(
   horses: HorseForPrediction[],
   config: ModelConfig,
@@ -315,7 +438,6 @@ function prepareInputData(
     for (const featureName of config.features) {
       let value = horse.features[featureName];
 
-      // SP null = cavalo inválido para previsão
       if (
         (featureName === "sp_decimal" || featureName === "sp_implied_prob") &&
         (value === null || value === undefined)
@@ -324,7 +446,6 @@ function prepareInputData(
         break;
       }
 
-      // FIX 1 + FIX 2: imputação consistente com treino — sempre 0
       if (value === null || value === undefined) {
         value = 0;
       }
@@ -352,24 +473,16 @@ function prepareInputData(
   return { inputTensor: normalizedTensor, validHorses };
 }
 
-/**
- * Normalizar features usando parâmetros do treinamento
- */
 function normalizeFeatures(
   tensor: tf.Tensor2D,
   normParams: ModelConfig["normalization"],
 ): tf.Tensor2D {
-  // Usar normalização robusta com mediana e IQR (como no treinamento)
   const median = tf.tensor1d(normParams.median);
   const iqr = tf.tensor1d(normParams.iqr.map((v) => (v > 0 ? v : 1)));
 
-  // (X - median) / IQR
   const normalized = tensor.sub(median).div(iqr) as tf.Tensor2D;
-
-  // Clipping entre -3 e 3
   const clipped = normalized.clipByValue(-3, 3) as tf.Tensor2D;
 
-  // Cleanup
   median.dispose();
   iqr.dispose();
   normalized.dispose();
@@ -377,9 +490,6 @@ function normalizeFeatures(
   return clipped;
 }
 
-/**
- * Calcular score de qualidade das features
- */
 function calculateQualityScore(features: any): number {
   const importantFeatures = [
     "career_win_rate",
@@ -408,23 +518,19 @@ function calculateQualityScore(features: any): number {
   return Math.min(1, presentCount / totalWeight);
 }
 
-/**
- * Função para executar predições e análise
- */
+// ============================================================================
+// STATS (mantido para compatibilidade)
+// ============================================================================
+
 export async function runPredictionPipeline(): Promise<void> {
   console.log("\n" + "=".repeat(50));
   console.log("🎯 LAY BETTING ML - PIPELINE DE PREDIÇÕES");
   console.log("=".repeat(50));
 
   await generatePredictions_v4();
-
-  // Opcional: Mostrar estatísticas das predições geradas
   await showPredictionStats();
 }
 
-/**
- * Mostrar estatísticas das predições
- */
 async function showPredictionStats(): Promise<void> {
   console.log("\n📊 ESTATÍSTICAS DAS PREDIÇÕES RECENTES");
   console.log("-".repeat(40));
@@ -432,17 +538,26 @@ async function showPredictionStats(): Promise<void> {
   const { data, error } = await supabase
     .schema("hml")
     .from("prediction_enriched_horse_features")
-    .select("lay_recommendation, predicted_probability, race_date")
+    .select(
+      "lay_recommendation, predicted_probability, race_date, model_version",
+    )
     .gte(
       "generated_at",
       new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    ) // Últimas 24h
+    )
     .order("predicted_probability", { ascending: false });
 
   if (error || !data) {
     console.log("Erro ao buscar estatísticas");
     return;
   }
+
+  const flatPreds = data.filter((d) => d.model_version?.includes("flat"));
+  const jumpPreds = data.filter((d) => d.model_version?.includes("jump"));
+
+  console.log(
+    `\n🏇 Flat: ${flatPreds.length} predições | Jump: ${jumpPreds.length} predições`,
+  );
 
   const stats = {
     STRONG_LAY: data.filter((d) => d.lay_recommendation === "STRONG_LAY")
@@ -452,27 +567,15 @@ async function showPredictionStats(): Promise<void> {
     AVOID: data.filter((d) => d.lay_recommendation === "AVOID").length,
   };
 
-  console.log(`🔥 STRONG LAY (>85%): ${stats.STRONG_LAY} cavalos`);
-  console.log(`✅ LAY (75-85%): ${stats.LAY} cavalos`);
-  console.log(`📊 NEUTRAL (65-75%): ${stats.NEUTRAL} cavalos`);
-  console.log(`! AVOID (<65%): ${stats.AVOID} cavalos`);
+  console.log(`🔥 STRONG LAY: ${stats.STRONG_LAY}`);
+  console.log(`✅ LAY: ${stats.LAY}`);
+  console.log(`📊 NEUTRAL: ${stats.NEUTRAL}`);
+  console.log(`! AVOID: ${stats.AVOID}`);
 
   if (data.length > 0) {
     const avgProb =
       data.reduce((sum, d) => sum + d.predicted_probability, 0) / data.length;
     console.log(`\n📈 Probabilidade média: ${(avgProb * 100).toFixed(2)}%`);
-
-    // Top 5 maiores probabilidades
-    const top5 = data.slice(0, 5);
-    if (top5.length > 0) {
-      console.log("\n🎯 TOP 5 CANDIDATOS PARA LAY:");
-      top5.forEach((horse, idx) => {
-        console.log(
-          `  ${idx + 1}. ${(horse.predicted_probability * 100).toFixed(2)}% - ` +
-            `${horse.lay_recommendation} (${horse.race_date})`,
-        );
-      });
-    }
   }
 
   console.log("-".repeat(40));

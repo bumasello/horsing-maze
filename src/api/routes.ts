@@ -18,8 +18,9 @@ router.get("/sync/racecards", dataSync.raceCards);
 router.get("/sync/racedetails", dataSync.raceDetails);
 router.get("/sync/horsestats", dataSync.horseStats);
 router.get("/sync/enriched-details", dataSync.enrichedDetails);
-router.get("/sync/features", dataSync.horseFeatures);
 router.get("/sync/check-entries", dataSync.checkCreateEntry);
+router.get("/sync/enrichracecards", dataSync.enrichRacecards);
+router.get("/sync/features", dataSync.horseFeatures);
 router.get("/sync/update-racecards", dataSync.updateRacecard);
 
 // ML — treino, predição e picks

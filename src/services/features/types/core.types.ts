@@ -16,6 +16,8 @@ export interface RaceCardEnriched {
   finish_time: string | null;
   prize: string | null;
   class: number | null;
+  race_type: string | null;
+  surface: string | null;
 }
 
 export interface RaceHorseEnriched {
@@ -47,6 +49,9 @@ export interface ProcessedRace {
   race_id: string;
   course: string;
   date: string;
+  race_type?: string;
+  surface?: string;
+  surface_encoded: number;
 
   // Dados convertidos
   distance_meters: number;
@@ -99,6 +104,8 @@ export interface HorseFeatures {
   race_id: number;
   race_date: string;
   horse_id: number;
+  race_type?: string;
+  surface_encoded: number;
 
   // === Static — cavalo ===
   horse_age: number | null;

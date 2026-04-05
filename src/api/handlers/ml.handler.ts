@@ -1,8 +1,8 @@
 import { generatePredictions_v4 } from "../../services/ml/claude-prediction-model";
-import { trainLayBettingModel } from "../../services/ml/sonnet-claude-training";
 import { generateLayBettingPicks } from "../../services/ml/claude-generate-picks";
 
 import type { NextFunction, Request, Response } from "express";
+import { trainAllModels } from "../../services/ml/training_final";
 
 export const training = async (
   _req: Request,
@@ -11,7 +11,7 @@ export const training = async (
 ) => {
   try {
     const startTime = Date.now();
-    await trainLayBettingModel();
+    await trainAllModels();
     const timeElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
     res.status(200).json({
       message: "Treinamento do modelo executado com sucesso.",

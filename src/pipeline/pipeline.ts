@@ -32,6 +32,11 @@ import { updateCleanRacecard } from "../services/data-sync/updateCleanRacecard";
 import { generateLayBettingPicks } from "../services/ml/claude-generate-picks";
 import { generatePredictions_v4 } from "../services/ml/claude-prediction-model";
 import { trainLayBettingModel } from "../services/ml/sonnet-claude-training";
+import {
+  enrichRacecardsFromRacingApi,
+  enrichResultsFromRacingApi,
+} from "../services/racing-api/racingApi.service";
+import { trainAllModels } from "../services/ml/training_final";
 
 /**
  * Interface para o resultado do pipeline
@@ -247,6 +252,14 @@ async function transferToSupabase(): Promise<void> {
     logger.info("Race cards não elegíveis removidos com sucesso");
   });
 
+  await metrics.measure(
+    "Enriquecimento de racecards (Racing API)",
+    async () => {
+      await enrichRacecardsFromRacingApi();
+      logger.info("Racecards enriquecidos com Racing API");
+    },
+  );
+
   // Geração de features
   await metrics.measure("Geração de features para treinamento", async () => {
     const endDate = new Date();
@@ -315,7 +328,7 @@ async function trainAndPredict(): Promise<void> {
 
   // Treinamento do modelo
   await metrics.measure("Treinamento do modelo", async () => {
-    await trainLayBettingModel();
+    await trainAllModels();
     logger.info("Treinamento do modelo concluído com sucesso");
   });
 
@@ -395,6 +408,10 @@ export function setupCronJob(): boolean {
   try {
     // Importação dinâmica para evitar dependência em ambientes onde node-cron não está disponível
     const cron = require("node-cron");
+    // Cron separado: 23:00 UTC (depois que as corridas UK terminam)
+    cron.schedule("0 20 * * *", async () => {
+      await enrichResultsFromRacingApi();
+    });
 
     // Expressão cron: "0 22 * * *" significa "às 22:00 todos os dias"
     cron.schedule("00 00 * * *", async () => {

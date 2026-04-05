@@ -14,7 +14,13 @@ import {
 } from "../../services/features/pipeline/update_results";
 
 import type { Request, Response, NextFunction } from "express";
+import type { EnrichmentStats } from "../../services/racing-api/racingApi.service";
+
 import { supabase } from "../..";
+import {
+  enrichRacecardsFromRacingApi,
+  enrichResultsFromRacingApi,
+} from "../../services/racing-api/racingApi.service";
 
 export const raceCards = async (
   _req: Request,
@@ -176,9 +182,31 @@ export const updateRacecard = async (
   try {
     await updateRacecardsAndDetails();
     await updateLayBettingResults();
-    res
-      .status(200)
-      .json({ message: "Racecards atualizados no supabase com sucesso." });
+
+    res.status(200).json({
+      message: "Racecards atualizados no supabase com sucesso.",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const enrichRacecards = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const stats: EnrichmentStats = await enrichRacecardsFromRacingApi();
+
+    res.status(200).json({
+      message: "Racecards enriquecidos com Racing API",
+      racesFromApi: stats.racesFromApi,
+      racesMatched: stats.racesMatched,
+      horsesMatched: stats.horsesMatched,
+      horsesNotMatched: stats.horsesNotMatched,
+      errors: stats.errors,
+    });
   } catch (error) {
     next(error);
   }
