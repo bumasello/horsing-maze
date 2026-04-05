@@ -31,7 +31,6 @@ import { populateRaceDetail_spb } from "../services/data-sync/populateRaceDetail
 import { updateCleanRacecard } from "../services/data-sync/updateCleanRacecard";
 import { generateLayBettingPicks } from "../services/ml/claude-generate-picks";
 import { generatePredictions_v4 } from "../services/ml/claude-prediction-model";
-import { trainLayBettingModel } from "../services/ml/sonnet-claude-training";
 import {
   enrichRacecardsFromRacingApi,
   enrichResultsFromRacingApi,
@@ -410,7 +409,16 @@ export function setupCronJob(): boolean {
     const cron = require("node-cron");
     // Cron separado: 23:00 UTC (depois que as corridas UK terminam)
     cron.schedule("0 20 * * *", async () => {
-      await enrichResultsFromRacingApi();
+      try {
+        logger.info("Iniciando enriquecimento de resultados (Racing API)");
+        await enrichResultsFromRacingApi();
+        logger.info("Enriquecimento de resultados concluído");
+      } catch (error) {
+        logger.error(
+          "Erro no enriquecimento de resultados (Racing API):",
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
     });
 
     // Expressão cron: "0 22 * * *" significa "às 22:00 todos os dias"

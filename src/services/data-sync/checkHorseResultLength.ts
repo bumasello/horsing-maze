@@ -94,12 +94,19 @@ export const checkHorseResultLength = async () => {
       }
     }
 
-    if (missingStats.length === 0) {
-      console.log(`Corrida ${racecardId}: todos os cavalos elegíveis.`);
+    const totalHorses = horseIds.length;
+    const horsesWithStats = totalHorses - missingStats.length;
+    const coverageRate = totalHorses > 0 ? horsesWithStats / totalHorses : 0;
+    const MIN_COVERAGE = 0.7; // 70% dos cavalos devem ter histórico
+
+    if (coverageRate >= MIN_COVERAGE) {
+      console.log(
+        `Corrida ${racecardId}: elegível (${horsesWithStats}/${totalHorses} cavalos com histórico = ${(coverageRate * 100).toFixed(0)}%)`,
+      );
       eligibleRaceIds.push(racecardId);
     } else {
       console.log(
-        `Corrida ${racecardId}: cavalos sem estatísticas suficientes: ${missingStats.join(", ")}.`,
+        `Corrida ${racecardId}: não elegível (${horsesWithStats}/${totalHorses} cavalos com histórico = ${(coverageRate * 100).toFixed(0)}%, mínimo ${(MIN_COVERAGE * 100).toFixed(0)}%)`,
       );
       nonEligibleRaceIds.push(racecardId);
     }
