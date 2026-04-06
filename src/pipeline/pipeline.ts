@@ -202,13 +202,15 @@ async function processMongoDBData(): Promise<void> {
  */
 async function transferToSupabase(): Promise<void> {
   logger.info("Iniciando transferência e preparação de dados no Supabase");
-
-  // Transferência de race cards
-  await Promise.all([
-    metrics.measure("Transferência de race cards para Supabase", async () => {
+  await metrics.measure(
+    "Transferência de race cards para Supabase",
+    async () => {
       await populateRacecardsEnriched_spb();
       logger.info("Race cards transferidos para Supabase com sucesso");
-    }),
+    },
+  );
+  // Transferência de race cards
+  await Promise.all([
     metrics.measure(
       "Transferência de detalhes de corridas para Supabase",
       async () => {

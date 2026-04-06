@@ -84,27 +84,13 @@ export async function generateLayBettingPicks(): Promise<void> {
 // ============================================================================
 
 async function getUpcomingRacesWithPredictions(): Promise<number[]> {
-  // Buscar todas as predições PENDING de modelos flat ou jump
   const { data, error } = await supabase
     .schema("hml")
     .from("prediction_enriched_horse_features")
-    .select("race_id, model_version")
-    .eq("prediction_status", "PENDING")
-    .like("model_version", "v%-flat")
-    .or("model_version.like.v%-jump");
+    .select("race_id")
+    .eq("prediction_status", "PENDING");
 
-  if (error) {
-    // Fallback: se o filtro OR não funcionar, buscar todos os PENDING
-    const { data: fallbackData, error: fallbackError } = await supabase
-      .schema("hml")
-      .from("prediction_enriched_horse_features")
-      .select("race_id")
-      .eq("prediction_status", "PENDING");
-
-    if (fallbackError) throw fallbackError;
-    return [...new Set(fallbackData?.map((d) => d.race_id) || [])];
-  }
-
+  if (error) throw error;
   return [...new Set(data?.map((d) => d.race_id) || [])];
 }
 
