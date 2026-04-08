@@ -36,6 +36,7 @@ import {
   enrichResultsFromRacingApi,
 } from "../services/racing-api/racingApi.service";
 import { trainAllModels } from "../services/ml/training_final";
+import { updateRaceResults } from "../services/features/pipeline/update_race_result";
 
 /**
  * Interface para o resultado do pipeline
@@ -117,6 +118,10 @@ async function updateMongoDBData(): Promise<void> {
   await metrics.measure("Atualização de resultados dos picks", async () => {
     await updateLayBettingResults();
     logger.info("Resultados dos picks atualizados com sucesso");
+  });
+
+  await metrics.measure("Atualização de resultados por corrida", async () => {
+    await updateRaceResults();
   });
 
   logger.info("Atualização de dados no MongoDB concluída com sucesso");

@@ -1,4 +1,15 @@
-// features_v4/ml/training_final.ts
+// src/services/ml/training_final.ts
+//
+// RACE-LEVEL SOFTMAX TRAINING (Conditional Logit)
+// Substitui o modelo anterior de sigmoid independente por horse.
+//
+// Mudanças principais:
+//   - Dados agrupados por corrida em vez de por cavalo
+//   - Tensor 3D: [num_races, max_horses, n_features] com padding
+//   - Rede compartilhada gera "score" por cavalo
+//   - Softmax aplicado dentro da corrida (com masking de padded positions)
+//   - Loss: categorical cross-entropy contra o vencedor real
+//   - P(não vence) = 1 - P(vence) — agora coerente dentro da corrida
 
 import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../..";
@@ -9,6 +20,7 @@ import type { ModelConfig } from "../../shared/types/ml.types";
 // ============================================================================
 
 const BUCKET_NAME = "modelos-tfjs-publicos";
+const MAX_HORSES = 30; // Cobre até o Grand National (40 horses são exceção rara)
 
 type ModelType = "flat" | "jump";
 
@@ -33,7 +45,7 @@ const configGlobal = {
   patience: 25,
   maxEpochs: 150,
   learningRate: 0.0005,
-  batchSize: 32,
+  batchSize: 16, // Batches menores: cada amostra é uma corrida (~10-30 cavalos)
 };
 
 // ============================================================================
@@ -41,13 +53,13 @@ const configGlobal = {
 // ============================================================================
 
 export async function trainAllModels(): Promise<void> {
-  console.log("🚀 Iniciando treinamento de modelos Flat + Jump...\n");
+  console.log(
+    "🚀 Iniciando treinamento RACE-LEVEL de modelos Flat + Jump...\n",
+  );
   const startTime = Date.now();
 
   await trainLayBettingModel("flat");
-
   if (global.gc) global.gc();
-
   await trainLayBettingModel("jump");
 
   const totalTime = ((Date.now() - startTime) / 1000).toFixed(0);
@@ -61,7 +73,7 @@ export async function trainLayBettingModel(
   const modelPath = getModelPath(modelType);
 
   console.log(`\n${"=".repeat(60)}`);
-  console.log(`🏇 Treinando modelo: ${typeConfig.label}`);
+  console.log(`🏇 Treinando modelo RACE-LEVEL: ${typeConfig.label}`);
   console.log(`📁 Path: ${modelPath}`);
   console.log(`${"=".repeat(60)}\n`);
 
@@ -69,32 +81,22 @@ export async function trainLayBettingModel(
     console.log("🔍 [STEP 1/7] Verificando modelo existente...");
     const existingConfig = await checkExistingModel(modelType);
     if (existingConfig) {
-      console.log(
-        `✅ Modelo existente encontrado (versão ${existingConfig.version})`,
-      );
+      console.log(`✅ Modelo existente — versão ${existingConfig.version}`);
     } else {
-      console.log("i  Nenhum modelo existente encontrado. Criando versão 1.");
+      console.log("i  Primeira versão do modelo race-level");
     }
 
-    console.log("\n📊 [STEP 2/7] Carregando e preparando dados...");
-    const trainingData = await loadAndPrepareData(modelType);
-    console.log("✅ Dados carregados e preparados com sucesso");
+    console.log("\n📊 [STEP 2/7] Carregando e agrupando por corrida...");
+    const trainingData = await loadAndPrepareDataRaceLevel(modelType);
+    console.log("✅ Dados preparados");
 
-    console.log("\n🏗  [STEP 3/7] Criando arquitetura do modelo...");
-    const model = createModel(trainingData.featureCount);
-    console.log("✅ Modelo criado com sucesso");
+    console.log("\n🏗  [STEP 3/7] Criando arquitetura race-level...");
+    const model = createRaceLevelModel(trainingData.featureCount);
+    console.log("✅ Modelo criado");
 
-    console.log("\n🏋  [STEP 4/7] Iniciando treinamento...");
-    const history = await trainModel(model, trainingData);
+    console.log("\n🏋  [STEP 4/7] Treinando com loop customizado...");
+    const history = await trainRaceLevelModel(model, trainingData);
     console.log("✅ Treinamento concluído");
-
-    console.log("\n🎯 [STEP 4.5/7] Calibrando threshold...");
-    const optimalThreshold = await calibrateThreshold(
-      model,
-      trainingData.valX,
-      trainingData.valY,
-    );
-    console.log(`✅ Threshold calibrado: ${optimalThreshold.toFixed(2)}`);
 
     console.log("\n📝 [STEP 5/7] Preparando configuração...");
     const config: ModelConfig = {
@@ -118,18 +120,19 @@ export async function trainLayBettingModel(
         batchSize: configGlobal.batchSize,
         learningRate: configGlobal.learningRate,
         samplesUsed: trainingData.sampleCount,
-        classWeights: trainingData.classWeights,
+        classWeights: { 0: 1, 1: 1 }, // N/A para race-level
       },
-      optimalThreshold,
+      // PLACEHOLDER: threshold precisa de recalibração com nova escala de probs
+      // Com softmax, P(não vence) é relativa ao field size, não absoluta
+      optimalThreshold: 0.85,
     };
 
-    console.log("\n💾 [STEP 6/7] Salvando modelo no Supabase...");
+    console.log("\n💾 [STEP 6/7] Salvando modelo...");
     await saveModelToSupabase(model, config, modelType);
     console.log("✅ Modelo salvo");
 
-    console.log("\n📊 [STEP 7/7] Salvando histórico de métricas...");
+    console.log("\n📊 [STEP 7/7] Salvando métricas...");
     await saveMetricsHistory(config, modelType);
-    console.log("✅ Histórico salvo");
 
     console.log("\n🧹 Limpando recursos...");
     trainingData.trainX.dispose();
@@ -137,25 +140,19 @@ export async function trainLayBettingModel(
     trainingData.valX.dispose();
     trainingData.valY.dispose();
     model.dispose();
-    console.log("✅ Recursos liberados");
 
     console.log(`\n✅ Treinamento ${typeConfig.label} completo!`);
     console.log(`📊 Versão: ${config.version}`);
     console.log(
-      `📊 Acurácia Treino: ${(config.metrics.trainAccuracy * 100).toFixed(2)}%`,
+      `📊 Top-1 acc treino: ${(config.metrics.trainAccuracy * 100).toFixed(2)}%`,
     );
     console.log(
-      `📊 Acurácia Validação: ${(config.metrics.valAccuracy * 100).toFixed(2)}%`,
+      `📊 Top-1 acc validação: ${(config.metrics.valAccuracy * 100).toFixed(2)}%`,
     );
+    console.log(`📊 (random baseline ~10% para field de 10 cavalos)`);
   } catch (error) {
     console.error(`\n❌ Erro no treinamento ${typeConfig.label}:`);
-    console.error("Tipo do erro:", typeof error);
-    console.error("Erro completo:", error);
-    if (error instanceof Error) {
-      console.error("Nome:", error.name);
-      console.error("Mensagem:", error.message);
-      console.error("Stack:", error.stack);
-    }
+    console.error(error);
     throw error;
   }
 }
@@ -169,32 +166,13 @@ async function checkExistingModel(
 ): Promise<ModelConfig | null> {
   const modelPath = getModelPath(modelType);
   try {
-    console.log(
-      `  🔍 Buscando config em: ${BUCKET_NAME}/${modelPath}/config.json`,
-    );
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
       .download(`${modelPath}/config.json`);
-    if (error) {
-      console.log(
-        `  i  Erro ao buscar config (esperado se for primeira vez):`,
-        error.message,
-      );
-      return null;
-    }
-    if (!data) {
-      console.log(`  i  Nenhum dado retornado`);
-      return null;
-    }
+    if (error || !data) return null;
     const text = await data.text();
-    const config = JSON.parse(text);
-    console.log(`  ✅ Config carregada: versão ${config.version}`);
-    return config;
-  } catch (err) {
-    console.log(
-      `  i  Exceção ao carregar config (normal se for primeira vez):`,
-      err,
-    );
+    return JSON.parse(text);
+  } catch {
     return null;
   }
 }
@@ -215,15 +193,24 @@ function logMemory(label: string): void {
 }
 
 // ============================================================================
-// LOAD AND PREPARE DATA — COM FILTRO POR TIPO
+// LOAD AND PREPARE DATA — RACE-LEVEL
 // ============================================================================
 
-async function loadAndPrepareData(modelType: ModelType) {
+interface RaceGroup {
+  raceId: number;
+  raceDate: number;
+  horses: Array<{
+    features: Float32Array;
+    target: number; // 0 = vencedor, 1 = não-vencedor (formato original do banco)
+  }>;
+}
+
+async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
   const featureCount = selectedFeatures.length;
   const typeConfig = MODEL_TYPE_CONFIG[modelType];
   logMemory("INÍCIO");
 
-  console.log(`📊 Carregando dados de treinamento (${typeConfig.label})...`);
+  console.log(`📊 Carregando dados (${typeConfig.label})...`);
 
   const { count: totalCount, error: countError } = await supabase
     .schema("hml")
@@ -232,31 +219,21 @@ async function loadAndPrepareData(modelType: ModelType) {
     .gte("quality_score", 0.7)
     .in("race_type", typeConfig.raceTypes);
 
-  if (countError) {
-    console.error(
-      "❌ Erro detalhado no count:",
-      JSON.stringify(countError, null, 2),
-    );
-    throw new Error(
-      `Count query falhou: code=${countError.code} message=${countError.message}`,
-    );
-  }
-
+  if (countError) throw new Error(`Count falhou: ${countError.message}`);
   if (!totalCount || totalCount === 0)
-    throw new Error(`Sem dados de treinamento para ${typeConfig.label}`);
-  console.log(`📊 Total de registros ${typeConfig.label}: ${totalCount}`);
+    throw new Error(`Sem dados para ${typeConfig.label}`);
 
-  let capacity = Math.min(totalCount + 1000, 150000);
-  let vectors = new Float32Array(capacity * featureCount);
-  let targets = new Uint8Array(capacity);
-  let dateEpochs = new Float64Array(capacity);
-  let validCount = 0;
+  console.log(`📊 Total registros ${typeConfig.label}: ${totalCount}`);
+
+  // Streaming + agrupamento por race_id
+  const racesMap = new Map<number, RaceGroup>();
 
   const pageSize = 1000;
   const maxAttempts = 3;
   let currentPage = 0;
+  let processedHorses = 0;
 
-  console.log("📥 Iniciando streaming de dados...");
+  console.log("📥 Streaming + agrupamento por corrida...");
   logMemory("ANTES_STREAMING");
 
   while (currentPage * pageSize < totalCount) {
@@ -269,7 +246,7 @@ async function loadAndPrepareData(modelType: ModelType) {
       const { data, error } = await supabase
         .schema("hml")
         .from("training_enriched_horse_features")
-        .select("features, target, quality_score, race_date")
+        .select("features, target, race_id, race_date")
         .gte("quality_score", 0.7)
         .in("race_type", typeConfig.raceTypes)
         .order("race_date", { ascending: true })
@@ -278,10 +255,7 @@ async function loadAndPrepareData(modelType: ModelType) {
       if (error) {
         if (error.code === "57014") {
           attempts++;
-          console.warn(
-            `! Timeout página ${currentPage + 1}, tentativa ${attempts}/${maxAttempts}...`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, 3000 * attempts));
+          await new Promise((r) => setTimeout(r, 3000 * attempts));
           continue;
         }
         throw error;
@@ -291,7 +265,6 @@ async function loadAndPrepareData(modelType: ModelType) {
     }
 
     if (!pageData) {
-      console.error(`❌ Falha página ${currentPage + 1}, pulando...`);
       currentPage++;
       continue;
     }
@@ -305,21 +278,8 @@ async function loadAndPrepareData(modelType: ModelType) {
       )
         continue;
 
-      if (validCount >= capacity) {
-        capacity = Math.floor(capacity * 1.5);
-        console.log(`  📦 Expandindo buffers para ${capacity}...`);
-        const nv = new Float32Array(capacity * featureCount);
-        nv.set(vectors);
-        vectors = nv;
-        const nt = new Uint8Array(capacity);
-        nt.set(targets);
-        targets = nt;
-        const nd = new Float64Array(capacity);
-        nd.set(dateEpochs);
-        dateEpochs = nd;
-      }
-
-      const offset = validCount * featureCount;
+      // Extrair vetor de features
+      const vector = new Float32Array(featureCount);
       let isValid = true;
 
       for (let i = 0; i < featureCount; i++) {
@@ -333,168 +293,188 @@ async function loadAndPrepareData(modelType: ModelType) {
           break;
         }
         if (value === null || value === undefined) value = 0;
-        vectors[offset + i] = Number(value);
+        vector[i] = Number(value);
       }
 
       if (!isValid) continue;
-      targets[validCount] = record.target ?? 0;
-      dateEpochs[validCount] = new Date(record.race_date).getTime();
-      validCount++;
+
+      const raceId = record.race_id;
+      const raceDate = new Date(record.race_date).getTime();
+
+      if (!racesMap.has(raceId)) {
+        racesMap.set(raceId, { raceId, raceDate, horses: [] });
+      }
+
+      racesMap.get(raceId)!.horses.push({
+        features: vector,
+        target: record.target ?? 1,
+      });
+
+      processedHorses++;
     }
 
     pageData = null;
     currentPage++;
+
     if (currentPage % 10 === 0 || currentPage * pageSize >= totalCount) {
       console.log(
-        `📥 Processadas ${Math.min(currentPage * pageSize, totalCount)}/${totalCount}, ${validCount} válidas...`,
+        `📥 ${Math.min(currentPage * pageSize, totalCount)}/${totalCount}, ${processedHorses} cavalos, ${racesMap.size} corridas...`,
       );
     }
   }
 
-  if (validCount === 0)
-    throw new Error(`Sem dados válidos para ${typeConfig.label}`);
-  console.log(`✅ ${validCount} amostras válidas (${typeConfig.label})`);
+  console.log(
+    `✅ ${processedHorses} cavalos agrupados em ${racesMap.size} corridas`,
+  );
   logMemory("APÓS_STREAMING");
   tryGC();
 
-  vectors = vectors.slice(0, validCount * featureCount);
-  targets = targets.slice(0, validCount);
-  dateEpochs = dateEpochs.slice(0, validCount);
+  // Filtrar corridas válidas: precisa ter pelo menos 1 vencedor (target=0) e <= MAX_HORSES
+  const validRaces: RaceGroup[] = [];
+  let droppedNoWinner = 0;
+  let droppedTooManyHorses = 0;
+  let droppedTooFewHorses = 0;
 
-  console.log("📅 Calculando split temporal...");
-  const uniqueEpochs = [...new Set(dateEpochs)].sort((a, b) => a - b);
-  const splitIdx = Math.floor(uniqueEpochs.length * 0.8);
-  const splitEpoch = uniqueEpochs[splitIdx];
-  const splitDate = new Date(splitEpoch).toISOString().split("T")[0];
-
-  let trainCount = 0;
-  for (let i = 0; i < validCount; i++) {
-    if (dateEpochs[i] < splitEpoch) trainCount++;
-  }
-  const valCount = validCount - trainCount;
-
-  console.log(`📅 Split: treino até ${splitDate}`);
-  console.log(`📊 Treino: ${trainCount} | Validação: ${valCount}`);
-
-  const trainVectors = new Float32Array(trainCount * featureCount);
-  const trainTargets = new Float32Array(trainCount);
-  const valVectors = new Float32Array(valCount * featureCount);
-  const valTargets = new Float32Array(valCount);
-
-  let tIdx = 0;
-  let vIdx = 0;
-  for (let i = 0; i < validCount; i++) {
-    const srcOffset = i * featureCount;
-    if (dateEpochs[i] < splitEpoch) {
-      trainVectors.set(
-        vectors.subarray(srcOffset, srcOffset + featureCount),
-        tIdx * featureCount,
-      );
-      trainTargets[tIdx] = targets[i];
-      tIdx++;
-    } else {
-      valVectors.set(
-        vectors.subarray(srcOffset, srcOffset + featureCount),
-        vIdx * featureCount,
-      );
-      valTargets[vIdx] = targets[i];
-      vIdx++;
+  for (const race of racesMap.values()) {
+    if (race.horses.length < 3) {
+      droppedTooFewHorses++;
+      continue;
     }
+    if (race.horses.length > MAX_HORSES) {
+      droppedTooManyHorses++;
+      continue;
+    }
+    const hasWinner = race.horses.some((h) => h.target === 0);
+    if (!hasWinner) {
+      droppedNoWinner++;
+      continue;
+    }
+    validRaces.push(race);
   }
 
-  // @ts-ignore
-  vectors = null as any;
-  targets = null as any;
-  dateEpochs = null as any;
-  tryGC();
-  logMemory("APÓS_SPLIT");
+  console.log(`✅ ${validRaces.length} corridas válidas`);
+  if (droppedNoWinner > 0)
+    console.log(`  ! ${droppedNoWinner} sem vencedor (descartadas)`);
+  if (droppedTooManyHorses > 0)
+    console.log(`  ! ${droppedTooManyHorses} com >${MAX_HORSES} cavalos`);
+  if (droppedTooFewHorses > 0)
+    console.log(`  ! ${droppedTooFewHorses} com <3 cavalos`);
 
-  console.log("📏 Calculando normalização robusta...");
-  const median: number[] = new Array(featureCount);
-  const iqr: number[] = new Array(featureCount);
-  const mean: number[] = new Array(featureCount);
-  const std: number[] = new Array(featureCount);
-  const columnBuffer = new Float32Array(trainCount);
+  if (validRaces.length === 0) throw new Error("Nenhuma corrida válida");
+
+  // Ordenar cronologicamente
+  validRaces.sort((a, b) => a.raceDate - b.raceDate);
+  racesMap.clear();
+  tryGC();
+
+  // Split temporal 80/20
+  const splitIdx = Math.floor(validRaces.length * 0.8);
+  const trainRaces = validRaces.slice(0, splitIdx);
+  const valRaces = validRaces.slice(splitIdx);
+
+  const splitDate = new Date(validRaces[splitIdx].raceDate)
+    .toISOString()
+    .split("T")[0];
+  console.log(`📅 Split temporal: treino até ${splitDate}`);
+  console.log(
+    `📊 Treino: ${trainRaces.length} corridas | Val: ${valRaces.length} corridas`,
+  );
+
+  // Calcular normalização robusta no TREINO (todos os cavalos do treino)
+  console.log("📏 Calculando normalização...");
+  const median = new Array(featureCount);
+  const iqr = new Array(featureCount);
+  const mean = new Array(featureCount);
+  const std = new Array(featureCount);
+
+  const totalTrainHorses = trainRaces.reduce(
+    (sum, r) => sum + r.horses.length,
+    0,
+  );
+  const columnBuffer = new Float32Array(totalTrainHorses);
 
   for (let col = 0; col < featureCount; col++) {
-    for (let row = 0; row < trainCount; row++)
-      columnBuffer[row] = trainVectors[row * featureCount + col];
-    const sorted = columnBuffer.slice().sort();
-    median[col] = sorted[Math.floor(trainCount * 0.5)];
+    let idx = 0;
+    for (const race of trainRaces) {
+      for (const horse of race.horses) {
+        columnBuffer[idx++] = horse.features[col];
+      }
+    }
+
+    const sorted = columnBuffer.slice(0, totalTrainHorses).sort();
+    median[col] = sorted[Math.floor(totalTrainHorses * 0.5)];
     const rawIqr =
-      sorted[Math.floor(trainCount * 0.75)] -
-      sorted[Math.floor(trainCount * 0.25)];
+      sorted[Math.floor(totalTrainHorses * 0.75)] -
+      sorted[Math.floor(totalTrainHorses * 0.25)];
     iqr[col] = rawIqr > 0 ? rawIqr : 1;
+
     let sum = 0;
-    for (let row = 0; row < trainCount; row++) sum += columnBuffer[row];
-    mean[col] = sum / trainCount;
+    for (let i = 0; i < totalTrainHorses; i++) sum += columnBuffer[i];
+    mean[col] = sum / totalTrainHorses;
+
     let sumSq = 0;
-    for (let row = 0; row < trainCount; row++) {
-      const d = columnBuffer[row] - mean[col];
+    for (let i = 0; i < totalTrainHorses; i++) {
+      const d = columnBuffer[i] - mean[col];
       sumSq += d * d;
     }
-    std[col] = Math.sqrt(sumSq / trainCount) + 1e-7;
+    std[col] = Math.sqrt(sumSq / totalTrainHorses) + 1e-7;
   }
 
-  console.log("📏 Aplicando normalização in-place...");
-  for (let row = 0; row < trainCount; row++) {
-    for (let col = 0; col < featureCount; col++) {
-      const idx = row * featureCount + col;
-      trainVectors[idx] = Math.max(
-        -3,
-        Math.min(3, (trainVectors[idx] - median[col]) / iqr[col]),
-      );
+  // Construir tensores 3D: [num_races, MAX_HORSES, featureCount]
+  console.log("🔢 Construindo tensores 3D...");
+
+  const buildTensors = (races: RaceGroup[]) => {
+    const numRaces = races.length;
+    const xBuffer = new Float32Array(numRaces * MAX_HORSES * featureCount);
+    // y: 1 para vencedor, 0 para perdedor, -1 para padding (será mascarado no loss)
+    const yBuffer = new Float32Array(numRaces * MAX_HORSES);
+
+    for (let r = 0; r < numRaces; r++) {
+      const race = races[r];
+      for (let h = 0; h < MAX_HORSES; h++) {
+        const yIdx = r * MAX_HORSES + h;
+        if (h < race.horses.length) {
+          const horse = race.horses[h];
+          // Normalizar in-place ao copiar para o buffer
+          const xOffset = (r * MAX_HORSES + h) * featureCount;
+          for (let f = 0; f < featureCount; f++) {
+            const normalized = (horse.features[f] - median[f]) / iqr[f];
+            xBuffer[xOffset + f] = Math.max(-3, Math.min(3, normalized));
+          }
+          // Inverter target: original 0=vence → novo 1=vence
+          yBuffer[yIdx] = horse.target === 0 ? 1 : 0;
+        } else {
+          // Padding: features = 0, y = -1 (mask)
+          yBuffer[yIdx] = -1;
+        }
+      }
     }
-  }
-  for (let row = 0; row < valCount; row++) {
-    for (let col = 0; col < featureCount; col++) {
-      const idx = row * featureCount + col;
-      valVectors[idx] = Math.max(
-        -3,
-        Math.min(3, (valVectors[idx] - median[col]) / iqr[col]),
-      );
-    }
-  }
-  logMemory("APÓS_NORMALIZAÇÃO");
 
-  console.log("🔢 Criando tensores finais...");
-  const trainX = tf.tensor2d(trainVectors, [trainCount, featureCount]);
-  const trainY = tf.tensor2d(trainTargets, [trainCount, 1]);
-  const valX = tf.tensor2d(valVectors, [valCount, featureCount]);
-  const valY = tf.tensor2d(valTargets, [valCount, 1]);
+    const x = tf.tensor3d(xBuffer, [numRaces, MAX_HORSES, featureCount]);
+    const y = tf.tensor2d(yBuffer, [numRaces, MAX_HORSES]);
+    return { x, y };
+  };
 
-  let c0 = 0,
-    c1 = 0;
-  for (let i = 0; i < trainCount; i++) {
-    if (trainTargets[i] === 0) c0++;
-    else c1++;
-  }
-  for (let i = 0; i < valCount; i++) {
-    if (valTargets[i] === 0) c0++;
-    else c1++;
-  }
-  const tot = c0 + c1;
-  const classWeights = { 0: tot / (2 * c0), 1: tot / (2 * c1) };
-  console.log(
-    `⚖ Pesos de classe: 0=${classWeights[0].toFixed(2)}, 1=${classWeights[1].toFixed(2)}`,
-  );
-  logMemory("FINAL");
+  const train = buildTensors(trainRaces);
+  const val = buildTensors(valRaces);
+
+  logMemory("APÓS_TENSORES");
 
   return {
-    trainX,
-    trainY,
-    valX,
-    valY,
+    trainX: train.x,
+    trainY: train.y,
+    valX: val.x,
+    valY: val.y,
     features: selectedFeatures,
     featureCount,
-    sampleCount: trainCount,
-    classWeights,
+    sampleCount: trainRaces.length,
+    classWeights: { 0: 1, 1: 1 },
     normalization: { mean, std, median, iqr },
   };
 }
 
 // ============================================================================
-// FEATURES
+// FEATURES (mesma lista de antes)
 // ============================================================================
 
 const selectedFeatures = [
@@ -561,21 +541,24 @@ const selectedFeatures = [
 ];
 
 // ============================================================================
-// CREATE MODEL
+// CREATE MODEL — RACE-LEVEL (3D input, shared weights)
 // ============================================================================
 
-function createModel(inputDim: number): tf.LayersModel {
-  console.log(`  🏗  Criando modelo com ${inputDim} features de entrada...`);
+function createRaceLevelModel(inputDim: number): tf.LayersModel {
+  console.log(
+    `  🏗  Modelo race-level: input [batch, ${MAX_HORSES}, ${inputDim}]`,
+  );
+
+  // Input shape: [MAX_HORSES, inputDim] — Dense layers aplicam shared weights na última dim
   const model = tf.sequential({
     layers: [
       tf.layers.dense({
-        inputShape: [inputDim],
+        inputShape: [MAX_HORSES, inputDim],
         units: 128,
         activation: "relu",
         kernelInitializer: "heNormal",
         kernelRegularizer: tf.regularizers.l2({ l2: 0.001 }),
       }),
-      tf.layers.batchNormalization(),
       tf.layers.dropout({ rate: 0.3 }),
       tf.layers.dense({
         units: 64,
@@ -583,7 +566,6 @@ function createModel(inputDim: number): tf.LayersModel {
         kernelInitializer: "heNormal",
         kernelRegularizer: tf.regularizers.l2({ l2: 0.001 }),
       }),
-      tf.layers.batchNormalization(),
       tf.layers.dropout({ rate: 0.25 }),
       tf.layers.dense({
         units: 32,
@@ -597,24 +579,82 @@ function createModel(inputDim: number): tf.LayersModel {
         kernelInitializer: "heNormal",
       }),
       tf.layers.dropout({ rate: 0.15 }),
-      tf.layers.dense({ units: 1, activation: "sigmoid" }),
+      // Score linear (sem ativação) — softmax aplicado depois com masking
+      tf.layers.dense({ units: 1 }),
     ],
   });
-  model.compile({
-    optimizer: tf.train.adam(0.0005),
-    loss: "binaryCrossentropy",
-    metrics: ["accuracy"],
-  });
-  console.log("  ✅ Modelo criado e compilado");
+
+  console.log("  ✅ Modelo criado (output: score raw por cavalo)");
   model.summary();
   return model;
 }
 
 // ============================================================================
-// TRAIN MODEL
+// TRAIN MODEL — Custom loop com masked softmax + categorical cross-entropy
 // ============================================================================
 
-async function trainModel(model: tf.LayersModel, data: any) {
+/**
+ * Loss customizado: masked softmax cross-entropy
+ * - scores: [batch, MAX_HORSES] — output do modelo (raw scores)
+ * - targets: [batch, MAX_HORSES] — 1 para vencedor, 0 para perdedor, -1 para padding
+ *
+ * 1. Cria mask: 1 onde target >= 0 (real), 0 onde target = -1 (padding)
+ * 2. Aplica softmax dentro de cada corrida, com padding mascarado (score → -inf)
+ * 3. Cross-entropy contra target one-hot
+ */
+function maskedSoftmaxCrossEntropy(
+  scores: tf.Tensor2D,
+  targets: tf.Tensor2D,
+): { loss: tf.Scalar; probs: tf.Tensor2D } {
+  return tf.tidy(() => {
+    // Mask: 1 onde target >= 0, 0 onde target = -1
+    const mask = targets.greaterEqual(0).toFloat() as tf.Tensor2D;
+
+    // Targets limpos: -1 → 0 (padding não é vencedor)
+    const targetsClean = targets.maximum(0) as tf.Tensor2D;
+
+    // Mascarar scores antes do softmax: padded recebe -1e9 (vira ~0 no softmax)
+    const maskAdjustment = mask.sub(1).mul(1e9) as tf.Tensor2D;
+    const maskedScores = scores.add(maskAdjustment) as tf.Tensor2D;
+
+    // Softmax dentro da corrida (dim=1)
+    const probs = tf.softmax(maskedScores, -1) as tf.Tensor2D;
+
+    // Cross-entropy: -sum(target * log(prob))
+    const logProbs = tf.log(probs.add(1e-9));
+    const losses = targetsClean.mul(logProbs).neg().sum(-1);
+    const loss = losses.mean() as tf.Scalar;
+
+    // Retornar probs também para calcular accuracy fora
+    return { loss, probs: tf.keep(probs) };
+  });
+}
+
+/**
+ * Top-1 accuracy: quantas vezes o modelo colocou o vencedor real
+ * com a maior probabilidade dentro da corrida
+ */
+function calculateTop1Accuracy(
+  probs: tf.Tensor2D,
+  targets: tf.Tensor2D,
+): number {
+  return tf.tidy(() => {
+    // Argmax das probs: índice do cavalo com maior P(vence) por corrida
+    const predictedWinner = probs.argMax(-1); // [batch]
+    // Argmax dos targets: índice do vencedor real (target = 1)
+    const actualWinner = targets.argMax(-1); // [batch]
+
+    const correct = predictedWinner.equal(actualWinner).toFloat();
+    const acc = correct.mean().dataSync()[0];
+    return acc;
+  });
+}
+
+async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
+  const optimizer = tf.train.adam(configGlobal.learningRate);
+  const trainCount = data.trainX.shape[0];
+  const valCount = data.valX.shape[0];
+
   let finalMetrics = {
     trainLoss: 0,
     trainAcc: 0,
@@ -627,84 +667,130 @@ async function trainModel(model: tf.LayersModel, data: any) {
   let patienceCounter = 0;
   let actualEpochs = 0;
 
-  console.log("  📋 Configuração:");
-  console.log(`   - Max épocas: ${configGlobal.maxEpochs}`);
-  console.log(`   - Patience: ${configGlobal.patience}`);
-  console.log(`   - Learning rate: ${configGlobal.learningRate}`);
+  console.log(`  📋 ${trainCount} corridas treino, ${valCount} validação`);
+  console.log(
+    `  📋 Batch size: ${configGlobal.batchSize}, Max epochs: ${configGlobal.maxEpochs}`,
+  );
   console.log("  🚀 Iniciando epochs...\n");
 
-  try {
-    for (let epoch = 0; epoch < configGlobal.maxEpochs; epoch++) {
-      const history = await model.fit(data.trainX, data.trainY, {
-        epochs: 1,
-        batchSize: configGlobal.batchSize,
-        validationData: [data.valX, data.valY],
-        classWeight: data.classWeights,
-        verbose: 0,
-      });
+  for (let epoch = 0; epoch < configGlobal.maxEpochs; epoch++) {
+    // Shuffle índices para esta época
+    const indices = tf.util.createShuffledIndices(trainCount);
+    const numBatches = Math.ceil(trainCount / configGlobal.batchSize);
 
-      const trainLoss = history.history.loss[0] as number;
-      const trainAcc = history.history.acc[0] as number;
-      const valLoss = history.history.val_loss[0] as number;
-      const valAcc = history.history.val_acc[0] as number;
-      finalMetrics = {
-        trainLoss,
-        trainAcc,
-        valLoss,
-        valAcc,
-        epochs: epoch + 1,
-      };
+    let epochLoss = 0;
+    let epochAccSum = 0;
+    let epochAccCount = 0;
 
-      if (epoch % 10 === 0) {
-        console.log(
-          `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)}, acc=${trainAcc.toFixed(4)}, val_loss=${valLoss.toFixed(4)}, val_acc=${valAcc.toFixed(4)}`,
-        );
-        logMemory(`Epoch ${epoch}`);
+    for (let b = 0; b < numBatches; b++) {
+      const start = b * configGlobal.batchSize;
+      const end = Math.min(start + configGlobal.batchSize, trainCount);
+      const batchIndices = Array.from(indices.slice(start, end));
+
+      // Extrair batch
+      const batchX = tf.tidy(
+        () => tf.gather(data.trainX, batchIndices) as tf.Tensor3D,
+      );
+      const batchY = tf.tidy(
+        () => tf.gather(data.trainY, batchIndices) as tf.Tensor2D,
+      );
+
+      let batchProbs: tf.Tensor2D | null = null;
+
+      const lossValue = optimizer.minimize(() => {
+        const scoresRaw = model.apply(batchX) as tf.Tensor3D; // [batch, MAX_HORSES, 1]
+        const scores = scoresRaw.squeeze([2]) as tf.Tensor2D; // [batch, MAX_HORSES]
+        const { loss, probs } = maskedSoftmaxCrossEntropy(scores, batchY);
+        batchProbs = probs;
+        return loss;
+      }, true) as tf.Scalar;
+
+      epochLoss += lossValue.dataSync()[0];
+      lossValue.dispose();
+
+      if (batchProbs) {
+        epochAccSum += calculateTop1Accuracy(batchProbs, batchY);
+        epochAccCount++;
+        (batchProbs as tf.Tensor2D).dispose();
       }
 
-      if (valLoss < bestValLoss) {
-        bestValLoss = valLoss;
-        if (bestWeights) bestWeights.forEach((w) => w.dispose());
-        bestWeights = model.getWeights().map((w) => w.clone());
-        patienceCounter = 0;
-        console.log(
-          `  📈 Melhor modelo - Epoch ${epoch}: val_loss=${valLoss.toFixed(4)}`,
-        );
-      } else {
-        patienceCounter++;
-        if (patienceCounter >= configGlobal.patience) {
-          console.log(
-            `  ⏹  Early stopping na época ${epoch} (patience=${configGlobal.patience})`,
-          );
-          actualEpochs = epoch + 1;
-          break;
-        }
-      }
-      actualEpochs = epoch + 1;
+      batchX.dispose();
+      batchY.dispose();
     }
 
-    if (bestWeights) {
-      console.log("  ♻  Restaurando melhores pesos...");
-      model.setWeights(bestWeights);
-      const finalEval = (await model.evaluate(
-        data.valX,
-        data.valY,
-      )) as tf.Tensor[];
-      finalMetrics.valLoss = (await finalEval[0].data())[0];
-      finalMetrics.valAcc = (await finalEval[1].data())[0];
-      finalMetrics.epochs = actualEpochs;
-      finalEval.forEach((t) => t.dispose());
-      bestWeights.forEach((w) => w.dispose());
-    }
+    const trainLoss = epochLoss / numBatches;
+    const trainAcc = epochAccCount > 0 ? epochAccSum / epochAccCount : 0;
 
-    console.log(
-      `\n  ✅ Finalizado em ${actualEpochs} épocas, melhor val_loss: ${bestValLoss.toFixed(4)}`,
+    // Validação
+    const { valLoss, valAcc } = await evaluateModel(
+      model,
+      data.valX,
+      data.valY,
     );
-    return finalMetrics;
-  } catch (error) {
-    console.error("\n  ❌ ERRO durante treinamento:", error);
-    throw error;
+
+    finalMetrics = { trainLoss, trainAcc, valLoss, valAcc, epochs: epoch + 1 };
+
+    if (epoch % 5 === 0) {
+      console.log(
+        `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)}, top1=${(trainAcc * 100).toFixed(1)}%, ` +
+          `val_loss=${valLoss.toFixed(4)}, val_top1=${(valAcc * 100).toFixed(1)}%`,
+      );
+      logMemory(`Epoch ${epoch}`);
+    }
+
+    // Early stopping
+    if (valLoss < bestValLoss) {
+      bestValLoss = valLoss;
+      if (bestWeights) bestWeights.forEach((w) => w.dispose());
+      bestWeights = model.getWeights().map((w) => w.clone());
+      patienceCounter = 0;
+      console.log(
+        `  📈 Melhor val_loss - Epoch ${epoch}: ${valLoss.toFixed(4)}`,
+      );
+    } else {
+      patienceCounter++;
+      if (patienceCounter >= configGlobal.patience) {
+        console.log(`  ⏹  Early stopping na época ${epoch}`);
+        actualEpochs = epoch + 1;
+        break;
+      }
+    }
+    actualEpochs = epoch + 1;
   }
+
+  if (bestWeights) {
+    console.log("  ♻  Restaurando melhores pesos...");
+    model.setWeights(bestWeights);
+    const finalEval = await evaluateModel(model, data.valX, data.valY);
+    finalMetrics.valLoss = finalEval.valLoss;
+    finalMetrics.valAcc = finalEval.valAcc;
+    finalMetrics.epochs = actualEpochs;
+    bestWeights.forEach((w) => w.dispose());
+  }
+
+  console.log(
+    `\n  ✅ Finalizado em ${actualEpochs} épocas, melhor val_loss: ${bestValLoss.toFixed(4)}`,
+  );
+  return finalMetrics;
+}
+
+async function evaluateModel(
+  model: tf.LayersModel,
+  valX: tf.Tensor,
+  valY: tf.Tensor,
+): Promise<{ valLoss: number; valAcc: number }> {
+  return tf.tidy(() => {
+    const scoresRaw = model.apply(valX) as tf.Tensor3D;
+    const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
+    const { loss, probs } = maskedSoftmaxCrossEntropy(
+      scores,
+      valY as tf.Tensor2D,
+    );
+    const valLoss = loss.dataSync()[0];
+    const valAcc = calculateTop1Accuracy(probs, valY as tf.Tensor2D);
+    (probs as tf.Tensor2D).dispose();
+    return { valLoss, valAcc };
+  });
 }
 
 // ============================================================================
@@ -734,7 +820,7 @@ async function saveModelToSupabase(
           contentType: "application/json",
           upsert: true,
         });
-      if (e1) throw new Error(`Upload model.json falhou: ${e1.message}`);
+      if (e1) throw new Error(`Upload model.json: ${e1.message}`);
 
       const { error: e2 } = await supabase.storage
         .from(BUCKET_NAME)
@@ -742,7 +828,7 @@ async function saveModelToSupabase(
           contentType: "application/octet-stream",
           upsert: true,
         });
-      if (e2) throw new Error(`Upload weights.bin falhou: ${e2.message}`);
+      if (e2) throw new Error(`Upload weights.bin: ${e2.message}`);
 
       const { error: e3 } = await supabase.storage
         .from(BUCKET_NAME)
@@ -750,18 +836,15 @@ async function saveModelToSupabase(
           contentType: "application/json",
           upsert: true,
         });
-      if (e3) throw new Error(`Upload config.json falhou: ${e3.message}`);
+      if (e3) throw new Error(`Upload config.json: ${e3.message}`);
 
       fs.unlinkSync(`${tempPath}/model.json`);
       fs.unlinkSync(`${tempPath}/weights.bin`);
-      console.log(`  ✅ Modelo ${modelType} salvo em ${modelPath}`);
+      console.log(`  ✅ Modelo ${modelType} salvo`);
       return;
     } catch (error) {
       attempts++;
-      console.warn(
-        `! Erro ao salvar modelo, tentativa ${attempts}/${maxRetries}:`,
-        error,
-      );
+      console.warn(`! Tentativa ${attempts}/${maxRetries}:`, error);
       if (attempts >= maxRetries) throw error;
       await new Promise((r) => setTimeout(r, 5000 * attempts));
     }
@@ -774,7 +857,7 @@ async function saveModelToSupabase(
 
 async function saveMetricsHistory(config: ModelConfig, modelType: ModelType) {
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .schema("hml")
       .from("model_metrics_history")
       .insert({
@@ -787,72 +870,10 @@ async function saveMetricsHistory(config: ModelConfig, modelType: ModelType) {
         samples_used: config.training.samplesUsed,
         epochs: config.training.epochs,
         model_type: modelType,
-      })
-      .select();
-
-    if (error) throw new Error(`Erro ao salvar métricas: ${error.message}`);
-    console.log("  ✅ Métricas salvas com sucesso");
+      });
+    if (error) throw new Error(`Salvar métricas: ${error.message}`);
+    console.log("  ✅ Métricas salvas");
   } catch (error) {
-    console.error("  ❌ ERRO ao salvar métricas:", error);
-    console.log("  !  Continuando apesar do erro...");
+    console.error("  ❌ Erro ao salvar métricas:", error);
   }
-}
-
-// ============================================================================
-// UTILS
-// ============================================================================
-
-async function calibrateThreshold(
-  model: tf.LayersModel,
-  valX: tf.Tensor2D,
-  valY: tf.Tensor2D,
-): Promise<number> {
-  console.log("\n🎯 Calibrando threshold ótimo...");
-  const predictions = model.predict(valX) as tf.Tensor;
-  const probs = await predictions.data();
-  const trueLabels = await valY.data();
-  predictions.dispose();
-
-  const thresholds = Array.from({ length: 50 }, (_, i) => 0.5 + i * 0.01);
-  let bestThreshold = 0.85;
-  let bestF1 = 0;
-
-  console.log("\n  Threshold | Precision | Recall | F1     | LAY%");
-  console.log("  " + "-".repeat(52));
-
-  for (const threshold of thresholds) {
-    let tp = 0,
-      fp = 0,
-      fn = 0;
-    for (let i = 0; i < probs.length; i++) {
-      const predicted = probs[i] >= threshold ? 1 : 0;
-      const actual = trueLabels[i];
-      if (predicted === 1 && actual === 1) tp++;
-      if (predicted === 1 && actual === 0) fp++;
-      if (predicted === 0 && actual === 1) fn++;
-    }
-
-    const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
-    const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
-    const f1 =
-      precision + recall > 0
-        ? (2 * precision * recall) / (precision + recall)
-        : 0;
-    const layPct = ((tp + fp) / probs.length) * 100;
-
-    if (Math.round(threshold * 100) % 5 === 0) {
-      console.log(
-        `  ${threshold.toFixed(2)}      | ${(precision * 100).toFixed(1)}%     | ${(recall * 100).toFixed(1)}%  | ${f1.toFixed(4)} | ${layPct.toFixed(1)}%`,
-      );
-    }
-
-    if (precision >= 0.95 && layPct >= 15 && layPct <= 30 && f1 > bestF1) {
-      bestF1 = f1;
-      bestThreshold = threshold;
-    }
-  }
-
-  console.log(`\n  ✅ Threshold ótimo: ${bestThreshold.toFixed(2)}`);
-  console.log(`  📊 F1: ${bestF1.toFixed(4)}`);
-  return bestThreshold;
 }

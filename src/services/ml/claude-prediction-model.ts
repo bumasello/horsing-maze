@@ -1,4 +1,9 @@
-// features_v4/ml/predictions.ts
+// services/ml/predictions.ts
+//
+// RACE-LEVEL PREDICTION
+// Processa uma corrida por vez: agrupa cavalos, faz padding para MAX_HORSES=30,
+// passa pelo modelo, aplica softmax mascarado e extrai P(vence) por cavalo.
+// P(não vence) = 1 - P(vence) — agora coerente dentro da corrida.
 
 import * as tf from "@tensorflow/tfjs-node";
 import dotenv from "dotenv";
@@ -13,6 +18,7 @@ dotenv.config();
 // ============================================================================
 
 const BUCKET_NAME = "modelos-tfjs-publicos";
+const MAX_HORSES = 30; // Deve bater com o training
 
 type ModelType = "flat" | "jump";
 
@@ -72,53 +78,42 @@ interface LoadedModel {
 // PIPELINE PRINCIPAL
 // ============================================================================
 
-/**
- * Pipeline principal de predições — carrega ambos os modelos e aplica o correto por corrida
- */
 export async function generatePredictions_v4(): Promise<void> {
-  console.log("🔮 Iniciando geração de predições...\n");
+  console.log("🔮 Iniciando geração de predições RACE-LEVEL...\n");
 
   try {
-    // 1. Carregar ambos os modelos
     console.log("📥 Carregando modelos Flat e Jump...");
     const models = await loadAllModels();
 
     if (!models.flat && !models.jump) {
-      console.error("❌ Nenhum modelo disponível. Abortando predições.");
+      console.error("❌ Nenhum modelo disponível. Abortando.");
       return;
     }
 
     if (models.flat) {
       console.log(
-        `  ✅ Modelo Flat carregado — versão ${models.flat.config.version}, ${models.flat.config.features.length} features`,
+        `  ✅ Flat — v${models.flat.config.version}, ${models.flat.config.features.length} features`,
       );
     } else {
-      console.warn(
-        "  ! Modelo Flat não encontrado — corridas Flat serão ignoradas",
-      );
+      console.warn("  ! Modelo Flat não encontrado");
     }
 
     if (models.jump) {
       console.log(
-        `  ✅ Modelo Jump carregado — versão ${models.jump.config.version}, ${models.jump.config.features.length} features`,
+        `  ✅ Jump — v${models.jump.config.version}, ${models.jump.config.features.length} features`,
       );
     } else {
-      console.warn(
-        "  ! Modelo Jump não encontrado — corridas Jump serão ignoradas",
-      );
+      console.warn("  ! Modelo Jump não encontrado");
     }
 
-    // 2. Buscar corridas futuras (agora inclui race_type)
     const upcomingRaces = await getUpcomingRaces();
     console.log(`\n🏇 ${upcomingRaces.length} corridas futuras encontradas`);
 
     if (upcomingRaces.length === 0) {
-      console.log("i Nenhuma corrida futura para processar");
       disposeModels(models);
       return;
     }
 
-    // Separar por tipo
     const flatRaces = upcomingRaces.filter((r) => r.race_type === "Flat");
     const jumpRaces = upcomingRaces.filter((r) =>
       ["Hurdle", "Chase", "NHF"].includes(r.race_type || ""),
@@ -135,15 +130,13 @@ export async function generatePredictions_v4(): Promise<void> {
 
     if (unknownRaces.length > 0) {
       console.warn(
-        `  ! ${unknownRaces.length} corridas sem race_type — serão processadas com modelo Flat (fallback)`,
+        `  ! ${unknownRaces.length} corridas sem race_type — usando modelo Flat`,
       );
     }
 
-    // 3. Processar corridas
     let totalPredictions = 0;
     let racesProcessed = 0;
 
-    // Processar Flat
     if (models.flat && (flatRaces.length > 0 || unknownRaces.length > 0)) {
       const racesToProcess = [...flatRaces, ...unknownRaces];
       console.log(
@@ -166,7 +159,6 @@ export async function generatePredictions_v4(): Promise<void> {
       }
     }
 
-    // Processar Jump
     if (models.jump && jumpRaces.length > 0) {
       console.log(
         `\n🏇 Processando ${jumpRaces.length} corridas com modelo Jump...`,
@@ -188,10 +180,8 @@ export async function generatePredictions_v4(): Promise<void> {
       }
     }
 
-    // 4. Cleanup
     disposeModels(models);
 
-    // 5. Resumo
     console.log("\n" + "=".repeat(50));
     console.log("🎯 RESUMO DAS PREDIÇÕES");
     console.log("=".repeat(50));
@@ -220,15 +210,14 @@ async function loadAllModels(): Promise<{
 }> {
   const [flat, jump] = await Promise.all([
     loadModelFromSupabase("flat").catch((err) => {
-      console.warn(`! Falha ao carregar modelo Flat: ${err.message}`);
+      console.warn(`! Falha Flat: ${err.message}`);
       return null;
     }),
     loadModelFromSupabase("jump").catch((err) => {
-      console.warn(`! Falha ao carregar modelo Jump: ${err.message}`);
+      console.warn(`! Falha Jump: ${err.message}`);
       return null;
     }),
   ]);
-
   return { flat, jump };
 }
 
@@ -236,7 +225,7 @@ async function loadModelFromSupabase(
   modelType: ModelType,
 ): Promise<LoadedModel> {
   const modelPath = getModelPath(modelType);
-  console.log(`  📥 Baixando modelo ${modelType} de ${modelPath}...`);
+  console.log(`  📥 Baixando modelo ${modelType}...`);
 
   const { data: configData, error: configError } = await supabase.storage
     .from(BUCKET_NAME)
@@ -284,7 +273,7 @@ async function getUpcomingRaces(): Promise<RaceForPrediction[]> {
 }
 
 // ============================================================================
-// PROCESSAR CORRIDA
+// PROCESSAR CORRIDA — RACE-LEVEL SOFTMAX
 // ============================================================================
 
 async function processRaceAfterTraining(
@@ -303,30 +292,110 @@ async function processRaceAfterTraining(
     return 0;
   }
 
-  const { inputTensor, validHorses } = prepareInputData(horses, config);
+  // Validação e extração de features
+  const validHorses: HorseForPrediction[] = [];
+  const featureVectors: number[][] = [];
+
+  for (const horse of horses) {
+    const featureVector: number[] = [];
+    let isValid = true;
+
+    for (const featureName of config.features) {
+      let value = horse.features[featureName];
+
+      if (
+        (featureName === "sp_decimal" || featureName === "sp_implied_prob") &&
+        (value === null || value === undefined)
+      ) {
+        isValid = false;
+        break;
+      }
+
+      if (value === null || value === undefined) value = 0;
+      featureVector.push(Number(value));
+    }
+
+    if (isValid && featureVector.length === config.features.length) {
+      validHorses.push(horse);
+      featureVectors.push(featureVector);
+    }
+  }
+
   if (validHorses.length === 0) {
     console.log("  ! Nenhum cavalo válido após preparação");
-    inputTensor.dispose();
     return 0;
   }
 
-  const predictions = model.predict(inputTensor) as tf.Tensor;
-  const probabilities = await predictions.data();
+  if (validHorses.length > MAX_HORSES) {
+    console.warn(
+      `  ! Corrida com ${validHorses.length} cavalos — limitado a ${MAX_HORSES}`,
+    );
+    validHorses.splice(MAX_HORSES);
+    featureVectors.splice(MAX_HORSES);
+  }
 
-  const strongLayThreshold = config.optimalThreshold;
-  const layThreshold = config.optimalThreshold - 0.1;
-  const neutralThreshold = config.optimalThreshold - 0.2;
+  // Construir tensor 3D: [1, MAX_HORSES, featureCount] com padding
+  const featureCount = config.features.length;
+  const xBuffer = new Float32Array(MAX_HORSES * featureCount);
+  const median = config.normalization.median;
+  const iqr = config.normalization.iqr;
+
+  for (let h = 0; h < validHorses.length; h++) {
+    const vec = featureVectors[h];
+    for (let f = 0; f < featureCount; f++) {
+      // Normalização robusta + clipping (igual ao training)
+      const normalized = (vec[f] - median[f]) / (iqr[f] > 0 ? iqr[f] : 1);
+      xBuffer[h * featureCount + f] = Math.max(-3, Math.min(3, normalized));
+    }
+  }
+  // Posições padded ficam em 0 (já inicializado pelo Float32Array)
+
+  // Calcular probabilidades via masked softmax
+  const probabilities = tf.tidy(() => {
+    const inputTensor = tf.tensor3d(xBuffer, [1, MAX_HORSES, featureCount]);
+
+    // Passar pelo modelo: output shape [1, MAX_HORSES, 1]
+    const scoresRaw = model.predict(inputTensor) as tf.Tensor3D;
+    const scores = scoresRaw.squeeze([0, 2]) as tf.Tensor1D; // [MAX_HORSES]
+
+    // Criar máscara: 1 para posições válidas, 0 para padding
+    const maskArr = new Float32Array(MAX_HORSES);
+    for (let i = 0; i < validHorses.length; i++) maskArr[i] = 1;
+    const mask = tf.tensor1d(maskArr);
+
+    // Mascarar scores: padding vira -1e9, fica ~0 no softmax
+    const maskAdjustment = mask.sub(1).mul(1e9);
+    const maskedScores = scores.add(maskAdjustment);
+
+    // Softmax dentro da corrida
+    const probs = tf.softmax(maskedScores);
+
+    return probs.dataSync(); // Float32Array [MAX_HORSES]
+  });
+
+  // ─── Calcular P(não vence) e registrar predições ───
+  // Thresholds calibrados dinamicamente: relativos ao field size
+  // Em um field de N cavalos, a média de P(vence) = 1/N
+  // Um cavalo com P(vence) significativamente abaixo da média é bom candidato a LAY
+  const fieldSize = validHorses.length;
+  const avgWinProb = 1 / fieldSize;
 
   const predictionRecords = [];
 
   for (let i = 0; i < validHorses.length; i++) {
     const horse = validHorses[i];
-    const probability = probabilities[i];
+    const winProb = probabilities[i];
+    const notWinProb = 1 - winProb;
 
+    // Classificação relativa ao field:
+    //   - STRONG_LAY: P(vence) <= 40% da média do field (ex: field 10 → P < 4%)
+    //   - LAY:        P(vence) <= 70% da média do field (ex: field 10 → P < 7%)
+    //   - NEUTRAL:    P(vence) <= média do field
+    //   - AVOID:      P(vence) > média do field (favoritos relativos)
     let layRecommendation: string;
-    if (probability >= strongLayThreshold) layRecommendation = "STRONG_LAY";
-    else if (probability >= layThreshold) layRecommendation = "LAY";
-    else if (probability >= neutralThreshold) layRecommendation = "NEUTRAL";
+    if (winProb <= avgWinProb * 0.4) layRecommendation = "STRONG_LAY";
+    else if (winProb <= avgWinProb * 0.7) layRecommendation = "LAY";
+    else if (winProb <= avgWinProb) layRecommendation = "NEUTRAL";
     else layRecommendation = "AVOID";
 
     const qualityScore = calculateQualityScore(horse.features);
@@ -336,7 +405,7 @@ async function processRaceAfterTraining(
       race_id: horse.race_id,
       horse_id: horse.horse_id,
       features: horse.features,
-      predicted_probability: probability,
+      predicted_probability: notWinProb,
       lay_recommendation: layRecommendation,
       race_date: race.date,
       model_version: `v${config.version}-${modelType}`,
@@ -378,6 +447,9 @@ async function processRaceAfterTraining(
       (p) => p.lay_recommendation === "LAY",
     );
 
+    console.log(
+      `  📊 field=${fieldSize}, avg P(win)=${(avgWinProb * 100).toFixed(1)}%`,
+    );
     if (strongLays.length > 0) {
       console.log(`  🔥 ${strongLays.length} STRONG LAY`);
     }
@@ -386,14 +458,11 @@ async function processRaceAfterTraining(
     }
   }
 
-  inputTensor.dispose();
-  predictions.dispose();
-
   return predictionRecords.length;
 }
 
 // ============================================================================
-// PREPARAR DADOS
+// BUSCAR CAVALOS
 // ============================================================================
 
 async function getHorsesWithFeatures(
@@ -410,9 +479,7 @@ async function getHorsesWithFeatures(
     return [];
   }
 
-  if (!data || data.length === 0) {
-    return [];
-  }
+  if (!data || data.length === 0) return [];
 
   return data.map((p) => ({
     id: p.race_horse_id,
@@ -424,71 +491,9 @@ async function getHorsesWithFeatures(
   }));
 }
 
-function prepareInputData(
-  horses: HorseForPrediction[],
-  config: ModelConfig,
-): { inputTensor: tf.Tensor2D; validHorses: HorseForPrediction[] } {
-  const validHorses: HorseForPrediction[] = [];
-  const inputData: number[][] = [];
-
-  for (const horse of horses) {
-    const featureVector: number[] = [];
-    let isValid = true;
-
-    for (const featureName of config.features) {
-      let value = horse.features[featureName];
-
-      if (
-        (featureName === "sp_decimal" || featureName === "sp_implied_prob") &&
-        (value === null || value === undefined)
-      ) {
-        isValid = false;
-        break;
-      }
-
-      if (value === null || value === undefined) {
-        value = 0;
-      }
-
-      featureVector.push(Number(value));
-    }
-
-    if (isValid && featureVector.length === config.features.length) {
-      validHorses.push(horse);
-      inputData.push(featureVector);
-    }
-  }
-
-  if (inputData.length === 0) {
-    return {
-      inputTensor: tf.zeros([0, config.features.length]),
-      validHorses: [],
-    };
-  }
-
-  const rawTensor = tf.tensor2d(inputData);
-  const normalizedTensor = normalizeFeatures(rawTensor, config.normalization);
-  rawTensor.dispose();
-
-  return { inputTensor: normalizedTensor, validHorses };
-}
-
-function normalizeFeatures(
-  tensor: tf.Tensor2D,
-  normParams: ModelConfig["normalization"],
-): tf.Tensor2D {
-  const median = tf.tensor1d(normParams.median);
-  const iqr = tf.tensor1d(normParams.iqr.map((v) => (v > 0 ? v : 1)));
-
-  const normalized = tensor.sub(median).div(iqr) as tf.Tensor2D;
-  const clipped = normalized.clipByValue(-3, 3) as tf.Tensor2D;
-
-  median.dispose();
-  iqr.dispose();
-  normalized.dispose();
-
-  return clipped;
-}
+// ============================================================================
+// QUALITY SCORE
+// ============================================================================
 
 function calculateQualityScore(features: any): number {
   const importantFeatures = [
@@ -519,7 +524,7 @@ function calculateQualityScore(features: any): number {
 }
 
 // ============================================================================
-// STATS (mantido para compatibilidade)
+// STATS
 // ============================================================================
 
 export async function runPredictionPipeline(): Promise<void> {
@@ -555,9 +560,7 @@ async function showPredictionStats(): Promise<void> {
   const flatPreds = data.filter((d) => d.model_version?.includes("flat"));
   const jumpPreds = data.filter((d) => d.model_version?.includes("jump"));
 
-  console.log(
-    `\n🏇 Flat: ${flatPreds.length} predições | Jump: ${jumpPreds.length} predições`,
-  );
+  console.log(`\n🏇 Flat: ${flatPreds.length} | Jump: ${jumpPreds.length}`);
 
   const stats = {
     STRONG_LAY: data.filter((d) => d.lay_recommendation === "STRONG_LAY")
@@ -575,7 +578,7 @@ async function showPredictionStats(): Promise<void> {
   if (data.length > 0) {
     const avgProb =
       data.reduce((sum, d) => sum + d.predicted_probability, 0) / data.length;
-    console.log(`\n📈 Probabilidade média: ${(avgProb * 100).toFixed(2)}%`);
+    console.log(`\n📈 P(não vence) médio: ${(avgProb * 100).toFixed(2)}%`);
   }
 
   console.log("-".repeat(40));
