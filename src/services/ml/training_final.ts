@@ -42,10 +42,10 @@ function getModelPath(modelType: ModelType): string {
 }
 
 const configGlobal = {
-  patience: 25,
-  maxEpochs: 150,
-  learningRate: 0.0005,
-  batchSize: 16, // Batches menores: cada amostra é uma corrida (~10-30 cavalos)
+  patience: 15,
+  maxEpochs: 60,
+  learningRate: 0.00005,
+  batchSize: 32, // Batches menores: cada amostra é uma corrida (~10-30 cavalos)
 };
 
 // ============================================================================
@@ -554,38 +554,37 @@ function createRaceLevelModel(inputDim: number): tf.LayersModel {
     layers: [
       tf.layers.dense({
         inputShape: [MAX_HORSES, inputDim],
-        units: 128,
-        activation: "relu",
-        kernelInitializer: "heNormal",
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.001 }),
-      }),
-      tf.layers.dropout({ rate: 0.3 }),
-      tf.layers.dense({
         units: 64,
         activation: "relu",
         kernelInitializer: "heNormal",
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.001 }),
+        kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
       }),
-      tf.layers.dropout({ rate: 0.25 }),
+      tf.layers.dropout({ rate: 0.5 }),
       tf.layers.dense({
         units: 32,
         activation: "relu",
         kernelInitializer: "heNormal",
+        kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
       }),
-      tf.layers.dropout({ rate: 0.2 }),
+      tf.layers.dropout({ rate: 0.4 }),
       tf.layers.dense({
         units: 16,
         activation: "relu",
         kernelInitializer: "heNormal",
       }),
-      tf.layers.dropout({ rate: 0.15 }),
+      tf.layers.dropout({ rate: 0.3 }),
       // Score linear (sem ativação) — softmax aplicado depois com masking
       tf.layers.dense({ units: 1 }),
     ],
   });
 
   console.log("  ✅ Modelo criado (output: score raw por cavalo)");
-  model.summary();
+  // model.summary();
+  model.compile({
+    optimizer: tf.train.adam(configGlobal.learningRate),
+    loss: "binaryCrossentropy",
+    metrics: ["accuracy"],
+  });
   return model;
 }
 
