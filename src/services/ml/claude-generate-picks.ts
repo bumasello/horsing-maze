@@ -88,7 +88,8 @@ async function getUpcomingRacesWithPredictions(): Promise<number[]> {
     .schema("hml")
     .from("prediction_enriched_horse_features")
     .select("race_id")
-    .eq("prediction_status", "PENDING");
+    .eq("prediction_status", "PENDING")
+    .or("model_version.like.%-flat,model_version.like.%-jump");
 
   if (error) throw error;
   return [...new Set(data?.map((d) => d.race_id) || [])];
@@ -150,7 +151,8 @@ async function getPredictionsForRace(
     .from("prediction_enriched_horse_features")
     .select("*")
     .eq("race_id", raceId)
-    .eq("prediction_status", "PENDING");
+    .eq("prediction_status", "PENDING")
+    .or("model_version.like.%-flat,model_version.like.%-jump");
 
   if (predError) throw predError;
   if (!predictions || predictions.length === 0) return [];
