@@ -9,7 +9,7 @@ const MAX_ODD_THRESHOLD = 34.0;
 
 // Gap filter: spread mínimo de P(não vence) entre pick1 e pick3
 // Se spread < threshold, o modelo não consegue discriminar → skip corrida
-const MIN_PROBABILITY_GAP = 0.03; // 3pp mínimo entre pick1 e pick3
+const MIN_PROBABILITY_GAP = 0.01; // 3pp mínimo entre pick1 e pick3
 
 interface PredictionData {
   racecard_id: number;
@@ -96,11 +96,25 @@ export async function generateLayBettingPicks(): Promise<void> {
 // ============================================================================
 
 async function getUpcomingRacesWithPredictions(): Promise<number[]> {
+  // Buscar apenas corridas NÃO finalizadas que têm predições
+  const { data: activeRaces, error: racesError } = await supabase
+    .schema("hml")
+    .from("racecards_hr_enriched")
+    .select("id")
+    .eq("finished", 0)
+    .eq("canceled", 0);
+
+  if (racesError) throw racesError;
+  if (!activeRaces || activeRaces.length === 0) return [];
+
+  const activeRaceIds = activeRaces.map((r) => r.id);
+
   const { data, error } = await supabase
     .schema("hml")
     .from("prediction_enriched_horse_features")
     .select("race_id")
     .eq("prediction_status", "PENDING")
+    .in("race_id", activeRaceIds)
     .or("model_version.like.%-flat,model_version.like.%-jump");
 
   if (error) throw error;
@@ -139,13 +153,13 @@ async function processRaceForPicks(raceId: number): Promise<boolean> {
       .map((p) => p.predicted_probability);
     const probGap = top3Probs[0] - top3Probs[2]; // pick1 - pick3
 
-    if (probGap < MIN_PROBABILITY_GAP) {
-      console.log(
-        `  ⏭  SKIP: gap insuficiente entre picks (${(probGap * 100).toFixed(2)}pp < ${(MIN_PROBABILITY_GAP * 100).toFixed(0)}pp)` +
-          ` | P1=${(top3Probs[0] * 100).toFixed(1)}% P3=${(top3Probs[2] * 100).toFixed(1)}%`,
-      );
-      return false;
-    }
+    //if (probGap < MIN_PROBABILITY_GAP) {
+    // console.log(
+    //   `  ⏭  SKIP: gap insuficiente entre picks (${(probGap * 100).toFixed(2)}pp < ${(MIN_PROBABILITY_GAP * 100).toFixed(0)}pp)` +
+    //     ` | P1=${(top3Probs[0] * 100).toFixed(1)}% P3=${(top3Probs[2] * 100).toFixed(1)}%`,
+    // );
+    // return false;
+    //
 
     console.log(
       `  📏 Gap pick1-pick3: ${(probGap * 100).toFixed(2)}pp ✓` +
@@ -189,12 +203,32 @@ async function getPredictionsForRace(
     .select("*")
     .eq("race_id", raceId)
     .eq("prediction_status", "PENDING")
-    .or("model_version.like.%-flat,model_version.like.%-jump");
+    .or("model_version.like.%-flat,model_version.like.%-jump")
+    .not("predicted_probability", "is", null);
 
   if (predError) throw predError;
   if (!predictions || predictions.length === 0) return [];
 
-  const raceHorseIds = predictions.map((p) => p.race_horse_id);
+  // ─── Filtrar apenas a versão mais recente ───
+  // Extrair versão numérica de "v17-flat" → 17
+  const parseVersion = (mv: string): number => {
+    const match = mv.match(/^v(\d+)/);
+    return match ? Number.parseInt(match[1], 10) : 0;
+  };
+
+  const maxVersion = Math.max(
+    ...predictions.map((p) => parseVersion(p.model_version)),
+  );
+  const latestPredictions = predictions.filter(
+    (p) => parseVersion(p.model_version) === maxVersion,
+  );
+
+  console.log(
+    `  🔍 ${predictions.length} predições totais → ${latestPredictions.length} da v${maxVersion}`,
+  );
+
+  // ─── Enriquecer com dados da corrida e cavalos ───
+  const raceHorseIds = latestPredictions.map((p) => p.race_horse_id);
 
   const { data: raceData, error: raceError } = await supabase
     .schema("hml")
@@ -213,7 +247,7 @@ async function getPredictionsForRace(
 
   if (horsesError) throw horsesError;
 
-  return predictions.map((pred) => {
+  return latestPredictions.map((pred) => {
     const horse = horsesData?.find((h) => h.id === pred.race_horse_id);
     return {
       racecard_id: raceId,
