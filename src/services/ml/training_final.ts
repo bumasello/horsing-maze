@@ -557,14 +557,14 @@ function createRaceLevelModel(inputDim: number): tf.LayersModel {
         units: 64,
         activation: "relu",
         kernelInitializer: "heNormal",
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+        kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       }),
       tf.layers.dropout({ rate: 0.5 }),
       tf.layers.dense({
         units: 32,
         activation: "relu",
         kernelInitializer: "heNormal",
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+        kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       }),
       tf.layers.dropout({ rate: 0.4 }),
       tf.layers.dense({

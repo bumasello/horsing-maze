@@ -7,6 +7,10 @@ const MIN_IVL_THRESHOLD = 1.1;
 const MIN_ODD_THRESHOLD = 4.0;
 const MAX_ODD_THRESHOLD = 34.0;
 
+// Gap filter: spread mínimo de P(não vence) entre pick1 e pick3
+// Se spread < threshold, o modelo não consegue discriminar → skip corrida
+const MIN_PROBABILITY_GAP = 0.03; // 3pp mínimo entre pick1 e pick3
+
 interface PredictionData {
   racecard_id: number;
   race_id: number;
@@ -54,11 +58,16 @@ export async function generateLayBettingPicks(): Promise<void> {
 
     let successCount = 0;
     let errorCount = 0;
+    let skippedByGap = 0;
 
     for (const raceId of upcomingRaces) {
       try {
-        await processRaceForPicks(raceId);
-        successCount++;
+        const wasProcessed = await processRaceForPicks(raceId);
+        if (wasProcessed) {
+          successCount++;
+        } else {
+          skippedByGap++;
+        }
       } catch (error) {
         console.error(`❌ Erro ao processar corrida ${raceId}:`, error);
         errorCount++;
@@ -68,7 +77,10 @@ export async function generateLayBettingPicks(): Promise<void> {
     console.log("\n" + "=".repeat(50));
     console.log("📊 RESUMO DA GERAÇÃO DE PICKS");
     console.log("-".repeat(50));
-    console.log(`✅ Corridas processadas com sucesso: ${successCount}`);
+    console.log(`✅ Corridas com picks gerados: ${successCount}`);
+    if (skippedByGap > 0) {
+      console.log(`⏭  Corridas skip (gap insuficiente): ${skippedByGap}`);
+    }
     console.log(`❌ Corridas com erro: ${errorCount}`);
     console.log("=".repeat(50));
 
@@ -99,14 +111,14 @@ async function getUpcomingRacesWithPredictions(): Promise<number[]> {
 // PROCESSAR CORRIDA
 // ============================================================================
 
-async function processRaceForPicks(raceId: number): Promise<void> {
+async function processRaceForPicks(raceId: number): Promise<boolean> {
   console.log(`\n🏇 Processando corrida ${raceId}...`);
 
   const predictions = await getPredictionsForRace(raceId);
 
   if (predictions.length === 0) {
     console.log(`  ! Sem predições para corrida ${raceId}`);
-    return;
+    return false;
   }
 
   // Extrair model_version das predições (todas do mesmo tipo para uma corrida)
@@ -118,11 +130,34 @@ async function processRaceForPicks(raceId: number): Promise<void> {
   const enrichedPicks = await enrichPredictionsWithMarketData(predictions);
   const rankedPicks = rankPicks(enrichedPicks);
 
+  // ─── Gap Filter: verificar spread de probabilidade entre top 3 ───
+  // Se o modelo dá probabilidades muito próximas para todos os picks,
+  // ele não consegue discriminar → corrida não confiável, skip
+  if (rankedPicks.length >= 3) {
+    const top3Probs = rankedPicks
+      .slice(0, 3)
+      .map((p) => p.predicted_probability);
+    const probGap = top3Probs[0] - top3Probs[2]; // pick1 - pick3
+
+    if (probGap < MIN_PROBABILITY_GAP) {
+      console.log(
+        `  ⏭  SKIP: gap insuficiente entre picks (${(probGap * 100).toFixed(2)}pp < ${(MIN_PROBABILITY_GAP * 100).toFixed(0)}pp)` +
+          ` | P1=${(top3Probs[0] * 100).toFixed(1)}% P3=${(top3Probs[2] * 100).toFixed(1)}%`,
+      );
+      return false;
+    }
+
+    console.log(
+      `  📏 Gap pick1-pick3: ${(probGap * 100).toFixed(2)}pp ✓` +
+        ` | P1=${(top3Probs[0] * 100).toFixed(1)}% P3=${(top3Probs[2] * 100).toFixed(1)}%`,
+    );
+  }
+
   const mainPick = selectMainPick(rankedPicks);
 
   if (!mainPick) {
     console.log(`  ! Nenhum pick adequado encontrado para corrida ${raceId}`);
-    return;
+    return false;
   }
 
   await insertMainPick(mainPick, raceId, modelVersion);
@@ -141,6 +176,8 @@ async function processRaceForPicks(raceId: number): Promise<void> {
   console.log(
     `     - Confiança: ${(mainPick.confidence_score * 100).toFixed(0)}%`,
   );
+
+  return true;
 }
 
 async function getPredictionsForRace(

@@ -39,6 +39,15 @@ function getModelPath(modelType: ModelType): string {
   return `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
 }
 
+// Temperature scaling para softmax
+// T > 1 → distribuição mais uniforme (calibração, reduz overconfidence)
+// T < 1 → distribuição mais afiada (amplifica diferenças entre cavalos)
+// T = 1 → sem alteração (comportamento original)
+const DEFAULT_TEMPERATURE: Record<ModelType, number> = {
+  flat: 1.5,
+  jump: 1.2, // Jump já funciona bem, ajuste conservador
+};
+
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 
@@ -189,10 +198,18 @@ export async function generatePredictions_v4(): Promise<void> {
       `📊 Corridas processadas: ${racesProcessed}/${upcomingRaces.length}`,
     );
     console.log(`💾 Total de predições: ${totalPredictions}`);
-    if (models.flat)
-      console.log(`🏇 Modelo Flat v${models.flat.config.version}`);
-    if (models.jump)
-      console.log(`🏇 Modelo Jump v${models.jump.config.version}`);
+    if (models.flat) {
+      const tFlat =
+        (models.flat.config as any).softmaxTemperature ??
+        DEFAULT_TEMPERATURE.flat;
+      console.log(`🏇 Modelo Flat v${models.flat.config.version} | T=${tFlat}`);
+    }
+    if (models.jump) {
+      const tJump =
+        (models.jump.config as any).softmaxTemperature ??
+        DEFAULT_TEMPERATURE.jump;
+      console.log(`🏇 Modelo Jump v${models.jump.config.version} | T=${tJump}`);
+    }
     console.log("=".repeat(50));
   } catch (error) {
     console.error("❌ Erro no pipeline de predições:", error);
@@ -350,13 +367,23 @@ async function processRaceAfterTraining(
   }
   // Posições padded ficam em 0 (já inicializado pelo Float32Array)
 
-  // Calcular probabilidades via masked softmax
-  const probabilities = tf.tidy(() => {
+  // Calcular probabilidades via masked softmax com temperature scaling
+  // config.softmaxTemperature é opcional — se não existir no config.json, usa default por tipo
+  const temperature: number =
+    (config as any).softmaxTemperature ?? DEFAULT_TEMPERATURE[modelType];
+
+  const { probabilities, diagnostics } = tf.tidy(() => {
     const inputTensor = tf.tensor3d(xBuffer, [1, MAX_HORSES, featureCount]);
 
     // Passar pelo modelo: output shape [1, MAX_HORSES, 1]
     const scoresRaw = model.predict(inputTensor) as tf.Tensor3D;
     const scores = scoresRaw.squeeze([0, 2]) as tf.Tensor1D; // [MAX_HORSES]
+
+    // Extrair raw scores dos cavalos válidos para diagnóstico
+    const rawScoresArr = scores.dataSync().slice(0, validHorses.length);
+    const rawMin = Math.min(...Array.from(rawScoresArr));
+    const rawMax = Math.max(...Array.from(rawScoresArr));
+    const rawSpread = rawMax - rawMin;
 
     // Criar máscara: 1 para posições válidas, 0 para padding
     const maskArr = new Float32Array(MAX_HORSES);
@@ -367,11 +394,37 @@ async function processRaceAfterTraining(
     const maskAdjustment = mask.sub(1).mul(1e9);
     const maskedScores = scores.add(maskAdjustment);
 
-    // Softmax dentro da corrida
-    const probs = tf.softmax(maskedScores);
+    // Temperature scaling: divide logits por T antes do softmax
+    const scaledScores = maskedScores.div(temperature);
 
-    return probs.dataSync(); // Float32Array [MAX_HORSES]
+    // Softmax dentro da corrida
+    const probs = tf.softmax(scaledScores);
+    const probsArr = probs.dataSync(); // Float32Array [MAX_HORSES]
+
+    // Diagnóstico: spread de P(win) entre os 3 picks LAY (menores P(win))
+    const validProbs = Array.from(probsArr).slice(0, validHorses.length);
+    const sortedWinProbs = [...validProbs].sort((a, b) => a - b);
+    const top3LayProbs = sortedWinProbs.slice(0, 3); // 3 menores P(win)
+    const probSpread =
+      top3LayProbs.length >= 3 ? top3LayProbs[2] - top3LayProbs[0] : 0;
+
+    return {
+      probabilities: probsArr,
+      diagnostics: {
+        rawMin: rawMin.toFixed(4),
+        rawMax: rawMax.toFixed(4),
+        rawSpread: rawSpread.toFixed(4),
+        top3WinProbs: top3LayProbs.map((p) => (p * 100).toFixed(2) + "%"),
+        probSpread: (probSpread * 100).toFixed(2) + "pp",
+        temperature,
+      },
+    };
   });
+
+  // Log diagnóstico por corrida
+  console.log(
+    `  🌡  T=${diagnostics.temperature} | raw=[${diagnostics.rawMin}..${diagnostics.rawMax}] spread=${diagnostics.rawSpread} | top3 P(win)=[${diagnostics.top3WinProbs.join(", ")}] spread=${diagnostics.probSpread}`,
+  );
 
   // ─── Calcular P(não vence) e registrar predições ───
   // Thresholds calibrados dinamicamente: relativos ao field size
