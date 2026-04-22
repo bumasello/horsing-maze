@@ -368,7 +368,6 @@ async function processRaceAfterTraining(
   // Posições padded ficam em 0 (já inicializado pelo Float32Array)
 
   // Calcular probabilidades via masked softmax com temperature scaling
-  // config.softmaxTemperature é opcional — se não existir no config.json, usa default por tipo
   const temperature: number =
     (config as any).softmaxTemperature ?? DEFAULT_TEMPERATURE[modelType];
 
@@ -427,9 +426,6 @@ async function processRaceAfterTraining(
   );
 
   // ─── Calcular P(não vence) e registrar predições ───
-  // Thresholds calibrados dinamicamente: relativos ao field size
-  // Em um field de N cavalos, a média de P(vence) = 1/N
-  // Um cavalo com P(vence) significativamente abaixo da média é bom candidato a LAY
   const fieldSize = validHorses.length;
   const avgWinProb = 1 / fieldSize;
 
@@ -440,11 +436,6 @@ async function processRaceAfterTraining(
     const winProb = probabilities[i];
     const notWinProb = 1 - winProb;
 
-    // Classificação relativa ao field:
-    //   - STRONG_LAY: P(vence) <= 40% da média do field (ex: field 10 → P < 4%)
-    //   - LAY:        P(vence) <= 70% da média do field (ex: field 10 → P < 7%)
-    //   - NEUTRAL:    P(vence) <= média do field
-    //   - AVOID:      P(vence) > média do field (favoritos relativos)
     let layRecommendation: string;
     if (winProb <= avgWinProb * 0.4) layRecommendation = "STRONG_LAY";
     else if (winProb <= avgWinProb * 0.7) layRecommendation = "LAY";
@@ -493,6 +484,28 @@ async function processRaceAfterTraining(
       throw error;
     }
 
+    // ── FIX #2: Limpar predições PENDING de versões anteriores ──
+    // Após inserir predições novas (ex: v17-flat), marca todas as de versões
+    // anteriores (v4.0, v16-flat, etc.) como FINISHED para esta corrida.
+    // Isso evita: (a) acúmulo infinito de registros PENDING,
+    // (b) cavalos duplicados no getHorsesWithFeatures,
+    // (c) queries estourando o limite de 1000 do Supabase.
+    const currentVersion = `v${config.version}-${modelType}`;
+    const { error: cleanupError } = await supabase
+      .schema("hml")
+      .from("prediction_enriched_horse_features")
+      .update({ prediction_status: "FINISHED" })
+      .eq("race_id", race.id)
+      .neq("model_version", currentVersion)
+      .eq("prediction_status", "PENDING");
+
+    if (cleanupError) {
+      console.warn(
+        `  ! Erro ao limpar predições antigas da corrida ${race.id}:`,
+        cleanupError.message,
+      );
+    }
+
     const strongLays = uniqueRecords.filter(
       (p) => p.lay_recommendation === "STRONG_LAY",
     );
@@ -534,7 +547,25 @@ async function getHorsesWithFeatures(
 
   if (!data || data.length === 0) return [];
 
-  return data.map((p) => ({
+  // FIX: Deduplicar por race_horse_id — múltiplas model_versions criam registros
+  // duplicados para o mesmo cavalo (v4.0 do orchestrator + vN de predições anteriores).
+  // Sem isso, o softmax distribui probabilidade sobre field inflado (ex: 33 em vez de 11).
+  const uniqueByHorse = new Map<number, (typeof data)[0]>();
+  for (const row of data) {
+    if (!uniqueByHorse.has(row.race_horse_id)) {
+      uniqueByHorse.set(row.race_horse_id, row);
+    }
+  }
+
+  const uniqueData = Array.from(uniqueByHorse.values());
+
+  if (uniqueData.length !== data.length) {
+    console.log(
+      `  🧹 Dedup: ${data.length} registros → ${uniqueData.length} cavalos únicos`,
+    );
+  }
+
+  return uniqueData.map((p) => ({
     id: p.race_horse_id,
     race_horse_id: p.race_horse_id,
     race_id: p.race_id,
