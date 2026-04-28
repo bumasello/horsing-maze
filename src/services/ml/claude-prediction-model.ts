@@ -8,6 +8,7 @@
 import * as tf from "@tensorflow/tfjs-node";
 import dotenv from "dotenv";
 import { supabase } from "../..";
+import "./layers/attention";
 
 import type { ModelConfig } from "../../shared/types/ml.types";
 
@@ -373,9 +374,12 @@ async function processRaceAfterTraining(
 
   const { probabilities, diagnostics } = tf.tidy(() => {
     const inputTensor = tf.tensor3d(xBuffer, [1, MAX_HORSES, featureCount]);
+    const maskArr = new Float32Array(MAX_HORSES);
+    for (let i = 0; i < validHorses.length; i++) maskArr[i] = 1;
+    const maskTensor = tf.tensor2d(maskArr, [1, MAX_HORSES]);
 
     // Passar pelo modelo: output shape [1, MAX_HORSES, 1]
-    const scoresRaw = model.predict(inputTensor) as tf.Tensor3D;
+    const scoresRaw = model.predict([inputTensor, maskTensor]) as tf.Tensor3D;
     const scores = scoresRaw.squeeze([0, 2]) as tf.Tensor1D; // [MAX_HORSES]
 
     // Extrair raw scores dos cavalos válidos para diagnóstico
@@ -384,9 +388,6 @@ async function processRaceAfterTraining(
     const rawMax = Math.max(...Array.from(rawScoresArr));
     const rawSpread = rawMax - rawMin;
 
-    // Criar máscara: 1 para posições válidas, 0 para padding
-    const maskArr = new Float32Array(MAX_HORSES);
-    for (let i = 0; i < validHorses.length; i++) maskArr[i] = 1;
     const mask = tf.tensor1d(maskArr);
 
     // Mascarar scores: padding vira -1e9, fica ~0 no softmax

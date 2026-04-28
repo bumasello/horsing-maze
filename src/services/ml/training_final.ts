@@ -15,6 +15,7 @@
 
 import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../..";
+import { createAttentionModel } from "./layers/attention";
 import type { ModelConfig } from "../../shared/types/ml.types";
 
 // ============================================================================
@@ -45,19 +46,20 @@ function getModelPath(modelType: ModelType): string {
 
 // [CHANGED] Adicionados parâmetros de LR scheduling e LAY loss
 const configGlobal = {
-  patience: 15,
-  maxEpochs: 60,
+  patience: 20,
+  maxEpochs: 150,
   learningRate: 0.00005,
-  batchSize: 32, // Batches menores: cada amostra é uma corrida (~10-30 cavalos)
+  batchSize: 32,
 
   // ── LR Scheduling (ReduceLROnPlateau) ──
-  lrReduceAfter: 8, // épocas sem melhora antes de reduzir LR
+  lrReduceAfter: 10, // épocas sem melhora antes de reduzir LR
   lrReduceFactor: 0.5, // multiplicar LR por este fator
   minLearningRate: 1e-6, // piso do LR
+  maxLrReductions: 4, // máximo de reduções antes de parar de reduzir
 
-  // ── Custom LAY Loss ──
-  layLossAlpha: 0.3, // peso do LAY loss (0 = desabilitado)
-  layLossWarmup: 5, // épocas de warmup antes de ativar LAY loss
+  // ── Custom LAY Loss (mantém config, não usado ainda) ──
+  layLossAlpha: 0.3,
+  layLossWarmup: 5,
 };
 
 // ============================================================================
@@ -558,47 +560,15 @@ const selectedFeatures = [
 // ============================================================================
 
 function createRaceLevelModel(inputDim: number): tf.LayersModel {
-  console.log(
-    `  🏗  Modelo race-level: input [batch, ${MAX_HORSES}, ${inputDim}]`,
-  );
-
-  // Input shape: [MAX_HORSES, inputDim] — Dense layers aplicam shared weights na última dim
-  const model = tf.sequential({
-    layers: [
-      tf.layers.dense({
-        inputShape: [MAX_HORSES, inputDim],
-        units: 64,
-        activation: "relu",
-        kernelInitializer: "heNormal",
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
-      }),
-      tf.layers.dropout({ rate: 0.5 }),
-      tf.layers.dense({
-        units: 32,
-        activation: "relu",
-        kernelInitializer: "heNormal",
-        kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
-      }),
-      tf.layers.dropout({ rate: 0.4 }),
-      tf.layers.dense({
-        units: 16,
-        activation: "relu",
-        kernelInitializer: "heNormal",
-      }),
-      tf.layers.dropout({ rate: 0.3 }),
-      // Score linear (sem ativação) — softmax aplicado depois com masking
-      tf.layers.dense({ units: 1 }),
-    ],
+  return createAttentionModel({
+    inputDim,
+    maxHorses: MAX_HORSES,
+    numHeads: 4,
+    keyDim: 16,
+    encoderDim: 64,
+    dropoutRate: 0.2, // ← era 0.3
+    l2Reg: 0.003,
   });
-
-  console.log("  ✅ Modelo criado (output: score raw por cavalo)");
-  // model.summary();
-  model.compile({
-    optimizer: tf.train.adam(configGlobal.learningRate),
-    loss: "binaryCrossentropy",
-    metrics: ["accuracy"],
-  });
-  return model;
 }
 
 // ============================================================================
@@ -716,9 +686,8 @@ function laySelectionLoss(probs: tf.Tensor2D, targets: tf.Tensor2D): tf.Scalar {
 // ============================================================================
 
 async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
-  let currentLR = configGlobal.learningRate;
-  let optimizer = tf.train.adam(currentLR);
-
+  let currentLr = configGlobal.learningRate;
+  let optimizer = tf.train.adam(currentLr);
   const trainCount = data.trainX.shape[0];
   const valCount = data.valX.shape[0];
 
@@ -732,85 +701,57 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
   let bestValLoss = Number.POSITIVE_INFINITY;
   let bestWeights: tf.Tensor[] | null = null;
   let patienceCounter = 0;
-  let lrReductions = 0;
   let actualEpochs = 0;
+
+  // ── LR Scheduler state ──
+  let lrBestValLoss = Number.POSITIVE_INFINITY;
+  let lrPatienceCounter = 0;
+  let lrReductions = 0;
 
   console.log(`  📋 ${trainCount} corridas treino, ${valCount} validação`);
   console.log(
     `  📋 Batch size: ${configGlobal.batchSize}, Max epochs: ${configGlobal.maxEpochs}`,
   );
-  console.log(`  📋 LR inicial: ${currentLR}`);
+  console.log(`  📋 LR inicial: ${currentLr}`);
   console.log(
-    `  📋 LAY loss α=${configGlobal.layLossAlpha}, warmup=${configGlobal.layLossWarmup} epochs`,
+    `  📋 LR scheduler: factor=${configGlobal.lrReduceFactor}, patience=${configGlobal.lrReduceAfter}, min=${configGlobal.minLearningRate}`,
   );
   console.log("  🚀 Iniciando epochs...\n");
 
   for (let epoch = 0; epoch < configGlobal.maxEpochs; epoch++) {
-    // Shuffle índices para esta época
     const indices = tf.util.createShuffledIndices(trainCount);
     const numBatches = Math.ceil(trainCount / configGlobal.batchSize);
 
     let epochLoss = 0;
-    let epochCeLoss = 0;
-    let epochLayLoss = 0;
     let epochAccSum = 0;
     let epochAccCount = 0;
-
-    // LAY loss só ativa após warmup
-    const useLayLoss =
-      configGlobal.layLossAlpha > 0 && epoch >= configGlobal.layLossWarmup;
 
     for (let b = 0; b < numBatches; b++) {
       const start = b * configGlobal.batchSize;
       const end = Math.min(start + configGlobal.batchSize, trainCount);
       const batchIndices = Array.from(indices.slice(start, end));
 
-      // Extrair batch
       const batchX = tf.tidy(
         () => tf.gather(data.trainX, batchIndices) as tf.Tensor3D,
       );
       const batchY = tf.tidy(
         () => tf.gather(data.trainY, batchIndices) as tf.Tensor2D,
       );
+      const batchMask = batchY.greaterEqual(0).toFloat() as tf.Tensor2D;
 
       let batchProbs: tf.Tensor2D | null = null;
-      let batchCeLossVal = 0;
-      let batchLayLossVal = 0;
 
       const lossValue = optimizer.minimize(() => {
-        const scoresRaw = model.apply(batchX) as tf.Tensor3D; // [batch, MAX_HORSES, 1]
-        const scores = scoresRaw.squeeze([2]) as tf.Tensor2D; // [batch, MAX_HORSES]
-        const { loss: ceLoss, probs } = maskedSoftmaxCrossEntropy(
-          scores,
-          batchY,
-        );
+        const scoresRaw = model.apply([batchX, batchMask], {
+          training: true,
+        }) as tf.Tensor3D;
+        const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
+        const { loss, probs } = maskedSoftmaxCrossEntropy(scores, batchY);
         batchProbs = probs;
-
-        // Capturar CE loss para logging
-        batchCeLossVal = ceLoss.dataSync()[0];
-
-        if (!useLayLoss) {
-          return ceLoss;
-        }
-
-        // ── Custom LAY Loss ──
-        // Recalcular softmax dentro do minimize para garantir grafo
-        // computacional conectado (gradientes fluem corretamente)
-        const mask = batchY.greaterEqual(0).toFloat() as tf.Tensor2D;
-        const maskAdj = mask.sub(1).mul(1e9) as tf.Tensor2D;
-        const maskedScores = scores.add(maskAdj) as tf.Tensor2D;
-        const probsForLay = tf.softmax(maskedScores, -1) as tf.Tensor2D;
-
-        const lLay = laySelectionLoss(probsForLay, batchY);
-        batchLayLossVal = lLay.dataSync()[0];
-
-        return ceLoss.add(lLay.mul(configGlobal.layLossAlpha));
+        return loss;
       }, true) as tf.Scalar;
 
-      const totalLossVal = lossValue.dataSync()[0];
-      epochLoss += totalLossVal;
-      epochCeLoss += batchCeLossVal;
-      epochLayLoss += batchLayLossVal;
+      epochLoss += lossValue.dataSync()[0];
       lossValue.dispose();
 
       if (batchProbs) {
@@ -821,14 +762,12 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
 
       batchX.dispose();
       batchY.dispose();
+      batchMask.dispose();
     }
 
     const trainLoss = epochLoss / numBatches;
-    const trainCeLoss = epochCeLoss / numBatches;
-    const trainLayLoss = epochLayLoss / numBatches;
     const trainAcc = epochAccCount > 0 ? epochAccSum / epochAccCount : 0;
 
-    // Validação (usa apenas CE loss — LAY loss é métrica de treino)
     const { valLoss, valAcc } = await evaluateModel(
       model,
       data.valX,
@@ -838,49 +777,53 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
     finalMetrics = { trainLoss, trainAcc, valLoss, valAcc, epochs: epoch + 1 };
 
     if (epoch % 5 === 0) {
-      const layInfo = useLayLoss
-        ? ` | CE=${trainCeLoss.toFixed(4)}, LAY=${trainLayLoss.toFixed(4)}`
-        : "";
       console.log(
-        `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)}${layInfo}, top1=${(trainAcc * 100).toFixed(1)}%, ` +
-          `val_loss=${valLoss.toFixed(4)}, val_top1=${(valAcc * 100).toFixed(1)}% | LR=${currentLR}`,
+        `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)}, top1=${(trainAcc * 100).toFixed(1)}%, ` +
+          `val_loss=${valLoss.toFixed(4)}, val_top1=${(valAcc * 100).toFixed(1)}% | LR=${currentLr}`,
       );
       logMemory(`Epoch ${epoch}`);
     }
 
-    // ── Early stopping + LR Scheduling ──
+    // ── LR SCHEDULING: ReduceLROnPlateau ──
+    if (valLoss < lrBestValLoss) {
+      lrBestValLoss = valLoss;
+      lrPatienceCounter = 0;
+    } else {
+      lrPatienceCounter++;
+      if (
+        lrPatienceCounter >= configGlobal.lrReduceAfter &&
+        lrReductions < configGlobal.maxLrReductions &&
+        currentLr > configGlobal.minLearningRate
+      ) {
+        const oldLr = currentLr;
+        currentLr = Math.max(
+          currentLr * configGlobal.lrReduceFactor,
+          configGlobal.minLearningRate,
+        );
+        lrReductions++;
+        lrPatienceCounter = 0;
+
+        // Recriar optimizer com novo LR
+        optimizer.dispose();
+        optimizer = tf.train.adam(currentLr);
+
+        console.log(
+          `  📉 LR reduzido: ${oldLr} → ${currentLr} (redução #${lrReductions})`,
+        );
+      }
+    }
+
+    // ── EARLY STOPPING ──
     if (valLoss < bestValLoss) {
       bestValLoss = valLoss;
-      if (bestWeights) bestWeights.forEach((w: tf.Tensor) => w.dispose());
-      bestWeights = model.getWeights().map((w: tf.Tensor) => w.clone());
+      if (bestWeights) bestWeights.forEach((w) => w.dispose());
+      bestWeights = model.getWeights().map((w) => w.clone());
       patienceCounter = 0;
       console.log(
         `  📈 Melhor val_loss - Epoch ${epoch}: ${valLoss.toFixed(4)}`,
       );
     } else {
       patienceCounter++;
-
-      // ── LR Scheduling: reduzir LR se estagnou ──
-      if (
-        patienceCounter === configGlobal.lrReduceAfter &&
-        currentLR > configGlobal.minLearningRate
-      ) {
-        const oldLR = currentLR;
-        currentLR = Math.max(
-          currentLR * configGlobal.lrReduceFactor,
-          configGlobal.minLearningRate,
-        );
-        lrReductions++;
-
-        // Recriar optimizer com novo LR (perde estado Adam — intencional)
-        optimizer.dispose();
-        optimizer = tf.train.adam(currentLR);
-
-        console.log(
-          `  📉 LR reduzido: ${oldLR} → ${currentLR} (redução #${lrReductions})`,
-        );
-      }
-
       if (patienceCounter >= configGlobal.patience) {
         console.log(
           `  ⏹  Early stopping na época ${epoch} (LR reduções: ${lrReductions})`,
@@ -892,9 +835,6 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
     actualEpochs = epoch + 1;
   }
 
-  // Cleanup optimizer
-  optimizer.dispose();
-
   if (bestWeights) {
     console.log("  ♻  Restaurando melhores pesos...");
     model.setWeights(bestWeights);
@@ -902,20 +842,18 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
     finalMetrics.valLoss = finalEval.valLoss;
     finalMetrics.valAcc = finalEval.valAcc;
     finalMetrics.epochs = actualEpochs;
-    bestWeights.forEach((w: tf.Tensor) => w.dispose());
+    bestWeights.forEach((w) => w.dispose());
   }
+
+  // Cleanup
+  optimizer.dispose();
 
   console.log(
     `\n  ✅ Finalizado em ${actualEpochs} épocas, melhor val_loss: ${bestValLoss.toFixed(4)}`,
   );
   console.log(
-    `  📉 LR: ${configGlobal.learningRate} → ${currentLR} (${lrReductions} reduções)`,
+    `  📉 LR: ${configGlobal.learningRate} → ${currentLr} (${lrReductions} reduções)`,
   );
-  if (configGlobal.layLossAlpha > 0) {
-    console.log(
-      `  🎯 LAY loss ativo a partir da época ${configGlobal.layLossWarmup} com α=${configGlobal.layLossAlpha}`,
-    );
-  }
   return finalMetrics;
 }
 
@@ -925,7 +863,11 @@ async function evaluateModel(
   valY: tf.Tensor,
 ): Promise<{ valLoss: number; valAcc: number }> {
   return tf.tidy(() => {
-    const scoresRaw = model.apply(valX) as tf.Tensor3D;
+    // ── NOVO: mask derivada dos targets ──
+    const valMask = (valY as tf.Tensor2D).greaterEqual(0).toFloat();
+
+    // ── MUDANÇA: passa [valX, valMask] em vez de só valX ──
+    const scoresRaw = model.apply([valX, valMask]) as tf.Tensor3D;
     const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
     const { loss, probs } = maskedSoftmaxCrossEntropy(
       scores,
