@@ -1,0 +1,13 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# venv (criado por setup do servidor)
+venv/
+.venv/
+
+# Env file com secrets (DB_*, RP token)
+.env
+.env.*
+!.env.example

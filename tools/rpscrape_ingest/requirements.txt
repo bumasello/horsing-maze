@@ -1,0 +1,4 @@
+# Deps do ingestor Python — NÃO confundir com requirements do rpscrape em si
+# (esse é só pra carregar CSV → Postgres do Supabase self-hosted).
+psycopg[binary]>=3.2.0
+python-dotenv>=1.0.0
