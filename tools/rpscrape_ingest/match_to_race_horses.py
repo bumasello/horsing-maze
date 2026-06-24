@@ -125,7 +125,7 @@ SET race_horse_id = u.race_horse_id,
 FROM unique_matches u
 WHERE r.id = u.rps_id
   AND u.n = 1
-  AND r.match_status = 'pending';
+  AND r.match_status IN ('pending', 'unmatched');
 """
 
 # Marca como unmatched o que sobrou — limita a varredura ao mesmo lote
