@@ -43,7 +43,7 @@ SQL_MATCH_EXACT = """
 WITH pending AS (
     SELECT id, race_date, course, off_time, horse_name_norm
     FROM hml.rpscrape_results
-    WHERE match_status = 'pending'
+    WHERE match_status IN ('pending', 'unmatched')
     {since_clause}
     ORDER BY race_date DESC, id
     LIMIT %(limit)s
@@ -65,7 +65,8 @@ candidates AS (
     FROM pending p
     JOIN hml.racecards_hr_enriched rc
       ON rc.date = p.race_date
-     AND lower(rc.course) = lower(p.course)
+     AND lower(regexp_replace(regexp_replace(rc.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
+       = lower(regexp_replace(regexp_replace(p.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
     JOIN hml.race_horses_hr_enriched rh
       ON rh.racecard_id = rc.id
 )
@@ -86,7 +87,7 @@ SQL_MATCH_BY_NAME_UNIQUE = """
 WITH pending AS (
     SELECT id, race_date, course, horse_name_norm
     FROM hml.rpscrape_results
-    WHERE match_status = 'pending'
+    WHERE match_status IN ('pending', 'unmatched')
     {since_clause}
     ORDER BY race_date DESC, id
     LIMIT %(limit)s
@@ -105,7 +106,8 @@ candidates AS (
     FROM pending p
     JOIN hml.racecards_hr_enriched rc
       ON rc.date = p.race_date
-     AND lower(rc.course) = lower(p.course)
+     AND lower(regexp_replace(regexp_replace(rc.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
+       = lower(regexp_replace(regexp_replace(p.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
     JOIN hml.race_horses_hr_enriched rh
       ON rh.racecard_id = rc.id
 ),
@@ -130,7 +132,7 @@ WHERE r.id = u.rps_id
 SQL_MARK_UNMATCHED = """
 WITH still_pending AS (
     SELECT id FROM hml.rpscrape_results
-    WHERE match_status = 'pending'
+    WHERE match_status IN ('pending', 'unmatched')
     {since_clause}
     ORDER BY race_date DESC, id
     LIMIT %(limit)s
