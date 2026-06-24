@@ -60,8 +60,8 @@ python3 -m venv venv
 
 # .env com credenciais da conta Racing Post de serviço:
 #   EMAIL=<email da conta>
-#   RP_PASSWORD=<senha da conta>     # usada por refresh_token.py
-#   ACCESS_TOKEN=<token cognito>     # bootstrap; refresh_token.py renova
+#   REFRESH_TOKEN=<JWE do cookie .refreshToken — dura ~30 dias>
+#   ACCESS_TOKEN=<JWT do cookie .accessToken — refresh_token.py renova >
 nano /opt/rpscrape/.env
 chmod 600 /opt/rpscrape/.env
 
