@@ -58,8 +58,10 @@ cd /opt/rpscrape
 python3 -m venv venv
 ./venv/bin/pip install curl_cffi jarowinkler lxml orjson python-dotenv tomli tqdm
 
-# .env com credenciais da conta Racing Post de serviço
-# (EMAIL + ACCESS_TOKEN do cookie cognito — ver README do rpscrape)
+# .env com credenciais da conta Racing Post de serviço:
+#   EMAIL=<email da conta>
+#   RP_PASSWORD=<senha da conta>     # usada por refresh_token.py
+#   ACCESS_TOKEN=<token cognito>     # bootstrap; refresh_token.py renova
 nano /opt/rpscrape/.env
 chmod 600 /opt/rpscrape/.env
 

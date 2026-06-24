@@ -22,6 +22,14 @@ mkdir -p "$LOG_DIR"
 
 echo "=== backfill $YEAR_START-$YEAR_END @ $(date -u --iso-8601=seconds) ==="
 
+# Renova token antes de começar (depois fica vivo via sessão persistente)
+echo "--- refresh token ---"
+"$INGEST_HOME/venv/bin/python" "$INGEST_HOME/refresh_token.py" \
+  --rpscrape-env "$RPSCRAPE_HOME/.env" || {
+  echo "FATAL: refresh_token falhou, abortando"
+  exit 1
+}
+
 # Por ano × região × tipo. Saída fica em data/region/<region>/<type>/<year>.csv
 cd "$RPSCRAPE_HOME/scripts"
 for year in $(seq "$YEAR_START" "$YEAR_END"); do

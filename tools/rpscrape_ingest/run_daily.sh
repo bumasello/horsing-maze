@@ -27,6 +27,14 @@ LOG_FILE="$LOG_DIR/rpscrape-$DATE_PRETTY.log"
 
 echo "=== run_daily.sh $YESTERDAY @ $(date -u --iso-8601=seconds) ===" >> "$LOG_FILE"
 
+# 0. Renova access_token via Cognito (JWT expira em 30 min)
+echo "--- refresh token ---" >> "$LOG_FILE"
+"$INGEST_HOME/venv/bin/python" "$INGEST_HOME/refresh_token.py" \
+  --rpscrape-env "$RPSCRAPE_HOME/.env" >> "$LOG_FILE" 2>&1 || {
+  echo "FATAL: refresh_token falhou, abortando" >> "$LOG_FILE"
+  exit 1
+}
+
 # 1. Scrape GB + IRE flat + jumps em sequência (rpscrape não tem combo "all UK+IRE")
 cd "$RPSCRAPE_HOME/scripts"
 for region in gb ire; do
