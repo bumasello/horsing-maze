@@ -55,7 +55,7 @@ candidates AS (
         -- nome normalizado da race_horses_hr_enriched (mesma regra do parsers.py)
         lower(
             regexp_replace(
-                regexp_replace(rh.horse, '\\s*\\([A-Z]{2,3}\\)\\s*$', ''),
+                regexp_replace(rh.horse, '\\s*\\([A-Z]{{2,3}}\\)\\s*$', ''),
                 '[^a-z0-9\\s]', '', 'gi'
             )
         ) AS rh_horse_norm,
@@ -97,7 +97,7 @@ candidates AS (
         rh.id AS race_horse_id,
         lower(
             regexp_replace(
-                regexp_replace(rh.horse, '\\s*\\([A-Z]{2,3}\\)\\s*$', ''),
+                regexp_replace(rh.horse, '\\s*\\([A-Z]{{2,3}}\\)\\s*$', ''),
                 '[^a-z0-9\\s]', '', 'gi'
             )
         ) AS rh_horse_norm,
