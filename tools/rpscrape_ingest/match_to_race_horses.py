@@ -65,8 +65,8 @@ candidates AS (
     FROM pending p
     JOIN hml.racecards_hr_enriched rc
       ON rc.date = p.race_date
-     AND lower(regexp_replace(regexp_replace(rc.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
-       = lower(regexp_replace(regexp_replace(p.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
+     AND lower(regexp_replace(regexp_replace(rc.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse|Bridge|City)\\s*$', '', 'i'))
+       = lower(regexp_replace(regexp_replace(p.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse|Bridge|City)\\s*$', '', 'i'))
     JOIN hml.race_horses_hr_enriched rh
       ON rh.racecard_id = rc.id
 )
@@ -106,8 +106,8 @@ candidates AS (
     FROM pending p
     JOIN hml.racecards_hr_enriched rc
       ON rc.date = p.race_date
-     AND lower(regexp_replace(regexp_replace(rc.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
-       = lower(regexp_replace(regexp_replace(p.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse)\\s*$', '', 'i'))
+     AND lower(regexp_replace(regexp_replace(rc.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse|Bridge|City)\\s*$', '', 'i'))
+       = lower(regexp_replace(regexp_replace(p.course, '\\s*\\((?:AW|PF|July|New|Old|Rowley|Hunt|Chase)\\)\\s*$', '', 'i'), '\\s+(Park|Downs|Hill|Common|Heath|Racecourse|Bridge|City)\\s*$', '', 'i'))
     JOIN hml.race_horses_hr_enriched rh
       ON rh.racecard_id = rc.id
 ),
