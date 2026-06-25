@@ -365,6 +365,7 @@ export interface HorseFeatures {
 
   // === Target ===
   target: 0 | 1 | null;
+  finish_position: number | null;
 }
 
 // ===== TIPOS AUXILIARES =====

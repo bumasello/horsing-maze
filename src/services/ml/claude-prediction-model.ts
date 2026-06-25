@@ -9,6 +9,7 @@ import * as tf from "@tensorflow/tfjs-node";
 import dotenv from "dotenv";
 import { supabase } from "../..";
 import "./layers/attention";
+import { applyIsotonicToRace } from "./calibration";
 
 import type { ModelConfig } from "../../shared/types/ml.types";
 
@@ -425,6 +426,26 @@ async function processRaceAfterTraining(
   console.log(
     `  🌡  T=${diagnostics.temperature} | raw=[${diagnostics.rawMin}..${diagnostics.rawMax}] spread=${diagnostics.rawSpread} | top3 P(win)=[${diagnostics.top3WinProbs.join(", ")}] spread=${diagnostics.probSpread}`,
   );
+
+  // ─── Calibração isotonic (se disponível e não desativada) ───
+  // Aplica curva monótona ajustada no val set + renormaliza dentro da corrida.
+  // disableCalibration=true: mantém knots salvos pra análise mas pula a aplicação.
+  if (
+    config.calibration &&
+    config.calibration.method === "isotonic" &&
+    !config.disableCalibration
+  ) {
+    const rawValid = Array.from(probabilities).slice(0, validHorses.length);
+    const calibrated = applyIsotonicToRace(
+      { x: config.calibration.knots.x, y: config.calibration.knots.y },
+      rawValid,
+    );
+    for (let i = 0; i < calibrated.length; i++) probabilities[i] = calibrated[i];
+    const top3CalibSorted = [...calibrated].sort((a, b) => a - b).slice(0, 3);
+    console.log(
+      `  🎯 Isotonic aplicado: top3 calibrado=[${top3CalibSorted.map((p) => (p * 100).toFixed(2) + "%").join(", ")}]`,
+    );
+  }
 
   // ─── Calcular P(não vence) e registrar predições ───
   const fieldSize = validHorses.length;

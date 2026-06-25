@@ -624,6 +624,7 @@ async function generateHorseFeatures(
 
     // Target
     target: target as 0 | 1,
+    finish_position: isFinishedRace ? rawHorse.position : null,
   };
 }
 
@@ -1253,6 +1254,7 @@ async function saveTrainingFeaturesToDatabase(
     horse_id: f.horse_id,
     features: f,
     target: f.target,
+    finish_position: f.finish_position,
     generated_at: new Date().toISOString(),
     model_version: "v4.0",
     quality_score: calculateFeatureQuality(f),
