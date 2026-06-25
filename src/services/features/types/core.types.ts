@@ -335,6 +335,34 @@ export interface HorseFeatures {
   position_volatility: number;
   beaten_favorite_rate: number;
 
+  // === Pace / Run-Style (Tier 1 #3, via rpscrape histórico) ===
+  pace_E_pct_recent: number;
+  pace_EP_pct_recent: number;
+  pace_P_pct_recent: number;
+  pace_S_pct_recent: number;
+  pace_dominant_style_code: number; // 0=U/none, 1=E, 2=EP, 3=P, 4=S
+  pace_consistency: number;
+  pace_made_all_pct: number;
+  pace_held_up_pct: number;
+  pace_kept_on_pct: number;
+  pace_weakened_pct: number;
+  pace_hung_pct: number;
+  pace_rpr_avg_recent: number;
+  pace_rpr_max_recent: number;
+  pace_ts_avg_recent: number;
+  pace_ovr_btn_avg_recent: number;
+  pace_ovr_btn_min_recent: number;
+  pace_data_count: number;
+  // Per-race agregados (mesmo valor pra todos os cavalos da corrida)
+  field_pace_pressure: number;
+  field_n_early: number;
+  field_n_pressers: number;
+  field_n_held_up: number;
+  field_is_lone_speed: number;
+  pace_field_size_effective: number;
+  // Interaction
+  pace_match_score: number;
+
   // === Target ===
   target: 0 | 1 | null;
 }
