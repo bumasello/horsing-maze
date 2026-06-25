@@ -138,6 +138,17 @@ screen -S backfill
 # Ctrl-A D pra desanexar
 ```
 
+**Patch obrigatório no rpscrape** — timeout default de 14s é curto demais
+para os endpoints de jumps (curl: 28 Operation timed out). Aumentar para 60s:
+
+```bash
+sed -i 's/timeout: int = 14,/timeout: int = 60,/' \
+  /opt/rpscrape/scripts/utils/network.py
+```
+
+Confirmar com `grep 'timeout: int' /opt/rpscrape/scripts/utils/network.py`.
+Esse patch precisa ser reaplicado após cada `git pull` no rpscrape.
+
 ## Troubleshooting
 
 **rpscrape retorna 401/forbidden**
