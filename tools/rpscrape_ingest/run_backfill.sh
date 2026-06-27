@@ -41,8 +41,10 @@ for year in $(seq "$YEAR_START" "$YEAR_END"); do
       echo "--- refresh token before $year $region $racetype ---"
       refresh_token
       echo "--- $year $region $racetype --- (log: $LOG_FILE)"
+      # --clean invalida cache de progress do rpscrape. Sem isso, re-execução
+      # pula tudo silenciosamente ("Resuming after..." e termina sem baixar nada).
       "$RPSCRAPE_HOME/venv/bin/python" rpscrape.py \
-        -y "$year" -r "$region" -t "$racetype" >> "$LOG_FILE" 2>&1 || \
+        -y "$year" -r "$region" -t "$racetype" --clean >> "$LOG_FILE" 2>&1 || \
         echo "WARN $year/$region/$racetype falhou (ver $LOG_FILE)"
     done
   done
