@@ -22,20 +22,24 @@ mkdir -p "$LOG_DIR"
 
 echo "=== backfill $YEAR_START-$YEAR_END @ $(date -u --iso-8601=seconds) ==="
 
-# Renova token antes de começar (depois fica vivo via sessão persistente)
-echo "--- refresh token ---"
-"$INGEST_HOME/venv/bin/python" "$INGEST_HOME/refresh_token.py" \
-  --rpscrape-env "$RPSCRAPE_HOME/.env" || {
-  echo "FATAL: refresh_token falhou, abortando"
-  exit 1
+# Helper: renova token JWT (expira em 30 min — call por iteração pra runs longos)
+refresh_token() {
+  "$INGEST_HOME/venv/bin/python" "$INGEST_HOME/refresh_token.py" \
+    --rpscrape-env "$RPSCRAPE_HOME/.env" || {
+    echo "FATAL: refresh_token falhou, abortando"
+    exit 1
+  }
 }
 
 # Por ano × região × tipo. Saída fica em data/region/<region>/<type>/<year>.csv
+# Refresh antes de CADA iteração — combos podem durar 1-2h e token só dura 30 min.
 cd "$RPSCRAPE_HOME/scripts"
 for year in $(seq "$YEAR_START" "$YEAR_END"); do
   for region in gb ire; do
     for racetype in flat jumps; do
       LOG_FILE="$LOG_DIR/backfill-$year-$region-$racetype.log"
+      echo "--- refresh token before $year $region $racetype ---"
+      refresh_token
       echo "--- $year $region $racetype --- (log: $LOG_FILE)"
       "$RPSCRAPE_HOME/venv/bin/python" rpscrape.py \
         -y "$year" -r "$region" -t "$racetype" >> "$LOG_FILE" 2>&1 || \
