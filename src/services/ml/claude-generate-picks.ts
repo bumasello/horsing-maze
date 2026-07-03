@@ -331,17 +331,22 @@ async function enrichPredictionsWithMarketData(
  *
  * Prioridade:
  *   1. `sp_decimal` de `race_horses_hr_enriched` — Starting Price OFICIAL na
- *      largada. Mais preciso, é o número mais próximo do que seria apostado
- *      na Betfair Exchange (BSP quando disponível será ainda melhor).
- *   2. Fallback: média das odds capturadas em `odds_enriched` (comportamento
- *      antigo). Usado só quando sp_decimal ainda não populou.
+ *      largada. Só existe DEPOIS da corrida terminar (útil pra backtests/eval).
+ *   2. Fallback UPCOMING: última odd capturada em `odds_enriched`
+ *      (ORDER BY last_update DESC LIMIT 1). É a odd mais fresca do
+ *      snapshot pré-corrida — a que reflete melhor o preço no momento da
+ *      largada. Média histórica foi descartada por inflar odds pra outsiders.
  *
- * Motivo da mudança (2026-07-03): a média histórica INFLATIONAVA odds pra
- * outsiders (incluía snapshots quando odd já tinha subido pra >20, que na
- * vida real não seriam apostáveis). Levava a picks fantasma no simulador.
+ * Motivo da mudança (2026-07-03, iteração 2): sp_decimal não existe em
+ * corridas UPCOMING (só é definida pós-corrida). Média histórica em
+ * odds_enriched incluía snapshots antigos que estavam fora do range
+ * apostável (>20). "Última odd" resolve os dois problemas.
+ *
+ * TODO: Betfair BSP CSV histórico → precisão máxima. Ver
+ * `~/.claude/.../memory/reference_data_providers.md`.
  */
 async function getMarketOdd(raceHorseId: number): Promise<number | null> {
-  // 1. Tenta sp_decimal primeiro
+  // 1. Tenta sp_decimal primeiro (existe só pós-corrida)
   const { data: horseRow, error: horseErr } = await supabase
     .schema("hml")
     .from("race_horses_hr_enriched")
@@ -349,21 +354,29 @@ async function getMarketOdd(raceHorseId: number): Promise<number | null> {
     .eq("id", raceHorseId)
     .single();
 
-  if (!horseErr && horseRow && horseRow.sp_decimal !== null && horseRow.sp_decimal !== undefined) {
+  if (
+    !horseErr &&
+    horseRow &&
+    horseRow.sp_decimal !== null &&
+    horseRow.sp_decimal !== undefined
+  ) {
     const sp = Number(horseRow.sp_decimal);
     if (sp > 0) return sp;
   }
 
-  // 2. Fallback: média histórica em odds_enriched
+  // 2. Fallback: última odd capturada (pré-corrida mais recente)
   const { data, error } = await supabase
     .schema("hml")
     .from("odds_enriched")
     .select("odd")
-    .eq("race_horse_id", raceHorseId);
+    .eq("race_horse_id", raceHorseId)
+    .order("last_update", { ascending: false, nullsFirst: false })
+    .limit(1);
 
   if (error || !data || data.length === 0) return null;
 
-  return data.reduce((sum, r) => sum + Number(r.odd), 0) / data.length;
+  const odd = Number(data[0].odd);
+  return odd > 0 ? odd : null;
 }
 
 // ============================================================================
