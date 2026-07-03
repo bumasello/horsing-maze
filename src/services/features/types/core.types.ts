@@ -335,33 +335,25 @@ export interface HorseFeatures {
   position_volatility: number;
   beaten_favorite_rate: number;
 
-  // === Pace / Run-Style (Tier 1 #3, via rpscrape histórico) ===
-  pace_E_pct_recent: number;
-  pace_EP_pct_recent: number;
-  pace_P_pct_recent: number;
-  pace_S_pct_recent: number;
-  pace_dominant_style_code: number; // 0=U/none, 1=E, 2=EP, 3=P, 4=S
-  pace_consistency: number;
-  pace_made_all_pct: number;
-  pace_held_up_pct: number;
-  pace_kept_on_pct: number;
-  pace_weakened_pct: number;
-  pace_hung_pct: number;
-  pace_rpr_avg_recent: number;
-  pace_rpr_max_recent: number;
-  pace_ts_avg_recent: number;
-  pace_ovr_btn_avg_recent: number;
-  pace_ovr_btn_min_recent: number;
-  pace_data_count: number;
-  // Per-race agregados (mesmo valor pra todos os cavalos da corrida)
-  field_pace_pressure: number;
-  field_n_early: number;
-  field_n_pressers: number;
-  field_n_held_up: number;
-  field_is_lone_speed: number;
-  pace_field_size_effective: number;
-  // Interaction
-  pace_match_score: number;
+  // === Pace / Run-Style (Tier 1 #3, via rpscrape data) ===
+  // Defaults aplicados quando o cavalo não tem dado do rpscrape — pipeline
+  // continua funcionando mesmo com cobertura parcial (60-88% por ano).
+  run_style_mode_recent_5: number; // 0=unknown, 1=S, 2=P, 3=EP, 4=E
+  run_style_pct_early_recent_5: number; // 0..1 (frac de starts com E/EP)
+  avg_ovr_btn_recent_5: number; // média lengths beaten últimos 5
+  rpr_max_recent_5: number; // peak RPR rating
+  ts_avg_recent_5: number; // Topspeed médio
+  secs_per_furlong_avg_recent_5: number; // velocidade absoluta
+  rpscrape_coverage_recent_5: number; // 0..5 — quantos starts tinham dado
+
+  // === Pace race-level (calculados sobre todo o campo) ===
+  field_pace_pressure: number; // (E+EP) / field_size
+  is_lone_speed: 0 | 1;
+  field_count_E: number;
+  field_count_EP: number;
+  field_count_P: number;
+  field_count_S: number;
+  pace_match_score: number; // interação cavalo × campo (-1 a +1)
 
   // === Target ===
   target: 0 | 1 | null;

@@ -14,7 +14,6 @@ export * from "./distance.converter";
 export * from "./form.parser";
 export * from "./going.converter";
 export * from "./odds.converter";
-export * from "./run_style.converter";
 export * from "./weight.converter";
 
 /**

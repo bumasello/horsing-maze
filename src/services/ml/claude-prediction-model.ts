@@ -379,8 +379,13 @@ async function processRaceAfterTraining(
     for (let i = 0; i < validHorses.length; i++) maskArr[i] = 1;
     const maskTensor = tf.tensor2d(maskArr, [1, MAX_HORSES]);
 
-    // Passar pelo modelo: output shape [1, MAX_HORSES, 1]
-    const scoresRaw = model.predict([inputTensor, maskTensor]) as tf.Tensor3D;
+    // Passar pelo modelo. Modelos multi-task (mt_b05+) retornam ARRAY
+    // [scoreOutput, loseOutput]. Modelos legados retornam apenas o scoreOutput.
+    // Aqui usamos SEMPRE o scoreOutput (compatível com pipeline de softmax race-level).
+    const rawOut = model.predict([inputTensor, maskTensor]) as
+      | tf.Tensor3D
+      | tf.Tensor3D[];
+    const scoresRaw = (Array.isArray(rawOut) ? rawOut[0] : rawOut) as tf.Tensor3D;
     const scores = scoresRaw.squeeze([0, 2]) as tf.Tensor1D; // [MAX_HORSES]
 
     // Extrair raw scores dos cavalos válidos para diagnóstico

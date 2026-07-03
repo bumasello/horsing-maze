@@ -51,13 +51,107 @@ const MODEL_TYPE_CONFIG = {
   },
 };
 
+function getExperimentLabel(): string {
+  return (process.env.EXPERIMENT_LABEL || "").trim();
+}
+
+function isMultiTask(): boolean {
+  return (process.env.MULTITASK_MODE || "").trim() === "1";
+}
+
 function getModelPath(modelType: ModelType): string {
-  return `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
+  const base = `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
+  // EXPERIMENT_LABEL tem prioridade sobre BASELINE_MODE — permite combinações
+  // como BASELINE_MODE=lean + MULTITASK_MODE=1 + EXPERIMENT_LABEL=multitask_lean.
+  const experiment = getExperimentLabel();
+  if (experiment) {
+    return `horse_probability_model/baselines/${experiment}_${modelType}`;
+  }
+  const baseline = getBaselineMode();
+  if (baseline) {
+    return `horse_probability_model/baselines/${baseline}_${modelType}`;
+  }
+  if (isMultiTask()) {
+    return `horse_probability_model/baselines/multitask_${modelType}`;
+  }
+  return base;
+}
+
+// ============================================================================
+// BASELINE MODE (Fase 1 debug — Phase 1 of project_debug_plan_val_top1)
+// ============================================================================
+// BASELINE_MODE env var:
+//   ""          → comportamento normal (prod)
+//   "sp_only"   → treina só com sp_implied_prob (1 feature) — mede ceiling do mercado
+//   "no_market" → drop todas features de mercado — mede contribuição das demais
+// Em qualquer baseline: save em path isolado (baselines/), pula saveMetricsHistory.
+
+const NO_MARKET_FEATURES = new Set([
+  "sp_decimal",
+  "sp_implied_prob",
+  "sp_rank",
+  "sp_vs_field_avg",
+  "market_confidence",
+  "is_favorite",
+  "is_outsider",
+]);
+
+function getBaselineMode(): "" | "sp_only" | "no_market" | "lean" {
+  const v = (process.env.BASELINE_MODE || "").trim();
+  if (v === "sp_only" || v === "no_market" || v === "lean") return v;
+  return "";
+}
+
+// Fase 0.5 (2026-07-01): features com Δpnl < -30 no permutation importance ROI.
+// Corta 40 features das 74 originais (22 neutras + 9 prejudiciais + 9 marginalíssimas).
+const LEAN_FEATURES = new Set([
+  "sp_rank",
+  "sp_decimal",
+  "is_outsider",
+  "form_weighted_avg",
+  "or_percentile_in_race",
+  "trainer_recent_form",
+  "recent_runs_90d",
+  "or_diff_to_top",
+  "is_favorite",
+  "horse_weight_kg",
+  "stronger_opponents_count",
+  "run_style_mode_recent_5",
+  "career_place_rate",
+  "form_trend_score",
+  "or_rank_in_race",
+  "jockey_recent_form",
+  "horse_age",
+  "days_since_last_run",
+  "distance_band_win_rate",
+  "sp_implied_prob",
+  "jockey_total_runs",
+  "form_last_position",
+  "or_advantage_score",
+  "form_exponential_avg",
+  "position_volatility",
+  "worst_recent_position",
+  "form_last5_avg",
+  "career_wins",
+  "form_consistency",
+  "run_style_pct_early_recent_5",
+  "class_win_rate",
+  "career_win_rate",
+  "jockey_trainer_combo_win_rate",
+  "ts_avg_recent_5",
+]);
+
+function applyBaselineFilter(feats: string[]): string[] {
+  const mode = getBaselineMode();
+  if (mode === "sp_only") return ["sp_implied_prob"];
+  if (mode === "no_market") return feats.filter((f) => !NO_MARKET_FEATURES.has(f));
+  if (mode === "lean") return feats.filter((f) => LEAN_FEATURES.has(f));
+  return feats;
 }
 
 const configGlobal = {
   patience: 20,
-  maxEpochs: 150,
+  maxEpochs: Number(process.env.MAX_EPOCHS || "150"),
   learningRate: 0.00005,
   batchSize: 32,
 
@@ -70,6 +164,12 @@ const configGlobal = {
   // ── Custom LAY Loss ──
   layLossAlpha: 0.3, // peso do LAY loss no total: L = ListMLE + α * L_lay
   layLossWarmup: 5, // épocas de warmup (só ListMLE) antes de ativar LAY loss
+
+  // ── Multi-task Loss (Fase 1 do model improvement plan) ──
+  // Se MULTITASK_MODE=1, modelo tem cabeça extra `lose_output` (sigmoid).
+  // Loss total = ListMLE + α*L_lay + β*BCE_lose.
+  // BCE calcula perdas por cavalo VS target invertido (1=perdeu, 0=venceu).
+  multiTaskBeta: Number(process.env.MULTITASK_BETA || "0.5"),
 
   // ── Top-K ListMLE Loss ──
   // K=5 é o sweet spot empírico (Lan et al., Position-Aware ListMLE):
@@ -111,13 +211,35 @@ export async function trainLayBettingModel(
   console.log(`📁 Path: ${modelPath}`);
   console.log(`${"=".repeat(60)}\n`);
 
+  const baselineMode = getBaselineMode();
+  const experimentLabel = getExperimentLabel();
+  const multiTaskEnabled = isMultiTask();
+  const isolatedRun = baselineMode || experimentLabel || multiTaskEnabled;
+  if (baselineMode) {
+    console.log(`🧪 BASELINE_MODE=${baselineMode} — save isolado, sem bump de versão prod\n`);
+  }
+  if (experimentLabel) {
+    console.log(`🧪 EXPERIMENT_LABEL=${experimentLabel} — save isolado em baselines/${experimentLabel}_${modelType}\n`);
+  }
+  if (multiTaskEnabled) {
+    console.log(
+      `🎯 MULTITASK_MODE=1 — cabeça extra P(perder), β=${configGlobal.multiTaskBeta}\n`,
+    );
+  }
+
   try {
     console.log("🔍 [STEP 1/7] Verificando modelo existente...");
-    const existingConfig = await checkExistingModel(modelType);
+    const existingConfig = isolatedRun
+      ? null
+      : await checkExistingModel(modelType);
     if (existingConfig) {
       console.log(`✅ Modelo existente — versão ${existingConfig.version}`);
     } else {
-      console.log("i  Primeira versão do modelo race-level");
+      console.log(
+        isolatedRun
+          ? "i  Run isolado (versão sempre 1)"
+          : "i  Primeira versão do modelo race-level",
+      );
     }
 
     console.log("\n📊 [STEP 2/7] Carregando e agrupando por corrida...");
@@ -181,8 +303,12 @@ export async function trainLayBettingModel(
     await saveModelToSupabase(model, config, modelType);
     console.log("✅ Modelo salvo");
 
-    console.log("\n📊 [STEP 7/7] Salvando métricas...");
-    await saveMetricsHistory(config, modelType);
+    if (isolatedRun) {
+      console.log(`\n📊 [STEP 7/7] Run isolado — pulando saveMetricsHistory`);
+    } else {
+      console.log("\n📊 [STEP 7/7] Salvando métricas...");
+      await saveMetricsHistory(config, modelType);
+    }
 
     console.log("\n🧹 Limpando recursos...");
     trainingData.trainX.dispose();
@@ -271,10 +397,17 @@ interface RaceGroup {
 }
 
 async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
-  const featureCount = selectedFeatures.length;
+  const activeFeatures = applyBaselineFilter(selectedFeatures);
+  const featureCount = activeFeatures.length;
   const typeConfig = MODEL_TYPE_CONFIG[modelType];
+  const baselineMode = getBaselineMode();
   logMemory("INÍCIO");
 
+  if (baselineMode) {
+    console.log(
+      `🧪 BASELINE_MODE=${baselineMode} ativo — usando ${featureCount} features: [${activeFeatures.join(", ")}]`,
+    );
+  }
   console.log(`📊 Carregando dados (${typeConfig.label})...`);
 
   const { count: totalCount, error: countError } = await supabase
@@ -282,6 +415,7 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
     .from("training_enriched_horse_features")
     .select("*", { count: "exact", head: true })
     .gte("quality_score", 0.7)
+    .eq("model_version", "v5.0")
     .in("race_type", typeConfig.raceTypes);
 
   if (countError) throw new Error(`Count falhou: ${countError.message}`);
@@ -313,6 +447,7 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
         .from("training_enriched_horse_features")
         .select("features, target, finish_position, race_id, race_date")
         .gte("quality_score", 0.7)
+        .eq("model_version", "v5.0")
         .in("race_type", typeConfig.raceTypes)
         .order("race_date", { ascending: true })
         .range(from, to);
@@ -347,7 +482,7 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
       let isValid = true;
 
       for (let i = 0; i < featureCount; i++) {
-        const featName = selectedFeatures[i];
+        const featName = activeFeatures[i];
         let value = features[featName];
         if (
           (featName === "sp_decimal" || featName === "sp_implied_prob") &&
@@ -568,7 +703,7 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
     valY: val.y,
     valFinishOrder: val.finishOrder,
     valValidRanks: val.validRanks,
-    features: selectedFeatures,
+    features: activeFeatures,
     featureCount,
     sampleCount: trainRaces.length,
     classWeights: { 0: 1, 1: 1 },
@@ -641,30 +776,20 @@ const selectedFeatures = [
   "beaten_favorite_rate",
   "worst_recent_position",
   "surface_encoded",
-  // Pace / Run-Style (Tier 1 #3)
-  "pace_E_pct_recent",
-  "pace_EP_pct_recent",
-  "pace_P_pct_recent",
-  "pace_S_pct_recent",
-  "pace_dominant_style_code",
-  "pace_consistency",
-  "pace_made_all_pct",
-  "pace_held_up_pct",
-  "pace_kept_on_pct",
-  "pace_weakened_pct",
-  "pace_hung_pct",
-  "pace_rpr_avg_recent",
-  "pace_rpr_max_recent",
-  "pace_ts_avg_recent",
-  "pace_ovr_btn_avg_recent",
-  "pace_ovr_btn_min_recent",
-  "pace_data_count",
+  // [v54] Pace / Run-Style features (Tier 1 #3, via rpscrape)
+  "run_style_mode_recent_5",
+  "run_style_pct_early_recent_5",
+  "avg_ovr_btn_recent_5",
+  "rpr_max_recent_5",
+  "ts_avg_recent_5",
+  "secs_per_furlong_avg_recent_5",
+  "rpscrape_coverage_recent_5",
   "field_pace_pressure",
-  "field_n_early",
-  "field_n_pressers",
-  "field_n_held_up",
-  "field_is_lone_speed",
-  "pace_field_size_effective",
+  "is_lone_speed",
+  "field_count_E",
+  "field_count_EP",
+  "field_count_P",
+  "field_count_S",
   "pace_match_score",
 ];
 
@@ -681,6 +806,54 @@ function createRaceLevelModel(inputDim: number): tf.LayersModel {
     encoderDim: 64,
     dropoutRate: 0.2,
     l2Reg: 0.003,
+    multiTask: isMultiTask(),
+  });
+}
+
+/**
+ * Extrai o output principal (score) do modelo, lidando com single-head e multi-head.
+ * Multi-task: model.apply retorna [scoreOut, loseOut].
+ * Single-task: retorna só scoreOut.
+ */
+function applyModelHeads(
+  model: tf.LayersModel,
+  inputs: [tf.Tensor, tf.Tensor],
+  training = false,
+): { score: tf.Tensor3D; lose: tf.Tensor3D | null } {
+  const out = model.apply(inputs, { training }) as
+    | tf.Tensor3D
+    | [tf.Tensor3D, tf.Tensor3D];
+  if (Array.isArray(out)) {
+    return { score: out[0], lose: out[1] };
+  }
+  return { score: out, lose: null };
+}
+
+/**
+ * BCE per-horse contra target invertido (1 = perdedor, 0 = vencedor).
+ * Aplica mask pra ignorar padded positions.
+ * @param loseLogits [B, M, 1] sigmoid output (já em [0,1])
+ * @param batchY     [B, M] one-hot do vencedor (1=winner, 0=loser, -1=padding)
+ */
+function bceLoseLoss(
+  loseSigmoid: tf.Tensor3D,
+  batchY: tf.Tensor2D,
+): tf.Scalar {
+  return tf.tidy(() => {
+    const lose2d = loseSigmoid.squeeze([2]) as tf.Tensor2D;
+    const eps = 1e-7;
+    const loseClipped = lose2d.clipByValue(eps, 1 - eps);
+    const mask = batchY.greaterEqual(0).toFloat() as tf.Tensor2D;
+    // target invertido: winner=0, loser=1, padding=irrelevante
+    const targetLose = tf.onesLike(batchY).sub(batchY).mul(mask) as tf.Tensor2D;
+    const bce = targetLose.mul(loseClipped.log()).add(
+      tf.onesLike(targetLose)
+        .sub(targetLose)
+        .mul(tf.onesLike(loseClipped).sub(loseClipped).log()),
+    ) as tf.Tensor2D;
+    const maskedBce = bce.mul(mask).neg() as tf.Tensor2D;
+    const totalMask = mask.sum() as tf.Scalar;
+    return maskedBce.sum().div(totalMask.add(eps)) as tf.Scalar;
   });
 }
 
@@ -993,6 +1166,7 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
     let epochLoss = 0;
     let epochCeLoss = 0;
     let epochLayLoss = 0;
+    let epochBceLoseLoss = 0;
     let epochAccSum = 0;
     let epochAccCount = 0;
 
@@ -1018,11 +1192,15 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
       let batchProbs: tf.Tensor2D | null = null;
       let batchCeLoss = 0;
       let batchLayLossVal = 0;
+      let batchBceLoseVal = 0;
+      const multiTaskEnabled = isMultiTask();
 
       const lossValue = optimizer.minimize(() => {
-        const scoresRaw = model.apply([batchX, batchMask], {
-          training: true,
-        }) as tf.Tensor3D;
+        const { score: scoresRaw, lose: loseRaw } = applyModelHeads(
+          model,
+          [batchX, batchMask],
+          true,
+        );
         const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
 
         // [v29] Top-K ListMLE substitui winner-only CE no treino
@@ -1038,24 +1216,34 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
         const probs = computeMaskedSoftmax(scores, batchMask);
         batchProbs = probs;
 
+        let totalLoss = mainLoss;
+        batchCeLoss = mainLoss.dataSync()[0];
+
         if (useLayLoss && configGlobal.layLossAlpha > 0) {
           const layLoss = laySelectionLoss(probs, batchY);
-          batchCeLoss = mainLoss.dataSync()[0];
           batchLayLossVal = layLoss.dataSync()[0];
-          const totalLoss = mainLoss.add(
+          totalLoss = totalLoss.add(
             layLoss.mul(configGlobal.layLossAlpha),
           ) as tf.Scalar;
-          return totalLoss;
         }
 
-        batchCeLoss = mainLoss.dataSync()[0];
-        return mainLoss;
+        // Multi-task: adiciona BCE contra P(perder)
+        if (multiTaskEnabled && loseRaw && configGlobal.multiTaskBeta > 0) {
+          const bceLose = bceLoseLoss(loseRaw, batchY);
+          batchBceLoseVal = bceLose.dataSync()[0];
+          totalLoss = totalLoss.add(
+            bceLose.mul(configGlobal.multiTaskBeta),
+          ) as tf.Scalar;
+        }
+
+        return totalLoss;
       }, true) as tf.Scalar;
 
       const totalLossVal = lossValue.dataSync()[0];
       epochLoss += totalLossVal;
       epochCeLoss += batchCeLoss;
       epochLayLoss += batchLayLossVal;
+      epochBceLoseLoss += batchBceLoseVal;
       lossValue.dispose();
 
       if (batchProbs) {
@@ -1074,6 +1262,7 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
     const trainLoss = epochLoss / numBatches;
     const trainCeLoss = epochCeLoss / numBatches;
     const trainLayLoss = epochLayLoss / numBatches;
+    const trainBceLose = epochBceLoseLoss / numBatches;
     const trainAcc = epochAccCount > 0 ? epochAccSum / epochAccCount : 0;
 
     // Validação (sempre só CE — LAY loss é só pra treino)
@@ -1097,14 +1286,17 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
       const valBlock =
         `val_loss=${valLoss.toFixed(4)}, val_brier=${valBrier.toFixed(4)}, ` +
         `val_ece=${(valEce * 100).toFixed(2)}%, val_top1=${(valAcc * 100).toFixed(1)}%`;
+      const mtBlock = isMultiTask()
+        ? `, BCE_lose=${trainBceLose.toFixed(4)}`
+        : "";
       if (useLayLoss) {
         console.log(
-          `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)} | ListMLE=${trainCeLoss.toFixed(4)}, LAY=${trainLayLoss.toFixed(4)}, top1=${(trainAcc * 100).toFixed(1)}%, ` +
+          `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)} | ListMLE=${trainCeLoss.toFixed(4)}, LAY=${trainLayLoss.toFixed(4)}${mtBlock}, top1=${(trainAcc * 100).toFixed(1)}%, ` +
             `${valBlock} | LR=${currentLr}`,
         );
       } else {
         console.log(
-          `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)} (ListMLE), top1=${(trainAcc * 100).toFixed(1)}%, ` +
+          `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)} (ListMLE${mtBlock}), top1=${(trainAcc * 100).toFixed(1)}%, ` +
             `${valBlock} | LR=${currentLr}`,
         );
       }
@@ -1214,7 +1406,7 @@ async function evaluateModel(
 }> {
   return tf.tidy(() => {
     const valMask = (valY as tf.Tensor2D).greaterEqual(0).toFloat();
-    const scoresRaw = model.apply([valX, valMask]) as tf.Tensor3D;
+    const { score: scoresRaw } = applyModelHeads(model, [valX, valMask], false);
     const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
     const { loss, probs } = maskedSoftmaxCrossEntropy(
       scores,
@@ -1242,7 +1434,7 @@ function collectCalibrationPairs(
 ): Array<{ x: number; y: number }> {
   const { probsArr, targetsArr } = tf.tidy(() => {
     const valMask = (valY as tf.Tensor2D).greaterEqual(0).toFloat();
-    const scoresRaw = model.apply([valX, valMask]) as tf.Tensor3D;
+    const { score: scoresRaw } = applyModelHeads(model, [valX, valMask], false);
     const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
     const mask = (valY as tf.Tensor2D).greaterEqual(0).toFloat() as tf.Tensor2D;
     const maskAdjustment = mask.sub(1).mul(1e9) as tf.Tensor2D;

@@ -209,6 +209,13 @@ interface AttentionModelConfig {
   encoderDim?: number;
   dropoutRate?: number;
   l2Reg?: number;
+  /**
+   * Se true, adiciona segunda cabeça `lose_output` (sigmoid por cavalo)
+   * pra multi-task learning: além do score race-level (softmax → ListMLE),
+   * o modelo prevê P(cavalo perder) direto com BCE contra target invertido.
+   * Requer training loop que consuma outputs=[score, lose].
+   */
+  multiTask?: boolean;
 }
 
 /**
@@ -237,6 +244,7 @@ export function createAttentionModel(
     encoderDim = 64,
     dropoutRate = 0.3,
     l2Reg = 0.003,
+    multiTask = false,
   } = config;
 
   console.log(`  🏗  Modelo attention: [batch, ${maxHorses}, ${inputDim}]`);
@@ -333,10 +341,25 @@ export function createAttentionModel(
     })
     .apply(x) as tf.SymbolicTensor;
 
+  // 6b. Multi-task: cabeça extra pra P(perder) direto
+  //     Sigmoid → [0, 1] por cavalo, independente da corrida.
+  //     Usa mesma feature representation (x) mas dense própria.
+  let loseOutput: tf.SymbolicTensor | null = null;
+  if (multiTask) {
+    console.log("     🎯 Multi-task: adicionando cabeça lose_output (sigmoid)");
+    loseOutput = tf.layers
+      .dense({
+        units: 1,
+        activation: "sigmoid",
+        name: "lose_output",
+      })
+      .apply(x) as tf.SymbolicTensor;
+  }
+
   // ── Construir modelo com 2 inputs ──
   const model = tf.model({
     inputs: [featureInput, maskInput],
-    outputs: output,
+    outputs: loseOutput ? [output, loseOutput] : output,
   });
 
   // Compilar (loss real é customizado no training loop, placeholder)

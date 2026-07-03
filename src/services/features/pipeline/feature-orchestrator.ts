@@ -14,22 +14,20 @@ import type {
 
 import {
   calculateDerivedStaticFeatures,
-  computeFieldPaceFeatures,
   extractCompetitiveFeatures,
+  extractFieldPaceFeatures,
   extractFormFeatures,
   extractHistoricalFeatures,
   extractMarketFeatures,
   extractPaceFeatures,
   extractRelationshipFeatures,
   extractStaticFeatures,
-  PACE_HISTORY_WINDOW,
   paceMatchScore,
   type FormFeatures,
   type HistoricalFeatures,
   type HistoricalRaceData,
-  type HorsePaceFeatures,
   type MarketFeatures,
-  type PaceHistoryEntry,
+  type RpscrapeHistoricalRecord,
 } from "../features/index";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -243,38 +241,26 @@ async function processRace(
     race.date,
   );
 
-  // NOVO: buscar stats globais de jóqueis/treinadores para esta data
-  const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
-
-  // PACE (Tier 1 #3): histórico via rpscrape + extract per-horse + field
-  const paceHistoryMap = await fetchPaceHistoryForHorses(
+  // NOVO: buscar histórico do rpscrape (comments + ovr_btn + secs + RPR/TS)
+  // Cobertura parcial (60-88% por ano) — cavalos sem dados ganham defaults neutros
+  const rpscrapeHistorical = await fetchRpscrapeHistoricalForHorses(
     supabase,
     horses.map((h) => h.id_horse),
     race.date,
   );
-  const horseIdToPace = new Map<number, HorsePaceFeatures>();
-  for (const h of horses) {
-    horseIdToPace.set(
-      h.id_horse,
-      extractPaceFeatures(paceHistoryMap.get(h.id_horse) || []),
-    );
-  }
-  const fieldPace = computeFieldPaceFeatures(
-    horses
-      .filter((h) => h.non_runner !== 1)
-      .map((h) => horseIdToPace.get(h.id_horse)!)
-      .filter((p) => p),
-  );
+
+  // NOVO: buscar stats globais de jóqueis/treinadores para esta data
+  const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
 
   const features: HorseFeatures[] = [];
 
+  // 1ª PASSADA: gera features individuais incluindo run_style_mode_recent_5
   for (let i = 0; i < processedHorses.length; i++) {
     const processedHorse = processedHorses[i];
     const rawHorse = horses.find((h) => h.id === processedHorse.id);
     if (!rawHorse) continue;
 
     try {
-      const horsePace = horseIdToPace.get(rawHorse.id_horse)!;
       const horseFeatures = await generateHorseFeatures(
         processedHorse,
         rawHorse,
@@ -282,10 +268,9 @@ async function processRace(
         processedHorses,
         horses,
         historicalData.get(rawHorse.id_horse) || [],
+        rpscrapeHistorical.get(rawHorse.id_horse) || [],
         race.finished === 1,
         jockeyTrainerStats,
-        horsePace,
-        fieldPace,
       );
       features.push(horseFeatures);
     } catch (error) {
@@ -294,6 +279,20 @@ async function processRace(
         error,
       );
     }
+  }
+
+  // 2ª PASSADA: calcula field-level pace features (precisa de TODOS os
+  // run_style_mode dos cavalos coletados). Mutate features em loco.
+  const horseStyles = features.map((f) => f.run_style_mode_recent_5);
+  const fieldPace = extractFieldPaceFeatures(horseStyles);
+  for (const f of features) {
+    f.field_pace_pressure = fieldPace.field_pace_pressure;
+    f.is_lone_speed = fieldPace.is_lone_speed as 0 | 1;
+    f.field_count_E = fieldPace.field_count_E;
+    f.field_count_EP = fieldPace.field_count_EP;
+    f.field_count_P = fieldPace.field_count_P;
+    f.field_count_S = fieldPace.field_count_S;
+    f.pace_match_score = paceMatchScore(f.run_style_mode_recent_5, fieldPace);
   }
 
   return features;
@@ -309,10 +308,9 @@ async function generateHorseFeatures(
   allProcessedHorses: ProcessedHorse[],
   allRawHorses: RaceHorseEnriched[],
   historicalData: HistoricalRaceData[],
+  rpscrapeHistorical: RpscrapeHistoricalRecord[],
   isFinishedRace: boolean,
   jockeyTrainerStats: JockeyTrainerStatsMap,
-  horsePace: HorsePaceFeatures,
-  fieldPace: ReturnType<typeof computeFieldPaceFeatures>,
 ): Promise<HorseFeatures> {
   const staticFeatures = extractStaticFeatures(race, processedHorse, rawHorse);
   const derivedStatic = calculateDerivedStaticFeatures(staticFeatures); // NOVO
@@ -596,31 +594,15 @@ async function generateHorseFeatures(
     // Lay-specific
     ...layFeatures,
 
-    // Pace / Run-Style (Tier 1 #3)
-    pace_E_pct_recent: horsePace.pace_E_pct_recent,
-    pace_EP_pct_recent: horsePace.pace_EP_pct_recent,
-    pace_P_pct_recent: horsePace.pace_P_pct_recent,
-    pace_S_pct_recent: horsePace.pace_S_pct_recent,
-    pace_dominant_style_code: horsePace.pace_dominant_style_code,
-    pace_consistency: horsePace.pace_consistency,
-    pace_made_all_pct: horsePace.pace_made_all_pct,
-    pace_held_up_pct: horsePace.pace_held_up_pct,
-    pace_kept_on_pct: horsePace.pace_kept_on_pct,
-    pace_weakened_pct: horsePace.pace_weakened_pct,
-    pace_hung_pct: horsePace.pace_hung_pct,
-    pace_rpr_avg_recent: horsePace.pace_rpr_avg_recent,
-    pace_rpr_max_recent: horsePace.pace_rpr_max_recent,
-    pace_ts_avg_recent: horsePace.pace_ts_avg_recent,
-    pace_ovr_btn_avg_recent: horsePace.pace_ovr_btn_avg_recent,
-    pace_ovr_btn_min_recent: horsePace.pace_ovr_btn_min_recent,
-    pace_data_count: horsePace.pace_data_count,
-    field_pace_pressure: fieldPace.field_pace_pressure,
-    field_n_early: fieldPace.n_early_runners,
-    field_n_pressers: fieldPace.n_pressers,
-    field_n_held_up: fieldPace.n_held_up,
-    field_is_lone_speed: fieldPace.is_lone_speed,
-    pace_field_size_effective: fieldPace.pace_field_size,
-    pace_match_score: paceMatchScore(horsePace, fieldPace),
+    // Pace / Run-Style (individual — field-level setado em 2ª passada no caller)
+    ...extractPaceFeatures(rpscrapeHistorical, new Date(race.date)),
+    field_pace_pressure: 0, // placeholder, sobrescrito na 2ª passada
+    is_lone_speed: 0 as 0 | 1,
+    field_count_E: 0,
+    field_count_EP: 0,
+    field_count_P: 0,
+    field_count_S: 0,
+    pace_match_score: 0,
 
     // Target
     target: target as 0 | 1,
@@ -781,7 +763,7 @@ async function fetchRacesWithoutFeatures(
     .schema("hml")
     .from("training_enriched_horse_features")
     .select("race_id")
-    .eq("model_version", "v4.0");
+    .eq("model_version", "v5.0");
 
   const existingRaceIds = new Set(
     (existingFeatures || []).map((f) => f.race_id),
@@ -1140,6 +1122,77 @@ async function fetchHistoricalDataForHorses(
 }
 
 /**
+ * Busca os últimos N starts no rpscrape_results pra os cavalos solicitados.
+ * Retorna Map<id_horse, RpscrapeHistoricalRecord[]> ordenado por race_date DESC.
+ *
+ * Estratégia: JOIN com race_horses_hr_enriched pra resolver id_horse → race_horse_id
+ * (que é a FK no rpscrape_results). Só considera linhas com match_status='matched'.
+ *
+ * Caveat: cobertura é 60-88% por ano. Cavalos sem dado → array vazio, extractor
+ * cai em defaults neutros.
+ */
+async function fetchRpscrapeHistoricalForHorses(
+  supabase: SupabaseClient,
+  horseIds: number[],
+  beforeDate: string,
+): Promise<Map<number, RpscrapeHistoricalRecord[]>> {
+  const out = new Map<number, RpscrapeHistoricalRecord[]>();
+  if (horseIds.length === 0) return out;
+
+  const uniqueIds = [...new Set(horseIds)];
+  const chunkSize = 50;
+
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const chunk = uniqueIds.slice(i, i + chunkSize);
+
+    // Step 1: descobre race_horse_id → id_horse mapping
+    const rhRecords = await withSupabaseRetry(
+      async () =>
+        await supabase
+          .schema("hml")
+          .from("race_horses_hr_enriched")
+          .select("id, id_horse")
+          .in("id_horse", chunk),
+      `fetchRpscrapeHistorical - rh ids chunk ${i / chunkSize}`,
+    );
+    if (!rhRecords || rhRecords.length === 0) continue;
+
+    const rhIdToHorseId = new Map<number, number>();
+    for (const r of rhRecords) rhIdToHorseId.set(r.id, r.id_horse);
+    const rhIds = rhRecords.map((r) => r.id);
+
+    // Step 2: busca rpscrape rows pra esses race_horse_id (antes da currentRace)
+    const rpsRows = await withSupabaseRetry(
+      async () =>
+        await supabase
+          .schema("hml")
+          .from("rpscrape_results")
+          .select(
+            "race_horse_id, race_date, comment, ovr_btn, secs, rpr_rating, ts_rating, dist_f",
+          )
+          .in("race_horse_id", rhIds)
+          .eq("match_status", "matched")
+          .lt("race_date", beforeDate)
+          .order("race_date", { ascending: false }),
+      `fetchRpscrapeHistorical - rps rows chunk ${i / chunkSize}`,
+    );
+
+    if (!rpsRows) continue;
+
+    // Step 3: agrupa por id_horse, limita a 10 mais recentes (extractor pega 5)
+    for (const row of rpsRows) {
+      const horseId = rhIdToHorseId.get(row.race_horse_id);
+      if (horseId == null) continue;
+      if (!out.has(horseId)) out.set(horseId, []);
+      const arr = out.get(horseId)!;
+      if (arr.length < 10) arr.push(row as RpscrapeHistoricalRecord);
+    }
+  }
+
+  return out;
+}
+
+/**
  * Enriquecer registros de cavalos com dados das corridas
  * NOTA: Esta função não é mais chamada por fetchHistoricalDataForHorses (otimização #3),
  * que agora faz o enrichment em batch. Mantida para uso em outros contextos se necessário.
@@ -1256,7 +1309,7 @@ async function saveTrainingFeaturesToDatabase(
     target: f.target,
     finish_position: f.finish_position,
     generated_at: new Date().toISOString(),
-    model_version: "v4.0",
+    model_version: "v5.0",
     quality_score: calculateFeatureQuality(f),
     race_date: f.race_date,
     race_type: f.race_type || null,
@@ -1324,7 +1377,7 @@ async function savePredictionFeaturesToDatabase(
     lay_recommendation: null, // Será preenchido quando rodar o modelo ML
     race_date: raceDate.toISOString().split("T")[0], // Apenas data
     generated_at: new Date().toISOString(),
-    model_version: "v4.0",
+    model_version: "v5.0",
     quality_score: calculateFeatureQuality(f),
     prediction_status: "PENDING",
   }));
@@ -1683,27 +1736,13 @@ async function processRaceForPrediction(
     race.date,
   );
 
-  const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
-
-  // PACE (Tier 1 #3): histórico via rpscrape
-  const paceHistoryMap = await fetchPaceHistoryForHorses(
+  const rpscrapeHistorical = await fetchRpscrapeHistoricalForHorses(
     supabase,
     horsesWithOdds.map((h) => h.id_horse),
     race.date,
   );
-  const horseIdToPace = new Map<number, HorsePaceFeatures>();
-  for (const h of horsesWithOdds) {
-    horseIdToPace.set(
-      h.id_horse,
-      extractPaceFeatures(paceHistoryMap.get(h.id_horse) || []),
-    );
-  }
-  const fieldPace = computeFieldPaceFeatures(
-    horsesWithOdds
-      .filter((h) => h.non_runner !== 1)
-      .map((h) => horseIdToPace.get(h.id_horse)!)
-      .filter((p) => p),
-  );
+
+  const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
 
   const features: HorseFeatures[] = [];
 
@@ -1713,7 +1752,6 @@ async function processRaceForPrediction(
     if (!rawHorse) continue;
 
     try {
-      const horsePace = horseIdToPace.get(rawHorse.id_horse)!;
       const horseFeatures = await generateHorseFeatures(
         processedHorse,
         rawHorse,
@@ -1721,10 +1759,9 @@ async function processRaceForPrediction(
         processedHorses,
         horsesWithOdds,
         historicalData.get(rawHorse.id_horse) || [],
-        false,
+        rpscrapeHistorical.get(rawHorse.id_horse) || [],
+        false, // isFinishedRace = false → target = null
         jockeyTrainerStats,
-        horsePace,
-        fieldPace,
       );
       features.push(horseFeatures);
     } catch (error) {
@@ -1735,139 +1772,18 @@ async function processRaceForPrediction(
     }
   }
 
+  // 2ª passada: field-level pace features
+  const horseStyles = features.map((f) => f.run_style_mode_recent_5);
+  const fieldPace = extractFieldPaceFeatures(horseStyles);
+  for (const f of features) {
+    f.field_pace_pressure = fieldPace.field_pace_pressure;
+    f.is_lone_speed = fieldPace.is_lone_speed as 0 | 1;
+    f.field_count_E = fieldPace.field_count_E;
+    f.field_count_EP = fieldPace.field_count_EP;
+    f.field_count_P = fieldPace.field_count_P;
+    f.field_count_S = fieldPace.field_count_S;
+    f.pace_match_score = paceMatchScore(f.run_style_mode_recent_5, fieldPace);
+  }
+
   return features;
-}
-
-/**
- * Bulk fetch do histórico de pace via rpscrape_results.
- *
- * 3 queries com batching:
- *   1. race_horses_hr_enriched (id, racecard_id) por id_horse
- *   2. racecards_hr_enriched (id, date) WHERE date < beforeDate
- *   3. rpscrape_results pra race_horse_id encontrados
- *
- * Retorna Map<id_horse, PaceHistoryEntry[]> ordenado por data DESC,
- * limitado a PACE_HISTORY_WINDOW por cavalo. Cavalos sem dados rpscrape
- * matched aparecem com array vazio (modelo lida via pace_data_count=0).
- */
-async function fetchPaceHistoryForHorses(
-  supabase: SupabaseClient,
-  horseIds: number[],
-  beforeDate: string,
-): Promise<Map<number, PaceHistoryEntry[]>> {
-  const result = new Map<number, PaceHistoryEntry[]>();
-  if (horseIds.length === 0) return result;
-  for (const h of horseIds) result.set(h, []);
-
-  // 1) race_horses_hr_enriched por id_horse (chunks de 50)
-  const rhRows: Array<{
-    id: number;
-    id_horse: number;
-    racecard_id: number;
-  }> = [];
-  const inChunkSize = 50;
-  for (let i = 0; i < horseIds.length; i += inChunkSize) {
-    const chunk = horseIds.slice(i, i + inChunkSize);
-    const records = await withSupabaseRetry(
-      async () =>
-        await supabase
-          .schema("hml")
-          .from("race_horses_hr_enriched")
-          .select("id, id_horse, racecard_id")
-          .in("id_horse", chunk),
-      `fetchPaceHistory q1 chunk ${i / inChunkSize + 1}`,
-    );
-    if (records) rhRows.push(...(records as any));
-  }
-  if (rhRows.length === 0) return result;
-
-  // 2) racecards_hr_enriched pra ter datas, filtrando < beforeDate
-  const allRacecardIds = Array.from(
-    new Set(rhRows.map((r) => r.racecard_id).filter((x) => x != null)),
-  );
-  const dateById = new Map<number, string>();
-  const raceChunkSize = 200;
-  for (let i = 0; i < allRacecardIds.length; i += raceChunkSize) {
-    const chunk = allRacecardIds.slice(i, i + raceChunkSize);
-    const records = await withSupabaseRetry(
-      async () =>
-        await supabase
-          .schema("hml")
-          .from("racecards_hr_enriched")
-          .select("id, date")
-          .in("id", chunk)
-          .lt("date", beforeDate),
-      `fetchPaceHistory q2 chunk ${i / raceChunkSize + 1}`,
-    );
-    if (records) {
-      for (const rc of records as any) dateById.set(rc.id, rc.date);
-    }
-  }
-  if (dateById.size === 0) return result;
-
-  // Pra cada cavalo, pega top PACE_HISTORY_WINDOW race_horse_id ordenados por data DESC
-  const horseToStarts = new Map<
-    number,
-    Array<{ race_horse_id: number; date: string }>
-  >();
-  for (const rh of rhRows) {
-    if (!dateById.has(rh.racecard_id)) continue;
-    const arr = horseToStarts.get(rh.id_horse) || [];
-    arr.push({ race_horse_id: rh.id, date: dateById.get(rh.racecard_id)! });
-    horseToStarts.set(rh.id_horse, arr);
-  }
-  const topStarts: Array<{
-    id_horse: number;
-    race_horse_id: number;
-    date: string;
-  }> = [];
-  for (const [hid, starts] of horseToStarts) {
-    starts.sort((a, b) => b.date.localeCompare(a.date));
-    for (const s of starts.slice(0, PACE_HISTORY_WINDOW)) {
-      topStarts.push({ id_horse: hid, ...s });
-    }
-  }
-  if (topStarts.length === 0) return result;
-
-  // 3) rpscrape_results pra esses race_horse_id (em chunks pra .in)
-  const rhIdsForRps = topStarts.map((s) => s.race_horse_id);
-  const rpsRecords: Array<{
-    race_horse_id: number;
-    comment: string | null;
-    rpr_rating: number | null;
-    ts_rating: number | null;
-    ovr_btn: number | null;
-  }> = [];
-  for (let i = 0; i < rhIdsForRps.length; i += raceChunkSize) {
-    const chunk = rhIdsForRps.slice(i, i + raceChunkSize);
-    const records = await withSupabaseRetry(
-      async () =>
-        await supabase
-          .schema("hml")
-          .from("rpscrape_results")
-          .select("race_horse_id, comment, rpr_rating, ts_rating, ovr_btn")
-          .in("race_horse_id", chunk),
-      `fetchPaceHistory q3 chunk ${i / raceChunkSize + 1}`,
-    );
-    if (records) rpsRecords.push(...(records as any));
-  }
-
-  const rpsByRhId = new Map<number, (typeof rpsRecords)[0]>();
-  for (const r of rpsRecords) rpsByRhId.set(r.race_horse_id, r);
-
-  // Monta result: cavalos → entries ordenados por data DESC, só com dados rpscrape
-  for (const s of topStarts) {
-    const r = rpsByRhId.get(s.race_horse_id);
-    if (!r) continue; // sem rpscrape match — descarta
-    const arr = result.get(s.id_horse) || [];
-    arr.push({
-      race_date: s.date,
-      comment: r.comment,
-      rpr_rating: r.rpr_rating,
-      ts_rating: r.ts_rating,
-      ovr_btn: r.ovr_btn,
-    });
-    result.set(s.id_horse, arr);
-  }
-  return result;
 }

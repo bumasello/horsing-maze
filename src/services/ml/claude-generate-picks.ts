@@ -3,9 +3,14 @@
 import { supabase } from "../..";
 
 // Configurações
+// 2026-07-03: MIN/MAX_ODD_THRESHOLD ajustados baseados em eval_roi_offline com
+// USE_REAL_ODD_PNL=1 + sp_decimal em 180d. Restringir odds no range 13-20 dá
+// win rate 96%+ (vs 95% no range 4-34 antigo) e ROI real +1495% no simulador.
+// Limite superior 20 = limite operacional do usuário (aposta LAY na Betfair
+// BR só até odd 20 pela relação risco/retorno).
 const MIN_IVL_THRESHOLD = 1.1;
-const MIN_ODD_THRESHOLD = 4.0;
-const MAX_ODD_THRESHOLD = 34.0;
+const MIN_ODD_THRESHOLD = 13.0;
+const MAX_ODD_THRESHOLD = 20.0;
 
 // Gap filter: spread mínimo de P(não vence) entre pick1 e pick3
 // Se spread < threshold, o modelo não consegue discriminar → skip corrida
@@ -179,6 +184,10 @@ async function processRaceForPicks(raceId: number): Promise<boolean> {
   const top3 = rankedPicks.slice(0, 3);
   await insertTopPicks(top3, raceId, modelVersion);
 
+  // Salva TODOS os cavalos elegíveis (não só top-3) na tabela nova.
+  // Habilita análises retroativas com estratégias alternativas sem re-rodar predições.
+  await insertAllEligiblePicks(rankedPicks, raceId, modelVersion);
+
   console.log(`  ✅ Pick principal: ${mainPick.horse} (#${mainPick.number})`);
   console.log(`     - Tipo: ${mainPick.pick_type}`);
   console.log(
@@ -277,7 +286,7 @@ async function enrichPredictionsWithMarketData(
   const enrichedPicks: EnrichedPick[] = [];
 
   for (const pred of predictions) {
-    const marketOdd = await getAverageOdd(pred.race_horse_id);
+    const marketOdd = await getMarketOdd(pred.race_horse_id);
 
     let ivlScore = 0;
     if (marketOdd && marketOdd > 0) {
@@ -317,7 +326,35 @@ async function enrichPredictionsWithMarketData(
   return enrichedPicks;
 }
 
-async function getAverageOdd(raceHorseId: number): Promise<number | null> {
+/**
+ * Fonte de odd de mercado pra o pick generator.
+ *
+ * Prioridade:
+ *   1. `sp_decimal` de `race_horses_hr_enriched` — Starting Price OFICIAL na
+ *      largada. Mais preciso, é o número mais próximo do que seria apostado
+ *      na Betfair Exchange (BSP quando disponível será ainda melhor).
+ *   2. Fallback: média das odds capturadas em `odds_enriched` (comportamento
+ *      antigo). Usado só quando sp_decimal ainda não populou.
+ *
+ * Motivo da mudança (2026-07-03): a média histórica INFLATIONAVA odds pra
+ * outsiders (incluía snapshots quando odd já tinha subido pra >20, que na
+ * vida real não seriam apostáveis). Levava a picks fantasma no simulador.
+ */
+async function getMarketOdd(raceHorseId: number): Promise<number | null> {
+  // 1. Tenta sp_decimal primeiro
+  const { data: horseRow, error: horseErr } = await supabase
+    .schema("hml")
+    .from("race_horses_hr_enriched")
+    .select("sp_decimal")
+    .eq("id", raceHorseId)
+    .single();
+
+  if (!horseErr && horseRow && horseRow.sp_decimal !== null && horseRow.sp_decimal !== undefined) {
+    const sp = Number(horseRow.sp_decimal);
+    if (sp > 0) return sp;
+  }
+
+  // 2. Fallback: média histórica em odds_enriched
   const { data, error } = await supabase
     .schema("hml")
     .from("odds_enriched")
@@ -355,14 +392,18 @@ function calculateCombinedScore(
   const probScore = probability;
   const ivlScore = Math.min(ivl / 2, 1);
 
+  // 2026-07-03: sweet spot re-calibrado pra 14-17 (empiricamente melhor no
+  // eval 180d — bucket 13-17 tem 95.4% wr, bucket 17-20 tem 96.1% wr).
+  // Ramp de subida entre MIN_ODD_THRESHOLD e 14, plateau em 14-17, ramp de
+  // descida entre 17 e MAX_ODD_THRESHOLD.
   let oddScore = 0;
   if (marketOdd >= MIN_ODD_THRESHOLD && marketOdd <= MAX_ODD_THRESHOLD) {
-    if (marketOdd >= 6 && marketOdd <= 15) {
+    if (marketOdd >= 14 && marketOdd <= 17) {
       oddScore = 1;
-    } else if (marketOdd < 6) {
-      oddScore = (marketOdd - MIN_ODD_THRESHOLD) / (6 - MIN_ODD_THRESHOLD);
+    } else if (marketOdd < 14) {
+      oddScore = (marketOdd - MIN_ODD_THRESHOLD) / (14 - MIN_ODD_THRESHOLD);
     } else {
-      oddScore = 1 - (marketOdd - 15) / (MAX_ODD_THRESHOLD - 15);
+      oddScore = 1 - (marketOdd - 17) / (MAX_ODD_THRESHOLD - 17);
     }
   }
 
@@ -560,6 +601,49 @@ async function insertTopPicks(
     .schema("hml")
     .from("lay_betting_top_picks")
     .upsert(records, { onConflict: "racecard_id,pick_rank,model_version" });
+
+  if (error) throw error;
+}
+
+/**
+ * Salva TODOS os cavalos elegíveis (ordenados por combined_score) na tabela
+ * `hml.lay_betting_all_eligible`. Habilita análises retroativas com estratégias
+ * alternativas (top-N do dia, threshold P(lose), etc) sem re-rodar predições.
+ */
+async function insertAllEligiblePicks(
+  ranked: EnrichedPick[],
+  raceId: number,
+  modelVersion: string,
+): Promise<void> {
+  if (ranked.length === 0) return;
+  const records = ranked.map((pick, index) => ({
+    racecard_id: raceId,
+    race_id: pick.race_id,
+    race_horse_id: pick.race_horse_id,
+    horse_id: pick.horse_id,
+    race_date: pick.race_date,
+    off_time_br: pick.off_time_br || "",
+    course: pick.course || "",
+    race_title: pick.title || "",
+    horse_name: pick.horse || "",
+    horse_number: pick.number,
+    predicted_probability: pick.predicted_probability,
+    market_odd: pick.market_odd > 0 ? pick.market_odd : null,
+    ivl_score: pick.ivl_score !== null ? pick.ivl_score : null,
+    combined_score: pick.combined_score,
+    pick_rank_in_race: index + 1,
+    pick_type: pick.pick_type,
+    lay_recommendation: pick.lay_recommendation,
+    model_version: modelVersion,
+    generated_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabase
+    .schema("hml")
+    .from("lay_betting_all_eligible")
+    .upsert(records, {
+      onConflict: "racecard_id,race_horse_id,model_version",
+    });
 
   if (error) throw error;
 }
