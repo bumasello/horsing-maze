@@ -8,15 +8,26 @@
 //   - Tensor 3D: [num_races, max_horses, n_features] com padding
 //   - Rede compartilhada gera "score" por cavalo
 //   - Softmax aplicado dentro da corrida (com masking de padded positions)
-//   - Loss: categorical cross-entropy contra o vencedor real
-//   - P(não vence) = 1 - P(vence) — agora coerente dentro da corrida
-//   - [NEW] LR Scheduling: ReduceLROnPlateau manual no custom loop
-//   - [NEW] Custom LAY Loss: penaliza quando vencedor está entre picks LAY
+//   - LR Scheduling: ReduceLROnPlateau manual no custom loop
+//   - Custom LAY Loss: penaliza quando vencedor está entre picks LAY
+//   - [v28] LAY Loss ATIVADO no training loop com warmup
+//   - [v29] Loss principal de treino agora é Top-K ListMLE (Plackett-Luce),
+//          que usa a ordem completa de chegada (top-K=5) em vez de só o vencedor.
+//          Validação ainda usa CE-só-do-vencedor pra val_loss permanecer
+//          comparável com versões anteriores do modelo.
+//   - [v30] Calibração:
+//          * Brier score e ECE calculados a cada época (val set).
+//          * Best model selection agora é por val_brier (Walsh & Joshi 2024).
+//          * Early stopping e LR scheduler continuam em val_loss (mais estável).
+//          * Isotonic regression (PAV) ajustado no val no fim do treino,
+//            knots salvos em config.calibration.knots; predição aplica curva
+//            + renormaliza dentro da corrida.
 
 import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../..";
 import { createAttentionModel } from "./layers/attention";
 import type { ModelConfig } from "../../shared/types/ml.types";
+import { fitIsotonic } from "./calibration";
 
 // ============================================================================
 // CONFIGURAÇÃO
@@ -44,7 +55,6 @@ function getModelPath(modelType: ModelType): string {
   return `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
 }
 
-// [CHANGED] Adicionados parâmetros de LR scheduling e LAY loss
 const configGlobal = {
   patience: 20,
   maxEpochs: 150,
@@ -52,14 +62,24 @@ const configGlobal = {
   batchSize: 32,
 
   // ── LR Scheduling (ReduceLROnPlateau) ──
-  lrReduceAfter: 10, // épocas sem melhora antes de reduzir LR
-  lrReduceFactor: 0.5, // multiplicar LR por este fator
-  minLearningRate: 1e-6, // piso do LR
-  maxLrReductions: 4, // máximo de reduções antes de parar de reduzir
+  lrReduceAfter: 10,
+  lrReduceFactor: 0.5,
+  minLearningRate: 1e-6,
+  maxLrReductions: 4,
 
-  // ── Custom LAY Loss (mantém config, não usado ainda) ──
-  layLossAlpha: 0.3,
-  layLossWarmup: 5,
+  // ── Custom LAY Loss ──
+  layLossAlpha: 0.3, // peso do LAY loss no total: L = ListMLE + α * L_lay
+  layLossWarmup: 5, // épocas de warmup (só ListMLE) antes de ativar LAY loss
+
+  // ── Top-K ListMLE Loss ──
+  // K=5 é o sweet spot empírico (Lan et al., Position-Aware ListMLE):
+  // suficiente pra capturar informação dos top finishers sem gradient-vanishing
+  // em fields de 20-30 corredores.
+  listMLETopK: 5,
+  // Sentinel usado nos dados pra DNF/PU/F (cavalos sem posição válida).
+  // DNFs ficam no DENOMINADOR da loss (massa de probabilidade) mas não no
+  // numerador (não tentamos prever sua ordem).
+  dnfPositionSentinel: 99,
 };
 
 // ============================================================================
@@ -112,6 +132,17 @@ export async function trainLayBettingModel(
     const history = await trainRaceLevelModel(model, trainingData);
     console.log("✅ Treinamento concluído");
 
+    console.log("\n📐 Ajustando curva isotonic no val set...");
+    const calibPairs = collectCalibrationPairs(
+      model,
+      trainingData.valX,
+      trainingData.valY,
+    );
+    const isotonicCurve = fitIsotonic(calibPairs);
+    console.log(
+      `  ✅ Isotonic: ${calibPairs.length} pares → ${isotonicCurve.x.length} knots (range x=[${isotonicCurve.x[0]?.toFixed(4)}, ${isotonicCurve.x[isotonicCurve.x.length - 1]?.toFixed(4)}])`,
+    );
+
     console.log("\n📝 [STEP 5/7] Preparando configuração...");
     const config: ModelConfig = {
       version: existingConfig ? existingConfig.version + 1 : 1,
@@ -127,6 +158,8 @@ export async function trainLayBettingModel(
         valAccuracy: history.valAcc,
         trainLoss: history.trainLoss,
         valLoss: history.valLoss,
+        valBrier: history.valBrier,
+        valEce: history.valEce,
         timestamp: new Date().toISOString(),
       },
       training: {
@@ -134,11 +167,14 @@ export async function trainLayBettingModel(
         batchSize: configGlobal.batchSize,
         learningRate: configGlobal.learningRate,
         samplesUsed: trainingData.sampleCount,
-        classWeights: { 0: 1, 1: 1 }, // N/A para race-level
+        classWeights: { 0: 1, 1: 1 },
       },
-      // PLACEHOLDER: threshold precisa de recalibração com nova escala de probs
-      // Com softmax, P(não vence) é relativa ao field size, não absoluta
       optimalThreshold: 0.85,
+      calibration: {
+        method: "isotonic",
+        knots: { x: isotonicCurve.x, y: isotonicCurve.y },
+        fittedOn: calibPairs.length,
+      },
     };
 
     console.log("\n💾 [STEP 6/7] Salvando modelo...");
@@ -151,8 +187,12 @@ export async function trainLayBettingModel(
     console.log("\n🧹 Limpando recursos...");
     trainingData.trainX.dispose();
     trainingData.trainY.dispose();
+    trainingData.trainFinishOrder.dispose();
+    trainingData.trainValidRanks.dispose();
     trainingData.valX.dispose();
     trainingData.valY.dispose();
+    trainingData.valFinishOrder.dispose();
+    trainingData.valValidRanks.dispose();
     model.dispose();
 
     console.log(`\n✅ Treinamento ${typeConfig.label} completo!`);
@@ -163,6 +203,16 @@ export async function trainLayBettingModel(
     console.log(
       `📊 Top-1 acc validação: ${(config.metrics.valAccuracy * 100).toFixed(2)}%`,
     );
+    if (config.metrics.valBrier !== undefined) {
+      console.log(
+        `📊 Brier validação: ${config.metrics.valBrier.toFixed(4)} (menor = melhor)`,
+      );
+    }
+    if (config.metrics.valEce !== undefined) {
+      console.log(
+        `📊 ECE validação: ${(config.metrics.valEce * 100).toFixed(2)}% (menor = melhor)`,
+      );
+    }
     console.log(`📊 (random baseline ~10% para field de 10 cavalos)`);
   } catch (error) {
     console.error(`\n❌ Erro no treinamento ${typeConfig.label}:`);
@@ -215,7 +265,8 @@ interface RaceGroup {
   raceDate: number;
   horses: Array<{
     features: Float32Array;
-    target: number; // 0 = vencedor, 1 = não-vencedor (formato original do banco)
+    target: number;
+    finishPosition: number; // 1=vencedor, 2,3,...=posição real, 99=DNF
   }>;
 }
 
@@ -239,7 +290,6 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
 
   console.log(`📊 Total registros ${typeConfig.label}: ${totalCount}`);
 
-  // Streaming + agrupamento por race_id
   const racesMap = new Map<number, RaceGroup>();
 
   const pageSize = 1000;
@@ -261,7 +311,7 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
       const { data, error } = await supabase
         .schema("hml")
         .from("training_enriched_horse_features")
-        .select("features, target, race_id, race_date")
+        .select("features, target, finish_position, race_id, race_date")
         .gte("quality_score", 0.7)
         .in("race_type", typeConfig.raceTypes)
         .order("race_date", { ascending: true })
@@ -293,7 +343,6 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
       )
         continue;
 
-      // Extrair vetor de features
       const vector = new Float32Array(featureCount);
       let isValid = true;
 
@@ -323,6 +372,8 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
       racesMap.get(raceId)!.horses.push({
         features: vector,
         target: record.target ?? 1,
+        finishPosition:
+          record.finish_position ?? configGlobal.dnfPositionSentinel,
       });
 
       processedHorses++;
@@ -344,7 +395,6 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
   logMemory("APÓS_STREAMING");
   tryGC();
 
-  // Filtrar corridas válidas: precisa ter pelo menos 1 vencedor (target=0) e <= MAX_HORSES
   const validRaces: RaceGroup[] = [];
   let droppedNoWinner = 0;
   let droppedTooManyHorses = 0;
@@ -377,12 +427,10 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
 
   if (validRaces.length === 0) throw new Error("Nenhuma corrida válida");
 
-  // Ordenar cronologicamente
   validRaces.sort((a, b) => a.raceDate - b.raceDate);
   racesMap.clear();
   tryGC();
 
-  // Split temporal 80/20
   const splitIdx = Math.floor(validRaces.length * 0.8);
   const trainRaces = validRaces.slice(0, splitIdx);
   const valRaces = validRaces.slice(splitIdx);
@@ -395,7 +443,6 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
     `📊 Treino: ${trainRaces.length} corridas | Val: ${valRaces.length} corridas`,
   );
 
-  // Calcular normalização robusta no TREINO (todos os cavalos do treino)
   console.log("📏 Calculando normalização...");
   const median = new Array(featureCount);
   const iqr = new Array(featureCount);
@@ -435,39 +482,76 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
     std[col] = Math.sqrt(sumSq / totalTrainHorses) + 1e-7;
   }
 
-  // Construir tensores 3D: [num_races, MAX_HORSES, featureCount]
   console.log("🔢 Construindo tensores 3D...");
 
   const buildTensors = (races: RaceGroup[]) => {
     const numRaces = races.length;
     const xBuffer = new Float32Array(numRaces * MAX_HORSES * featureCount);
-    // y: 1 para vencedor, 0 para perdedor, -1 para padding (será mascarado no loss)
     const yBuffer = new Float32Array(numRaces * MAX_HORSES);
+    // finishOrder[r, k] = índice do cavalo (na ordem original) que terminou em k-ésimo.
+    // Pra slots de padding, usa identity (k) pra evitar valores inválidos no gather.
+    const finishOrderBuffer = new Int32Array(numRaces * MAX_HORSES);
+    // validRanks[r, k] = 1 se o k-ésimo rank é um finisher real dentro do top-K
+    const validRanksBuffer = new Float32Array(numRaces * MAX_HORSES);
+
+    const K = configGlobal.listMLETopK;
+    const DNF = configGlobal.dnfPositionSentinel;
 
     for (let r = 0; r < numRaces; r++) {
       const race = races[r];
+      const N = race.horses.length;
+
+      // Features + target one-hot do vencedor (mantido pra top1 acc + LAY loss)
       for (let h = 0; h < MAX_HORSES; h++) {
         const yIdx = r * MAX_HORSES + h;
-        if (h < race.horses.length) {
+        if (h < N) {
           const horse = race.horses[h];
-          // Normalizar in-place ao copiar para o buffer
           const xOffset = (r * MAX_HORSES + h) * featureCount;
           for (let f = 0; f < featureCount; f++) {
             const normalized = (horse.features[f] - median[f]) / iqr[f];
             xBuffer[xOffset + f] = Math.max(-3, Math.min(3, normalized));
           }
-          // Inverter target: original 0=vence → novo 1=vence
           yBuffer[yIdx] = horse.target === 0 ? 1 : 0;
         } else {
-          // Padding: features = 0, y = -1 (mask)
           yBuffer[yIdx] = -1;
         }
+      }
+
+      // Ordenação por finish position (DNFs vão pro fim, ties mantêm ordem original)
+      const horseIndices = race.horses.map((_, i) => i);
+      horseIndices.sort((a, b) => {
+        const posA = race.horses[a].finishPosition;
+        const posB = race.horses[b].finishPosition;
+        return posA - posB; // 1 vem primeiro, 99 (DNF) vai por último
+      });
+
+      // Quantos finishers reais existem (cap em K)
+      const realFinishers = race.horses.filter(
+        (h) => h.finishPosition < DNF,
+      ).length;
+      const K_eff = Math.min(K, realFinishers);
+
+      for (let k = 0; k < MAX_HORSES; k++) {
+        const idx = r * MAX_HORSES + k;
+        if (k < N) {
+          finishOrderBuffer[idx] = horseIndices[k];
+        } else {
+          // Padding: identity index. Mask vai zerar contribuição.
+          finishOrderBuffer[idx] = k;
+        }
+        validRanksBuffer[idx] = k < K_eff ? 1 : 0;
       }
     }
 
     const x = tf.tensor3d(xBuffer, [numRaces, MAX_HORSES, featureCount]);
     const y = tf.tensor2d(yBuffer, [numRaces, MAX_HORSES]);
-    return { x, y };
+    const finishOrder = tf.tensor2d(
+      finishOrderBuffer,
+      [numRaces, MAX_HORSES],
+      "int32",
+    );
+    const validRanks = tf.tensor2d(validRanksBuffer, [numRaces, MAX_HORSES]);
+    return { x, y, finishOrder, validRanks };
   };
 
   const train = buildTensors(trainRaces);
@@ -478,8 +562,12 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
   return {
     trainX: train.x,
     trainY: train.y,
+    trainFinishOrder: train.finishOrder,
+    trainValidRanks: train.validRanks,
     valX: val.x,
     valY: val.y,
+    valFinishOrder: val.finishOrder,
+    valValidRanks: val.validRanks,
     features: selectedFeatures,
     featureCount,
     sampleCount: trainRaces.length,
@@ -489,7 +577,7 @@ async function loadAndPrepareDataRaceLevel(modelType: ModelType) {
 }
 
 // ============================================================================
-// FEATURES (mesma lista de antes)
+// FEATURES
 // ============================================================================
 
 const selectedFeatures = [
@@ -553,10 +641,35 @@ const selectedFeatures = [
   "beaten_favorite_rate",
   "worst_recent_position",
   "surface_encoded",
+  // Pace / Run-Style (Tier 1 #3)
+  "pace_E_pct_recent",
+  "pace_EP_pct_recent",
+  "pace_P_pct_recent",
+  "pace_S_pct_recent",
+  "pace_dominant_style_code",
+  "pace_consistency",
+  "pace_made_all_pct",
+  "pace_held_up_pct",
+  "pace_kept_on_pct",
+  "pace_weakened_pct",
+  "pace_hung_pct",
+  "pace_rpr_avg_recent",
+  "pace_rpr_max_recent",
+  "pace_ts_avg_recent",
+  "pace_ovr_btn_avg_recent",
+  "pace_ovr_btn_min_recent",
+  "pace_data_count",
+  "field_pace_pressure",
+  "field_n_early",
+  "field_n_pressers",
+  "field_n_held_up",
+  "field_is_lone_speed",
+  "pace_field_size_effective",
+  "pace_match_score",
 ];
 
 // ============================================================================
-// CREATE MODEL — RACE-LEVEL (3D input, shared weights)
+// CREATE MODEL
 // ============================================================================
 
 function createRaceLevelModel(inputDim: number): tf.LayersModel {
@@ -566,75 +679,212 @@ function createRaceLevelModel(inputDim: number): tf.LayersModel {
     numHeads: 4,
     keyDim: 16,
     encoderDim: 64,
-    dropoutRate: 0.2, // ← era 0.3
+    dropoutRate: 0.2,
     l2Reg: 0.003,
   });
 }
 
 // ============================================================================
-// TRAIN MODEL — Custom loop com masked softmax + categorical cross-entropy
+// LOSS FUNCTIONS
 // ============================================================================
 
 /**
- * Loss customizado: masked softmax cross-entropy
- * - scores: [batch, MAX_HORSES] — output do modelo (raw scores)
- * - targets: [batch, MAX_HORSES] — 1 para vencedor, 0 para perdedor, -1 para padding
- *
- * 1. Cria mask: 1 onde target >= 0 (real), 0 onde target = -1 (padding)
- * 2. Aplica softmax dentro de cada corrida, com padding mascarado (score → -inf)
- * 3. Cross-entropy contra target one-hot
+ * Computa softmax mascarado (probabilidades por corrida).
+ * Slots de padding recebem -inf efetivo antes do softmax.
+ */
+function computeMaskedSoftmax(
+  scores: tf.Tensor2D,
+  mask: tf.Tensor2D,
+): tf.Tensor2D {
+  return tf.tidy(() => {
+    const maskAdjustment = mask.sub(1).mul(1e9) as tf.Tensor2D;
+    const maskedScores = scores.add(maskAdjustment) as tf.Tensor2D;
+    return tf.keep(tf.softmax(maskedScores, -1) as tf.Tensor2D);
+  });
+}
+
+/**
+ * Masked softmax cross-entropy (winner-only).
+ * Mantida pra validação (val_loss comparável entre versões do modelo).
  */
 function maskedSoftmaxCrossEntropy(
   scores: tf.Tensor2D,
   targets: tf.Tensor2D,
 ): { loss: tf.Scalar; probs: tf.Tensor2D } {
   return tf.tidy(() => {
-    // Mask: 1 onde target >= 0, 0 onde target = -1
     const mask = targets.greaterEqual(0).toFloat() as tf.Tensor2D;
-
-    // Targets limpos: -1 → 0 (padding não é vencedor)
     const targetsClean = targets.maximum(0) as tf.Tensor2D;
-
-    // Mascarar scores antes do softmax: padded recebe -1e9 (vira ~0 no softmax)
     const maskAdjustment = mask.sub(1).mul(1e9) as tf.Tensor2D;
     const maskedScores = scores.add(maskAdjustment) as tf.Tensor2D;
-
-    // Softmax dentro da corrida (dim=1)
     const probs = tf.softmax(maskedScores, -1) as tf.Tensor2D;
-
-    // Cross-entropy: -sum(target * log(prob))
     const logProbs = tf.log(probs.add(1e-9));
     const losses = targetsClean.mul(logProbs).neg().sum(-1);
     const loss = losses.mean() as tf.Scalar;
-
-    // Retornar probs também para calcular accuracy fora
     return { loss, probs: tf.keep(probs) };
   });
 }
 
 /**
- * Top-1 accuracy: quantas vezes o modelo colocou o vencedor real
- * com a maior probabilidade dentro da corrida
+ * Top-K Plackett-Luce / ListMLE Loss
+ *
+ * Para cada corrida, decompõe a ordem real de chegada numa cadeia de softmaxes:
+ *   P(rank 1) · P(rank 2 | restantes) · ... · P(rank K | restantes)
+ *
+ * Onde P(rank k | restantes) = softmax(scores[restantes])[posição k]
+ *
+ * Densidade de supervisão é ~K× maior que CE-só-do-vencedor (5–10×
+ * mais sinal por corrida pra K=5). DNFs ficam no DENOMINADOR (massa de
+ * probabilidade) mas não no numerador (validRanks=0 pra eles).
+ *
+ * Referência: Xia et al. 2008 (ListMLE), Lan et al. (Position-Aware ListMLE).
+ *
+ * @param scores       [B, M] scores brutos do modelo (pré-softmax)
+ * @param finishOrder  [B, M] int32: permutação dos índices por ordem de chegada
+ * @param validRanks   [B, M] float32: 1 pros K primeiros finishers reais, 0 caso contrário
+ * @param mask         [B, M] float32: 1 pra cavalo real, 0 pra padding
+ * @param K            quantos top ranks usar (típico 5)
+ */
+function topKListMLELoss(
+  scores: tf.Tensor2D,
+  finishOrder: tf.Tensor2D,
+  validRanks: tf.Tensor2D,
+  mask: tf.Tensor2D,
+  K: number,
+): tf.Scalar {
+  return tf.tidy(() => {
+    // Reordena scores e mask pela ordem de chegada (batch-wise gather)
+    const sortedScores = tf.gather(scores, finishOrder, 1, 1) as tf.Tensor2D;
+    const sortedMask = tf.gather(mask, finishOrder, 1, 1) as tf.Tensor2D;
+
+    const M_dim = scores.shape[1];
+
+    const stepLosses: tf.Tensor1D[] = [];
+    const stepWeights: tf.Tensor1D[] = [];
+
+    for (let k = 0; k < K; k++) {
+      // Posições >= k contribuem pro denominador (cadeia de explosion)
+      const posMaskArr = new Float32Array(M_dim);
+      for (let i = k; i < M_dim; i++) posMaskArr[i] = 1;
+      const posMask = tf.tensor1d(posMaskArr);
+
+      const denomMask = sortedMask.mul(posMask) as tf.Tensor2D;
+      const adjusted = sortedScores.add(
+        denomMask.sub(1).mul(1e9),
+      ) as tf.Tensor2D;
+      const logSumExp_k = tf.logSumExp(adjusted, -1) as tf.Tensor1D;
+
+      const score_k = sortedScores
+        .slice([0, k], [-1, 1])
+        .squeeze([1]) as tf.Tensor1D;
+      const valid_k = validRanks
+        .slice([0, k], [-1, 1])
+        .squeeze([1]) as tf.Tensor1D;
+
+      // -(score_k - logSumExp_k) ponderado por valid_k
+      const stepLoss = score_k.sub(logSumExp_k).neg().mul(valid_k);
+      stepLosses.push(stepLoss as tf.Tensor1D);
+      stepWeights.push(valid_k);
+    }
+
+    const stacked = tf.stack(stepLosses) as tf.Tensor2D; // [K, B]
+    const stackedW = tf.stack(stepWeights) as tf.Tensor2D; // [K, B]
+
+    const totalLoss = stacked.sum();
+    const totalWeight = stackedW.sum().add(1e-9);
+
+    return totalLoss.div(totalWeight) as tf.Scalar;
+  });
+}
+
+/**
+ * Top-1 accuracy
  */
 function calculateTop1Accuracy(
   probs: tf.Tensor2D,
   targets: tf.Tensor2D,
 ): number {
   return tf.tidy(() => {
-    // Argmax das probs: índice do cavalo com maior P(vence) por corrida
-    const predictedWinner = probs.argMax(-1); // [batch]
-    // Argmax dos targets: índice do vencedor real (target = 1)
-    const actualWinner = targets.argMax(-1); // [batch]
-
+    const predictedWinner = probs.argMax(-1);
+    const actualWinner = targets.argMax(-1);
     const correct = predictedWinner.equal(actualWinner).toFloat();
     const acc = correct.mean().dataSync()[0];
     return acc;
   });
 }
 
-// ============================================================================
-// [NEW] CUSTOM LAY LOSS
-// ============================================================================
+/**
+ * Brier score multi-classe (race-level).
+ * Pra cada corrida: sum_h (probs[h] - target[h])^2 * mask[h]
+ * Mediado por corrida.
+ *
+ * Diferente do val_loss (CE-só-do-vencedor), o Brier penaliza ALL horses
+ * — recompensa um modelo cuja distribuição inteira está bem calibrada,
+ * não só o pick top-1. Walsh & Joshi 2024 mostraram que seleção de modelo
+ * por Brier supera seleção por acurácia em apostas (+34.7% ROI vs -35.2%).
+ */
+function calculateBrierScore(
+  probs: tf.Tensor2D,
+  targets: tf.Tensor2D,
+): number {
+  return tf.tidy(() => {
+    const mask = targets.greaterEqual(0).toFloat() as tf.Tensor2D;
+    const targetsClean = targets.maximum(0) as tf.Tensor2D;
+    const diff = probs.sub(targetsClean) as tf.Tensor2D;
+    const sqDiff = diff.mul(diff).mul(mask) as tf.Tensor2D;
+    const perRace = sqDiff.sum(-1) as tf.Tensor1D; // [B]
+    return perRace.mean().dataSync()[0];
+  });
+}
+
+/**
+ * Expected Calibration Error (ECE) top-1.
+ * Bin pelo P(predicted winner) — confiança do top pick.
+ * Em cada bin: |avg(confidence) - acc| ponderado por (n_bin / total).
+ *
+ * ECE alto → modelo over/underconfident.
+ * Quando bin K=10 e ECE ~5%, predição está ~5pp off na média.
+ */
+function calculateECE(
+  probs: tf.Tensor2D,
+  targets: tf.Tensor2D,
+  numBins = 10,
+): number {
+  return tf.tidy(() => {
+    const predictedWinner = probs.argMax(-1) as tf.Tensor1D;
+    const actualWinner = targets.argMax(-1) as tf.Tensor1D;
+    const correct = predictedWinner.equal(actualWinner).toFloat() as tf.Tensor1D;
+    const confidence = probs.max(-1) as tf.Tensor1D;
+
+    const confArr = confidence.dataSync();
+    const correctArr = correct.dataSync();
+    const N = confArr.length;
+
+    let ece = 0;
+    for (let b = 0; b < numBins; b++) {
+      const lo = b / numBins;
+      const hi = (b + 1) / numBins;
+      let binCount = 0;
+      let confSum = 0;
+      let accSum = 0;
+      for (let i = 0; i < N; i++) {
+        const c = confArr[i];
+        // Último bin inclui upper edge
+        const inBin = b === numBins - 1 ? c >= lo && c <= hi : c >= lo && c < hi;
+        if (inBin) {
+          binCount++;
+          confSum += c;
+          accSum += correctArr[i];
+        }
+      }
+      if (binCount > 0) {
+        const binConf = confSum / binCount;
+        const binAcc = accSum / binCount;
+        ece += (binCount / N) * Math.abs(binConf - binAcc);
+      }
+    }
+    return ece;
+  });
+}
 
 /**
  * Custom LAY Loss: penaliza quando o vencedor real tem baixo P(win).
@@ -653,7 +903,6 @@ function calculateTop1Accuracy(
  */
 function laySelectionLoss(probs: tf.Tensor2D, targets: tf.Tensor2D): tf.Scalar {
   return tf.tidy(() => {
-    // Mask: 1 para cavalos reais, 0 para padding
     const mask = targets.greaterEqual(0).toFloat() as tf.Tensor2D;
     const targetsClean = targets.maximum(0) as tf.Tensor2D;
 
@@ -682,7 +931,7 @@ function laySelectionLoss(probs: tf.Tensor2D, targets: tf.Tensor2D): tf.Scalar {
 }
 
 // ============================================================================
-// [CHANGED] TRAIN LOOP — LR Scheduling + Custom LAY Loss integrados
+// TRAIN LOOP — ListMLE + LAY Loss + LR Scheduling
 // ============================================================================
 
 async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
@@ -696,10 +945,20 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
     trainAcc: 0,
     valLoss: 0,
     valAcc: 0,
+    valBrier: 0,
+    valEce: 0,
     epochs: 0,
   };
-  let bestValLoss = Number.POSITIVE_INFINITY;
+  // [v30] Seleção do melhor modelo agora é por val_brier (não val_loss).
+  // Walsh & Joshi 2024: seleção por Brier ganhou +34.7% ROI vs -35.2% por acurácia.
+  // Early stopping e LR scheduler continuam olhando val_loss (mais suave, menos
+  // ruidoso pra critérios de plateau).
+  let bestValBrier = Number.POSITIVE_INFINITY;
+  let bestValLossForBest = Number.POSITIVE_INFINITY;
+  let bestValAccForBest = 0;
+  let bestValEceForBest = 0;
   let bestWeights: tf.Tensor[] | null = null;
+  let earlyStopBestValLoss = Number.POSITIVE_INFINITY;
   let patienceCounter = 0;
   let actualEpochs = 0;
 
@@ -716,13 +975,24 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
   console.log(
     `  📋 LR scheduler: factor=${configGlobal.lrReduceFactor}, patience=${configGlobal.lrReduceAfter}, min=${configGlobal.minLearningRate}`,
   );
+  console.log(
+    `  📋 Loss principal: Top-${configGlobal.listMLETopK} ListMLE (Plackett-Luce)`,
+  );
+  console.log(
+    `  📋 LAY loss α=${configGlobal.layLossAlpha}, warmup=${configGlobal.layLossWarmup} epochs`,
+  );
   console.log("  🚀 Iniciando epochs...\n");
 
   for (let epoch = 0; epoch < configGlobal.maxEpochs; epoch++) {
     const indices = tf.util.createShuffledIndices(trainCount);
     const numBatches = Math.ceil(trainCount / configGlobal.batchSize);
 
+    // [v28] LAY loss ativo após warmup
+    const useLayLoss = epoch >= configGlobal.layLossWarmup;
+
     let epochLoss = 0;
+    let epochCeLoss = 0;
+    let epochLayLoss = 0;
     let epochAccSum = 0;
     let epochAccCount = 0;
 
@@ -737,21 +1007,55 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
       const batchY = tf.tidy(
         () => tf.gather(data.trainY, batchIndices) as tf.Tensor2D,
       );
+      const batchFinishOrder = tf.tidy(
+        () => tf.gather(data.trainFinishOrder, batchIndices) as tf.Tensor2D,
+      );
+      const batchValidRanks = tf.tidy(
+        () => tf.gather(data.trainValidRanks, batchIndices) as tf.Tensor2D,
+      );
       const batchMask = batchY.greaterEqual(0).toFloat() as tf.Tensor2D;
 
       let batchProbs: tf.Tensor2D | null = null;
+      let batchCeLoss = 0;
+      let batchLayLossVal = 0;
 
       const lossValue = optimizer.minimize(() => {
         const scoresRaw = model.apply([batchX, batchMask], {
           training: true,
         }) as tf.Tensor3D;
         const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
-        const { loss, probs } = maskedSoftmaxCrossEntropy(scores, batchY);
+
+        // [v29] Top-K ListMLE substitui winner-only CE no treino
+        const mainLoss = topKListMLELoss(
+          scores,
+          batchFinishOrder,
+          batchValidRanks,
+          batchMask,
+          configGlobal.listMLETopK,
+        );
+
+        // Probs ainda são necessários pra LAY loss + top1 accuracy
+        const probs = computeMaskedSoftmax(scores, batchMask);
         batchProbs = probs;
-        return loss;
+
+        if (useLayLoss && configGlobal.layLossAlpha > 0) {
+          const layLoss = laySelectionLoss(probs, batchY);
+          batchCeLoss = mainLoss.dataSync()[0];
+          batchLayLossVal = layLoss.dataSync()[0];
+          const totalLoss = mainLoss.add(
+            layLoss.mul(configGlobal.layLossAlpha),
+          ) as tf.Scalar;
+          return totalLoss;
+        }
+
+        batchCeLoss = mainLoss.dataSync()[0];
+        return mainLoss;
       }, true) as tf.Scalar;
 
-      epochLoss += lossValue.dataSync()[0];
+      const totalLossVal = lossValue.dataSync()[0];
+      epochLoss += totalLossVal;
+      epochCeLoss += batchCeLoss;
+      epochLayLoss += batchLayLossVal;
       lossValue.dispose();
 
       if (batchProbs) {
@@ -762,25 +1066,48 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
 
       batchX.dispose();
       batchY.dispose();
+      batchFinishOrder.dispose();
+      batchValidRanks.dispose();
       batchMask.dispose();
     }
 
     const trainLoss = epochLoss / numBatches;
+    const trainCeLoss = epochCeLoss / numBatches;
+    const trainLayLoss = epochLayLoss / numBatches;
     const trainAcc = epochAccCount > 0 ? epochAccSum / epochAccCount : 0;
 
-    const { valLoss, valAcc } = await evaluateModel(
+    // Validação (sempre só CE — LAY loss é só pra treino)
+    const { valLoss, valAcc, valBrier, valEce } = await evaluateModel(
       model,
       data.valX,
       data.valY,
     );
 
-    finalMetrics = { trainLoss, trainAcc, valLoss, valAcc, epochs: epoch + 1 };
+    finalMetrics = {
+      trainLoss,
+      trainAcc,
+      valLoss,
+      valAcc,
+      valBrier,
+      valEce,
+      epochs: epoch + 1,
+    };
 
     if (epoch % 5 === 0) {
-      console.log(
-        `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)}, top1=${(trainAcc * 100).toFixed(1)}%, ` +
-          `val_loss=${valLoss.toFixed(4)}, val_top1=${(valAcc * 100).toFixed(1)}% | LR=${currentLr}`,
-      );
+      const valBlock =
+        `val_loss=${valLoss.toFixed(4)}, val_brier=${valBrier.toFixed(4)}, ` +
+        `val_ece=${(valEce * 100).toFixed(2)}%, val_top1=${(valAcc * 100).toFixed(1)}%`;
+      if (useLayLoss) {
+        console.log(
+          `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)} | ListMLE=${trainCeLoss.toFixed(4)}, LAY=${trainLayLoss.toFixed(4)}, top1=${(trainAcc * 100).toFixed(1)}%, ` +
+            `${valBlock} | LR=${currentLr}`,
+        );
+      } else {
+        console.log(
+          `  Epoch ${epoch}: loss=${trainLoss.toFixed(4)} (ListMLE), top1=${(trainAcc * 100).toFixed(1)}%, ` +
+            `${valBlock} | LR=${currentLr}`,
+        );
+      }
       logMemory(`Epoch ${epoch}`);
     }
 
@@ -803,7 +1130,6 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
         lrReductions++;
         lrPatienceCounter = 0;
 
-        // Recriar optimizer com novo LR
         optimizer.dispose();
         optimizer = tf.train.adam(currentLr);
 
@@ -813,15 +1139,23 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
       }
     }
 
-    // ── EARLY STOPPING ──
-    if (valLoss < bestValLoss) {
-      bestValLoss = valLoss;
+    // ── BEST MODEL (val_brier) — Walsh & Joshi 2024 ──
+    if (valBrier < bestValBrier) {
+      bestValBrier = valBrier;
+      bestValLossForBest = valLoss;
+      bestValAccForBest = valAcc;
+      bestValEceForBest = valEce;
       if (bestWeights) bestWeights.forEach((w) => w.dispose());
       bestWeights = model.getWeights().map((w) => w.clone());
-      patienceCounter = 0;
       console.log(
-        `  📈 Melhor val_loss - Epoch ${epoch}: ${valLoss.toFixed(4)}`,
+        `  📈 Melhor val_brier - Epoch ${epoch}: brier=${valBrier.toFixed(4)} (val_loss=${valLoss.toFixed(4)}, val_top1=${(valAcc * 100).toFixed(1)}%, val_ece=${(valEce * 100).toFixed(2)}%)`,
       );
+    }
+
+    // ── EARLY STOPPING (continua em val_loss; mais estável) ──
+    if (valLoss < earlyStopBestValLoss) {
+      earlyStopBestValLoss = valLoss;
+      patienceCounter = 0;
     } else {
       patienceCounter++;
       if (patienceCounter >= configGlobal.patience) {
@@ -836,37 +1170,50 @@ async function trainRaceLevelModel(model: tf.LayersModel, data: any) {
   }
 
   if (bestWeights) {
-    console.log("  ♻  Restaurando melhores pesos...");
+    console.log("  ♻  Restaurando melhores pesos (critério val_brier)...");
     model.setWeights(bestWeights);
     const finalEval = await evaluateModel(model, data.valX, data.valY);
     finalMetrics.valLoss = finalEval.valLoss;
     finalMetrics.valAcc = finalEval.valAcc;
+    finalMetrics.valBrier = finalEval.valBrier;
+    finalMetrics.valEce = finalEval.valEce;
     finalMetrics.epochs = actualEpochs;
     bestWeights.forEach((w) => w.dispose());
   }
 
-  // Cleanup
   optimizer.dispose();
 
   console.log(
-    `\n  ✅ Finalizado em ${actualEpochs} épocas, melhor val_loss: ${bestValLoss.toFixed(4)}`,
+    `\n  ✅ Finalizado em ${actualEpochs} épocas`,
+  );
+  console.log(
+    `  📊 Best (val_brier): brier=${bestValBrier.toFixed(4)} | val_loss=${bestValLossForBest.toFixed(4)} | val_top1=${(bestValAccForBest * 100).toFixed(1)}% | val_ece=${(bestValEceForBest * 100).toFixed(2)}%`,
   );
   console.log(
     `  📉 LR: ${configGlobal.learningRate} → ${currentLr} (${lrReductions} reduções)`,
   );
+  console.log(
+    `  🎯 LAY loss ativo a partir da época ${configGlobal.layLossWarmup} com α=${configGlobal.layLossAlpha}`,
+  );
   return finalMetrics;
 }
+
+// ============================================================================
+// EVALUATE MODEL (validação — só CE, sem LAY loss)
+// ============================================================================
 
 async function evaluateModel(
   model: tf.LayersModel,
   valX: tf.Tensor,
   valY: tf.Tensor,
-): Promise<{ valLoss: number; valAcc: number }> {
+): Promise<{
+  valLoss: number;
+  valAcc: number;
+  valBrier: number;
+  valEce: number;
+}> {
   return tf.tidy(() => {
-    // ── NOVO: mask derivada dos targets ──
     const valMask = (valY as tf.Tensor2D).greaterEqual(0).toFloat();
-
-    // ── MUDANÇA: passa [valX, valMask] em vez de só valX ──
     const scoresRaw = model.apply([valX, valMask]) as tf.Tensor3D;
     const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
     const { loss, probs } = maskedSoftmaxCrossEntropy(
@@ -875,9 +1222,45 @@ async function evaluateModel(
     );
     const valLoss = loss.dataSync()[0];
     const valAcc = calculateTop1Accuracy(probs, valY as tf.Tensor2D);
+    const valBrier = calculateBrierScore(probs, valY as tf.Tensor2D);
+    const valEce = calculateECE(probs, valY as tf.Tensor2D);
     (probs as tf.Tensor2D).dispose();
-    return { valLoss, valAcc };
+    return { valLoss, valAcc, valBrier, valEce };
   });
+}
+
+/**
+ * Roda o modelo no val set e retorna pares (P(win) bruto, label 0/1) por cavalo válido.
+ * Usado pra fitar a curva isotonic post-hoc.
+ *
+ * Slots de padding (target=-1) são descartados.
+ */
+function collectCalibrationPairs(
+  model: tf.LayersModel,
+  valX: tf.Tensor,
+  valY: tf.Tensor,
+): Array<{ x: number; y: number }> {
+  const { probsArr, targetsArr } = tf.tidy(() => {
+    const valMask = (valY as tf.Tensor2D).greaterEqual(0).toFloat();
+    const scoresRaw = model.apply([valX, valMask]) as tf.Tensor3D;
+    const scores = scoresRaw.squeeze([2]) as tf.Tensor2D;
+    const mask = (valY as tf.Tensor2D).greaterEqual(0).toFloat() as tf.Tensor2D;
+    const maskAdjustment = mask.sub(1).mul(1e9) as tf.Tensor2D;
+    const maskedScores = scores.add(maskAdjustment) as tf.Tensor2D;
+    const probs = tf.softmax(maskedScores, -1) as tf.Tensor2D;
+    return {
+      probsArr: probs.dataSync(),
+      targetsArr: (valY as tf.Tensor2D).dataSync(),
+    };
+  });
+
+  const pairs: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < targetsArr.length; i++) {
+    const t = targetsArr[i];
+    if (t < 0) continue; // padding
+    pairs.push({ x: probsArr[i], y: t });
+  }
+  return pairs;
 }
 
 // ============================================================================

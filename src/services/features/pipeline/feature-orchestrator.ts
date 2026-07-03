@@ -14,16 +14,22 @@ import type {
 
 import {
   calculateDerivedStaticFeatures,
+  computeFieldPaceFeatures,
   extractCompetitiveFeatures,
   extractFormFeatures,
   extractHistoricalFeatures,
   extractMarketFeatures,
+  extractPaceFeatures,
   extractRelationshipFeatures,
   extractStaticFeatures,
+  PACE_HISTORY_WINDOW,
+  paceMatchScore,
   type FormFeatures,
   type HistoricalFeatures,
   type HistoricalRaceData,
+  type HorsePaceFeatures,
   type MarketFeatures,
+  type PaceHistoryEntry,
 } from "../features/index";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -240,6 +246,26 @@ async function processRace(
   // NOVO: buscar stats globais de jóqueis/treinadores para esta data
   const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
 
+  // PACE (Tier 1 #3): histórico via rpscrape + extract per-horse + field
+  const paceHistoryMap = await fetchPaceHistoryForHorses(
+    supabase,
+    horses.map((h) => h.id_horse),
+    race.date,
+  );
+  const horseIdToPace = new Map<number, HorsePaceFeatures>();
+  for (const h of horses) {
+    horseIdToPace.set(
+      h.id_horse,
+      extractPaceFeatures(paceHistoryMap.get(h.id_horse) || []),
+    );
+  }
+  const fieldPace = computeFieldPaceFeatures(
+    horses
+      .filter((h) => h.non_runner !== 1)
+      .map((h) => horseIdToPace.get(h.id_horse)!)
+      .filter((p) => p),
+  );
+
   const features: HorseFeatures[] = [];
 
   for (let i = 0; i < processedHorses.length; i++) {
@@ -248,6 +274,7 @@ async function processRace(
     if (!rawHorse) continue;
 
     try {
+      const horsePace = horseIdToPace.get(rawHorse.id_horse)!;
       const horseFeatures = await generateHorseFeatures(
         processedHorse,
         rawHorse,
@@ -256,7 +283,9 @@ async function processRace(
         horses,
         historicalData.get(rawHorse.id_horse) || [],
         race.finished === 1,
-        jockeyTrainerStats, // NOVO parâmetro
+        jockeyTrainerStats,
+        horsePace,
+        fieldPace,
       );
       features.push(horseFeatures);
     } catch (error) {
@@ -282,6 +311,8 @@ async function generateHorseFeatures(
   historicalData: HistoricalRaceData[],
   isFinishedRace: boolean,
   jockeyTrainerStats: JockeyTrainerStatsMap,
+  horsePace: HorsePaceFeatures,
+  fieldPace: ReturnType<typeof computeFieldPaceFeatures>,
 ): Promise<HorseFeatures> {
   const staticFeatures = extractStaticFeatures(race, processedHorse, rawHorse);
   const derivedStatic = calculateDerivedStaticFeatures(staticFeatures); // NOVO
@@ -565,8 +596,35 @@ async function generateHorseFeatures(
     // Lay-specific
     ...layFeatures,
 
+    // Pace / Run-Style (Tier 1 #3)
+    pace_E_pct_recent: horsePace.pace_E_pct_recent,
+    pace_EP_pct_recent: horsePace.pace_EP_pct_recent,
+    pace_P_pct_recent: horsePace.pace_P_pct_recent,
+    pace_S_pct_recent: horsePace.pace_S_pct_recent,
+    pace_dominant_style_code: horsePace.pace_dominant_style_code,
+    pace_consistency: horsePace.pace_consistency,
+    pace_made_all_pct: horsePace.pace_made_all_pct,
+    pace_held_up_pct: horsePace.pace_held_up_pct,
+    pace_kept_on_pct: horsePace.pace_kept_on_pct,
+    pace_weakened_pct: horsePace.pace_weakened_pct,
+    pace_hung_pct: horsePace.pace_hung_pct,
+    pace_rpr_avg_recent: horsePace.pace_rpr_avg_recent,
+    pace_rpr_max_recent: horsePace.pace_rpr_max_recent,
+    pace_ts_avg_recent: horsePace.pace_ts_avg_recent,
+    pace_ovr_btn_avg_recent: horsePace.pace_ovr_btn_avg_recent,
+    pace_ovr_btn_min_recent: horsePace.pace_ovr_btn_min_recent,
+    pace_data_count: horsePace.pace_data_count,
+    field_pace_pressure: fieldPace.field_pace_pressure,
+    field_n_early: fieldPace.n_early_runners,
+    field_n_pressers: fieldPace.n_pressers,
+    field_n_held_up: fieldPace.n_held_up,
+    field_is_lone_speed: fieldPace.is_lone_speed,
+    pace_field_size_effective: fieldPace.pace_field_size,
+    pace_match_score: paceMatchScore(horsePace, fieldPace),
+
     // Target
     target: target as 0 | 1,
+    finish_position: isFinishedRace ? rawHorse.position : null,
   };
 }
 
@@ -1196,6 +1254,7 @@ async function saveTrainingFeaturesToDatabase(
     horse_id: f.horse_id,
     features: f,
     target: f.target,
+    finish_position: f.finish_position,
     generated_at: new Date().toISOString(),
     model_version: "v4.0",
     quality_score: calculateFeatureQuality(f),
@@ -1626,6 +1685,26 @@ async function processRaceForPrediction(
 
   const jockeyTrainerStats = await fetchJockeyTrainerStats(supabase, race.date);
 
+  // PACE (Tier 1 #3): histórico via rpscrape
+  const paceHistoryMap = await fetchPaceHistoryForHorses(
+    supabase,
+    horsesWithOdds.map((h) => h.id_horse),
+    race.date,
+  );
+  const horseIdToPace = new Map<number, HorsePaceFeatures>();
+  for (const h of horsesWithOdds) {
+    horseIdToPace.set(
+      h.id_horse,
+      extractPaceFeatures(paceHistoryMap.get(h.id_horse) || []),
+    );
+  }
+  const fieldPace = computeFieldPaceFeatures(
+    horsesWithOdds
+      .filter((h) => h.non_runner !== 1)
+      .map((h) => horseIdToPace.get(h.id_horse)!)
+      .filter((p) => p),
+  );
+
   const features: HorseFeatures[] = [];
 
   for (let i = 0; i < processedHorses.length; i++) {
@@ -1634,6 +1713,7 @@ async function processRaceForPrediction(
     if (!rawHorse) continue;
 
     try {
+      const horsePace = horseIdToPace.get(rawHorse.id_horse)!;
       const horseFeatures = await generateHorseFeatures(
         processedHorse,
         rawHorse,
@@ -1641,8 +1721,10 @@ async function processRaceForPrediction(
         processedHorses,
         horsesWithOdds,
         historicalData.get(rawHorse.id_horse) || [],
-        false, // isFinishedRace = false → target = null
+        false,
         jockeyTrainerStats,
+        horsePace,
+        fieldPace,
       );
       features.push(horseFeatures);
     } catch (error) {
@@ -1654,4 +1736,138 @@ async function processRaceForPrediction(
   }
 
   return features;
+}
+
+/**
+ * Bulk fetch do histórico de pace via rpscrape_results.
+ *
+ * 3 queries com batching:
+ *   1. race_horses_hr_enriched (id, racecard_id) por id_horse
+ *   2. racecards_hr_enriched (id, date) WHERE date < beforeDate
+ *   3. rpscrape_results pra race_horse_id encontrados
+ *
+ * Retorna Map<id_horse, PaceHistoryEntry[]> ordenado por data DESC,
+ * limitado a PACE_HISTORY_WINDOW por cavalo. Cavalos sem dados rpscrape
+ * matched aparecem com array vazio (modelo lida via pace_data_count=0).
+ */
+async function fetchPaceHistoryForHorses(
+  supabase: SupabaseClient,
+  horseIds: number[],
+  beforeDate: string,
+): Promise<Map<number, PaceHistoryEntry[]>> {
+  const result = new Map<number, PaceHistoryEntry[]>();
+  if (horseIds.length === 0) return result;
+  for (const h of horseIds) result.set(h, []);
+
+  // 1) race_horses_hr_enriched por id_horse (chunks de 50)
+  const rhRows: Array<{
+    id: number;
+    id_horse: number;
+    racecard_id: number;
+  }> = [];
+  const inChunkSize = 50;
+  for (let i = 0; i < horseIds.length; i += inChunkSize) {
+    const chunk = horseIds.slice(i, i + inChunkSize);
+    const records = await withSupabaseRetry(
+      async () =>
+        await supabase
+          .schema("hml")
+          .from("race_horses_hr_enriched")
+          .select("id, id_horse, racecard_id")
+          .in("id_horse", chunk),
+      `fetchPaceHistory q1 chunk ${i / inChunkSize + 1}`,
+    );
+    if (records) rhRows.push(...(records as any));
+  }
+  if (rhRows.length === 0) return result;
+
+  // 2) racecards_hr_enriched pra ter datas, filtrando < beforeDate
+  const allRacecardIds = Array.from(
+    new Set(rhRows.map((r) => r.racecard_id).filter((x) => x != null)),
+  );
+  const dateById = new Map<number, string>();
+  const raceChunkSize = 200;
+  for (let i = 0; i < allRacecardIds.length; i += raceChunkSize) {
+    const chunk = allRacecardIds.slice(i, i + raceChunkSize);
+    const records = await withSupabaseRetry(
+      async () =>
+        await supabase
+          .schema("hml")
+          .from("racecards_hr_enriched")
+          .select("id, date")
+          .in("id", chunk)
+          .lt("date", beforeDate),
+      `fetchPaceHistory q2 chunk ${i / raceChunkSize + 1}`,
+    );
+    if (records) {
+      for (const rc of records as any) dateById.set(rc.id, rc.date);
+    }
+  }
+  if (dateById.size === 0) return result;
+
+  // Pra cada cavalo, pega top PACE_HISTORY_WINDOW race_horse_id ordenados por data DESC
+  const horseToStarts = new Map<
+    number,
+    Array<{ race_horse_id: number; date: string }>
+  >();
+  for (const rh of rhRows) {
+    if (!dateById.has(rh.racecard_id)) continue;
+    const arr = horseToStarts.get(rh.id_horse) || [];
+    arr.push({ race_horse_id: rh.id, date: dateById.get(rh.racecard_id)! });
+    horseToStarts.set(rh.id_horse, arr);
+  }
+  const topStarts: Array<{
+    id_horse: number;
+    race_horse_id: number;
+    date: string;
+  }> = [];
+  for (const [hid, starts] of horseToStarts) {
+    starts.sort((a, b) => b.date.localeCompare(a.date));
+    for (const s of starts.slice(0, PACE_HISTORY_WINDOW)) {
+      topStarts.push({ id_horse: hid, ...s });
+    }
+  }
+  if (topStarts.length === 0) return result;
+
+  // 3) rpscrape_results pra esses race_horse_id (em chunks pra .in)
+  const rhIdsForRps = topStarts.map((s) => s.race_horse_id);
+  const rpsRecords: Array<{
+    race_horse_id: number;
+    comment: string | null;
+    rpr_rating: number | null;
+    ts_rating: number | null;
+    ovr_btn: number | null;
+  }> = [];
+  for (let i = 0; i < rhIdsForRps.length; i += raceChunkSize) {
+    const chunk = rhIdsForRps.slice(i, i + raceChunkSize);
+    const records = await withSupabaseRetry(
+      async () =>
+        await supabase
+          .schema("hml")
+          .from("rpscrape_results")
+          .select("race_horse_id, comment, rpr_rating, ts_rating, ovr_btn")
+          .in("race_horse_id", chunk),
+      `fetchPaceHistory q3 chunk ${i / raceChunkSize + 1}`,
+    );
+    if (records) rpsRecords.push(...(records as any));
+  }
+
+  const rpsByRhId = new Map<number, (typeof rpsRecords)[0]>();
+  for (const r of rpsRecords) rpsByRhId.set(r.race_horse_id, r);
+
+  // Monta result: cavalos → entries ordenados por data DESC, só com dados rpscrape
+  for (const s of topStarts) {
+    const r = rpsByRhId.get(s.race_horse_id);
+    if (!r) continue; // sem rpscrape match — descarta
+    const arr = result.get(s.id_horse) || [];
+    arr.push({
+      race_date: s.date,
+      comment: r.comment,
+      rpr_rating: r.rpr_rating,
+      ts_rating: r.ts_rating,
+      ovr_btn: r.ovr_btn,
+    });
+    result.set(s.id_horse, arr);
+  }
+  return result;
 }
