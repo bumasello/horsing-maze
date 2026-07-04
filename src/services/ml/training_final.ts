@@ -56,13 +56,17 @@ function getExperimentLabel(): string {
 }
 
 function isMultiTask(): boolean {
-  return (process.env.MULTITASK_MODE || "").trim() === "1";
+  // Multi-task é o DEFAULT de prod desde 2026-07-04 (mt_b05 = v68-flat promovido).
+  // MULTITASK_MODE=0 desativa (volta ao single-head legado).
+  return (process.env.MULTITASK_MODE || "1").trim() !== "0";
 }
 
 function getModelPath(modelType: ModelType): string {
   const base = `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
   // EXPERIMENT_LABEL tem prioridade sobre BASELINE_MODE — permite combinações
-  // como BASELINE_MODE=lean + MULTITASK_MODE=1 + EXPERIMENT_LABEL=multitask_lean.
+  // como BASELINE_MODE=lean + EXPERIMENT_LABEL=multitask_lean.
+  // ATENÇÃO: multi-task NÃO desvia mais o path — é a arquitetura de prod.
+  // Runs isolados exigem EXPERIMENT_LABEL ou BASELINE_MODE explícitos.
   const experiment = getExperimentLabel();
   if (experiment) {
     return `horse_probability_model/baselines/${experiment}_${modelType}`;
@@ -70,9 +74,6 @@ function getModelPath(modelType: ModelType): string {
   const baseline = getBaselineMode();
   if (baseline) {
     return `horse_probability_model/baselines/${baseline}_${modelType}`;
-  }
-  if (isMultiTask()) {
-    return `horse_probability_model/baselines/multitask_${modelType}`;
   }
   return base;
 }
@@ -214,7 +215,7 @@ export async function trainLayBettingModel(
   const baselineMode = getBaselineMode();
   const experimentLabel = getExperimentLabel();
   const multiTaskEnabled = isMultiTask();
-  const isolatedRun = baselineMode || experimentLabel || multiTaskEnabled;
+  const isolatedRun = Boolean(baselineMode || experimentLabel);
   if (baselineMode) {
     console.log(`🧪 BASELINE_MODE=${baselineMode} — save isolado, sem bump de versão prod\n`);
   }
@@ -223,7 +224,14 @@ export async function trainLayBettingModel(
   }
   if (multiTaskEnabled) {
     console.log(
-      `🎯 MULTITASK_MODE=1 — cabeça extra P(perder), β=${configGlobal.multiTaskBeta}\n`,
+      `🎯 Multi-task ATIVO (default) — cabeça extra P(perder), β=${configGlobal.multiTaskBeta}\n`,
+    );
+  } else {
+    console.log("⚠️  MULTITASK_MODE=0 — treino single-head LEGADO\n");
+  }
+  if (!isolatedRun) {
+    console.log(
+      `⚠️  SAVE EM PATH DE PROD (${modelPath}) — pra run isolado use EXPERIMENT_LABEL\n`,
     );
   }
 

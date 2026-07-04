@@ -332,11 +332,24 @@ async function transferToSupabase(): Promise<void> {
 async function trainAndPredict(): Promise<void> {
   logger.info("Iniciando treinamento do modelo e geração de previsões");
 
-  // Treinamento do modelo
-  await metrics.measure("Treinamento do modelo", async () => {
-    await trainAllModels();
-    logger.info("Treinamento do modelo concluído com sucesso");
-  });
+  // Guarda de retreino (2026-07-04): o retreino automático sobrescreve o modelo
+  // de prod SEM validação (staging gate ainda não implementado). Default é NÃO
+  // retreinar — o pipeline usa o modelo já promovido em prod (v68-flat/mt_b05).
+  // Pra reativar: ENABLE_CRON_RETRAIN=1 no env. Retreino manual continua
+  // disponível via GET /api/ml/training.
+  const cronRetrainEnabled =
+    (process.env.ENABLE_CRON_RETRAIN || "").trim() === "1";
+
+  if (cronRetrainEnabled) {
+    await metrics.measure("Treinamento do modelo", async () => {
+      await trainAllModels();
+      logger.info("Treinamento do modelo concluído com sucesso");
+    });
+  } else {
+    logger.warn(
+      "Retreino automático DESATIVADO (ENABLE_CRON_RETRAIN != 1) — pulando treino, usando modelo atual de prod",
+    );
+  }
 
   // Geração de previsões
   await metrics.measure("Geração de previsões", async () => {
@@ -408,13 +421,15 @@ export const runPipeline = async (): Promise<PipelineResult> => {
 
 /**
  * Configuração do Node Cron para execução automática
- * Executa todos os dias às 22:00
+ * - 20:00 UTC: enriquecimento de resultados via Racing API
+ * - 00:00 UTC: pipeline completo (dados + features + predição + picks;
+ *   retreino só com ENABLE_CRON_RETRAIN=1)
  */
 export function setupCronJob(): boolean {
   try {
     // Importação dinâmica para evitar dependência em ambientes onde node-cron não está disponível
     const cron = require("node-cron");
-    // Cron separado: 23:00 UTC (depois que as corridas UK terminam)
+    // 20:00 UTC (depois que as corridas UK terminam)
     cron.schedule("0 20 * * *", async () => {
       try {
         logger.info("Iniciando enriquecimento de resultados (Racing API)");
@@ -428,7 +443,7 @@ export function setupCronJob(): boolean {
       }
     });
 
-    // Expressão cron: "0 22 * * *" significa "às 22:00 todos os dias"
+    // 00:00 UTC: pipeline completo diário
     cron.schedule("00 00 * * *", async () => {
       logger.info("Iniciando execução agendada do pipeline de atualização");
       const result = await runPipeline();
