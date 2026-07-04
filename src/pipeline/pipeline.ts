@@ -420,16 +420,18 @@ export const runPipeline = async (): Promise<PipelineResult> => {
 };
 
 /**
- * Configuração do Node Cron para execução automática
- * - 20:00 UTC: enriquecimento de resultados via Racing API
- * - 00:00 UTC: pipeline completo (dados + features + predição + picks;
- *   retreino só com ENABLE_CRON_RETRAIN=1)
+ * Configuração do Node Cron para execução automática.
+ * node-cron SEM opção `timezone` usa a hora LOCAL do servidor
+ * (mazeserver = America/Sao_Paulo, UTC-3):
+ * - 20:00 local (23:00 UTC): enriquecimento de resultados via Racing API
+ * - 00:00 local (03:00 UTC): pipeline completo (dados + features + predição
+ *   + picks; retreino só com ENABLE_CRON_RETRAIN=1)
  */
 export function setupCronJob(): boolean {
   try {
     // Importação dinâmica para evitar dependência em ambientes onde node-cron não está disponível
     const cron = require("node-cron");
-    // 20:00 UTC (depois que as corridas UK terminam)
+    // 20:00 local / 23:00 UTC (depois que as corridas UK terminam)
     cron.schedule("0 20 * * *", async () => {
       try {
         logger.info("Iniciando enriquecimento de resultados (Racing API)");
@@ -443,7 +445,7 @@ export function setupCronJob(): boolean {
       }
     });
 
-    // 00:00 UTC: pipeline completo diário
+    // 00:00 local / 03:00 UTC: pipeline completo diário
     cron.schedule("00 00 * * *", async () => {
       logger.info("Iniciando execução agendada do pipeline de atualização");
       const result = await runPipeline();

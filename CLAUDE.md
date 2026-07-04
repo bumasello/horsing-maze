@@ -49,7 +49,7 @@ No test suite configured — `npm test` currently fails.
 
 The core pipeline is in `src/pipeline/pipeline.ts` and is triggered either:
 1. **Manually** via API: `GET /api/ml/training`, `GET /api/ml/predictions`, `GET /api/ml/lay-picks`
-2. **Scheduled**: Node Cron at 00:00 UTC (main pipeline) and 20:00 UTC (Racing API enrichment)
+2. **Scheduled**: Node Cron at 00:00 (main pipeline) and 20:00 (Racing API enrichment) — **server LOCAL time** (mazeserver = America/Sao_Paulo, UTC-3; node-cron sem `timezone` usa hora local). Em UTC: 03:00 e 23:00.
 
 **Stage 1: MongoDB Data Update** (`updateMongoDBData()`)
 - Updates race cards, racecards from SPB, lay betting results
