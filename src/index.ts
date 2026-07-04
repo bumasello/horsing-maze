@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import mongoose from "mongoose";
 import apiRouter from "./api/routes";
-import { runPipeline, setupCronJob } from "./pipeline/pipeline";
+import { setupCronJob } from "./pipeline/pipeline";
 
 import type { NextFunction, Request, Response } from "express";
 
@@ -83,9 +83,6 @@ const uri = process.env.MONGOOSE || "error";
 mongoose.connect(uri).then(() => {
   app.listen(port, () => {
     console.log(`API ativa na porta ${port} às ${new Date().toISOString()}`);
-    // setupCronJob();
-    //runPipeline().then((result) => {
-    //  console.log(result);
-    //});
+    setupCronJob();
   });
 });
