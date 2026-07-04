@@ -17,23 +17,20 @@
 // REGRESSÃO (candidato quebrado, dado ruim, treino degenerado) — o edge do
 // candidato reportado aqui NÃO é estimativa não-enviesada de ROI futuro.
 
-import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../..";
-import "./layers/attention";
 import { logger } from "../../shared/logger";
 import type { ModelConfig } from "../../shared/types/ml.types";
+import { MAX_ODD_THRESHOLD, MIN_ODD_THRESHOLD } from "./claude-generate-picks";
 import {
-	MAX_ODD_THRESHOLD,
-	MIN_ODD_THRESHOLD,
-	calculateCombinedScore,
-	calculateLayValueIndex,
-} from "./claude-generate-picks";
-import { type ModelSummary, summarize } from "./eval/report";
-import {
-	COMMISSION_RATE,
-	type PickCandidate,
-	simulateRace,
-} from "./eval/simulator";
+	BUCKET,
+	type LoadedModel,
+	download,
+	evaluateModel,
+	loadModelFromPath,
+	loadPeriodData,
+} from "./eval/harness";
+import type { ModelSummary } from "./eval/report";
+import { COMMISSION_RATE } from "./eval/simulator";
 import {
 	MODEL_TYPE_CONFIG,
 	type ModelType,
@@ -43,10 +40,6 @@ import {
 // ============================================================================
 // CONFIGURAÇÃO
 // ============================================================================
-
-const BUCKET = "modelos-tfjs-publicos";
-const MAX_HORSES = 30;
-const BANKROLL_INITIAL = 200;
 
 const GATE_PERIOD_DAYS = Number(process.env.GATE_PERIOD_DAYS || 90);
 // Candidato pode ser até X pp PIOR que prod e ainda promover (mantém modelo
@@ -67,15 +60,6 @@ const GATE_SKIP_TRAINING =
 const CANDIDATE_LABEL = (
 	process.env.GATE_CANDIDATE_LABEL || "candidate"
 ).trim();
-
-// Mesmos defaults de claude-prediction-model.ts (paridade com prod).
-const DEFAULT_TEMPERATURE: Record<ModelType, number> = {
-	flat: 1.5,
-	jump: 1.2,
-};
-
-const supabaseUrl =
-	process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 
 const FILES = ["model.json", "weights.bin", "config.json"];
 const CONTENT_TYPES: Record<string, string> = {
@@ -98,14 +82,8 @@ function backupPath(modelType: ModelType): string {
 }
 
 // ============================================================================
-// STORAGE HELPERS
+// STORAGE HELPERS (download/loadModelFromPath vêm do eval/harness)
 // ============================================================================
-
-async function download(path: string): Promise<Uint8Array> {
-	const { data, error } = await supabase.storage.from(BUCKET).download(path);
-	if (error || !data) throw new Error(`download ${path}: ${error?.message}`);
-	return new Uint8Array(await data.arrayBuffer());
-}
 
 async function upload(
 	path: string,
@@ -117,287 +95,6 @@ async function upload(
 		upsert: true,
 	});
 	if (error) throw new Error(`upload ${path}: ${error.message}`);
-}
-
-interface LoadedModel {
-	config: ModelConfig;
-	model: tf.LayersModel;
-	temperature: number;
-}
-
-async function loadModelFromPath(
-	path: string,
-	modelType: ModelType,
-): Promise<LoadedModel> {
-	const cfgBytes = await download(`${path}/config.json`);
-	const config = JSON.parse(
-		Buffer.from(cfgBytes).toString("utf8"),
-	) as ModelConfig;
-	const modelUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${path}/model.json`;
-	const model = await tf.loadLayersModel(modelUrl);
-	const temperature =
-		(config as unknown as { softmaxTemperature?: number }).softmaxTemperature ??
-		DEFAULT_TEMPERATURE[modelType];
-	return { config, model, temperature };
-}
-
-// ============================================================================
-// DADOS DO PERÍODO DE EVAL
-// ============================================================================
-
-interface HorseRecord {
-	race_id: number;
-	race_date: string;
-	race_horse_id: number;
-	horse_id: number;
-	features: Record<string, number | null>;
-	finish_position: number;
-	non_runner: boolean;
-	market_odd: number;
-}
-
-async function loadPeriodData(
-	raceTypes: string[],
-): Promise<Map<number, HorseRecord[]>> {
-	const cutoff = new Date();
-	cutoff.setDate(cutoff.getDate() - GATE_PERIOD_DAYS);
-	const cutoffStr = cutoff.toISOString().split("T")[0];
-
-	const pageSize = 1000;
-	let page = 0;
-	const rawFeatures: Array<{
-		race_id: number;
-		race_date: string;
-		race_horse_id: number;
-		horse_id: number;
-		features: Record<string, number | null>;
-		finish_position: number;
-	}> = [];
-
-	while (true) {
-		const from = page * pageSize;
-		const to = from + pageSize - 1;
-		const { data, error } = await supabase
-			.schema("hml")
-			.from("training_enriched_horse_features")
-			.select(
-				"race_id, race_date, race_horse_id, horse_id, features, finish_position",
-			)
-			.in("race_type", raceTypes)
-			.eq("model_version", "v5.0")
-			.gte("quality_score", 0.7)
-			.gte("race_date", cutoffStr)
-			.order("race_date", { ascending: true })
-			.range(from, to);
-
-		if (error) throw error;
-		if (!data || data.length === 0) break;
-		rawFeatures.push(...(data as typeof rawFeatures));
-		if (data.length < pageSize) break;
-		page++;
-	}
-
-	if (rawFeatures.length === 0) return new Map();
-
-	// race_horses_hr_enriched: sp_decimal (odd primária), non_runner, position
-	const raceHorseIds = Array.from(
-		new Set(rawFeatures.map((r) => r.race_horse_id)),
-	);
-	const rhMap = new Map<
-		number,
-		{ non_runner: number; sp_decimal: number | null }
-	>();
-	const CHUNK = 500;
-	for (let i = 0; i < raceHorseIds.length; i += CHUNK) {
-		const chunk = raceHorseIds.slice(i, i + CHUNK);
-		const { data, error } = await supabase
-			.schema("hml")
-			.from("race_horses_hr_enriched")
-			.select("id, non_runner, sp_decimal")
-			.in("id", chunk);
-		if (error) throw error;
-		for (const row of data || []) {
-			rhMap.set(row.id, {
-				non_runner: row.non_runner,
-				sp_decimal:
-					row.sp_decimal !== null && row.sp_decimal !== undefined
-						? Number(row.sp_decimal)
-						: null,
-			});
-		}
-	}
-
-	// Fallback de odd: ÚLTIMA odd de odds_enriched (mesma regra do getMarketOdd
-	// de prod — NÃO média). sp_decimal cobre ~99.96%, fallback é residual.
-	const lastOdd = new Map<number, { odd: number; lastUpdate: string }>();
-	for (let i = 0; i < raceHorseIds.length; i += CHUNK) {
-		const chunk = raceHorseIds.slice(i, i + CHUNK);
-		const { data, error } = await supabase
-			.schema("hml")
-			.from("odds_enriched")
-			.select("race_horse_id, odd, last_update")
-			.in("race_horse_id", chunk);
-		if (error) throw error;
-		for (const row of data || []) {
-			const cur = lastOdd.get(row.race_horse_id);
-			if (!cur || String(row.last_update) > cur.lastUpdate) {
-				lastOdd.set(row.race_horse_id, {
-					odd: Number(row.odd),
-					lastUpdate: String(row.last_update),
-				});
-			}
-		}
-	}
-
-	const raceMap = new Map<number, HorseRecord[]>();
-	for (const f of rawFeatures) {
-		const rh = rhMap.get(f.race_horse_id);
-		const spOdd = rh?.sp_decimal ?? 0;
-		const fallbackOdd = lastOdd.get(f.race_horse_id)?.odd ?? 0;
-		const marketOdd = spOdd > 0 ? spOdd : fallbackOdd;
-
-		const record: HorseRecord = {
-			race_id: f.race_id,
-			race_date: f.race_date,
-			race_horse_id: f.race_horse_id,
-			horse_id: f.horse_id,
-			features: f.features,
-			finish_position: f.finish_position,
-			non_runner: rh?.non_runner === 1,
-			market_odd: marketOdd,
-		};
-		if (!raceMap.has(f.race_id)) raceMap.set(f.race_id, []);
-		const group = raceMap.get(f.race_id);
-		if (group) group.push(record);
-	}
-	return raceMap;
-}
-
-// ============================================================================
-// INFERÊNCIA (softmax head — mesmo caminho da predição de prod)
-// ============================================================================
-
-function predictRace(horses: HorseRecord[], loaded: LoadedModel): number[] {
-	const featureNames = loaded.config.features;
-	const median = loaded.config.normalization.median;
-	const iqr = loaded.config.normalization.iqr;
-
-	const validVecs: number[][] = [];
-	const validOrigIdx: number[] = [];
-	for (let i = 0; i < horses.length; i++) {
-		const vec: number[] = [];
-		let ok = true;
-		for (const fn of featureNames) {
-			let v = horses[i].features?.[fn];
-			if (
-				(fn === "sp_decimal" || fn === "sp_implied_prob") &&
-				(v === null || v === undefined)
-			) {
-				ok = false;
-				break;
-			}
-			if (v === null || v === undefined) v = 0;
-			vec.push(Number(v));
-		}
-		if (ok && vec.length === featureNames.length) {
-			validVecs.push(vec);
-			validOrigIdx.push(i);
-		}
-	}
-
-	const result = new Array(horses.length).fill(-1);
-	if (validVecs.length === 0) return result;
-
-	const nValid = Math.min(validVecs.length, MAX_HORSES);
-	const featCount = featureNames.length;
-	const xBuf = new Float32Array(MAX_HORSES * featCount);
-	for (let h = 0; h < nValid; h++) {
-		for (let f = 0; f < featCount; f++) {
-			const normalized =
-				(validVecs[h][f] - median[f]) / (iqr[f] > 0 ? iqr[f] : 1);
-			xBuf[h * featCount + f] = Math.max(-3, Math.min(3, normalized));
-		}
-	}
-
-	const losePerHorse = tf.tidy(() => {
-		const x = tf.tensor3d(xBuf, [1, MAX_HORSES, featCount]);
-		const maskArr = new Float32Array(MAX_HORSES);
-		for (let i = 0; i < nValid; i++) maskArr[i] = 1;
-		const maskT = tf.tensor2d(maskArr, [1, MAX_HORSES]);
-		const rawOut = loaded.model.predict([x, maskT]) as
-			| tf.Tensor3D
-			| tf.Tensor3D[];
-		const scoreOut = Array.isArray(rawOut) ? rawOut[0] : rawOut;
-		const scores = scoreOut.squeeze([0, 2]) as tf.Tensor1D;
-		const mask1d = tf.tensor1d(maskArr);
-		const adj = mask1d.sub(1).mul(1e9);
-		const scaled = scores.add(adj).div(loaded.temperature);
-		const probs = tf.softmax(scaled);
-		const winProbs = Array.from(probs.dataSync());
-		return winProbs.map((p) => 1 - p);
-	});
-
-	for (let i = 0; i < nValid; i++) {
-		result[validOrigIdx[i]] = losePerHorse[i];
-	}
-	return result;
-}
-
-// ============================================================================
-// SIMULAÇÃO
-// ============================================================================
-
-function evaluateModel(
-	label: string,
-	loaded: LoadedModel,
-	raceMap: Map<number, HorseRecord[]>,
-): ModelSummary {
-	let bankroll = BANKROLL_INITIAL;
-	const results = [];
-
-	for (const [raceId, horses] of raceMap) {
-		if (horses.length < 3) continue;
-		const raceDate = horses[0].race_date;
-		const pLose = predictRace(horses, loaded);
-
-		const candidates: PickCandidate[] = [];
-		for (let i = 0; i < horses.length; i++) {
-			if (pLose[i] < 0) continue;
-			const ivl = calculateLayValueIndex(pLose[i], horses[i].market_odd);
-			const combined = calculateCombinedScore(
-				pLose[i],
-				ivl,
-				horses[i].market_odd,
-			);
-			candidates.push({
-				race_horse_id: horses[i].race_horse_id,
-				horse_id: horses[i].horse_id,
-				predicted_probability: pLose[i],
-				combined_score: combined,
-				ivl_score: ivl,
-				market_odd: horses[i].market_odd,
-				non_runner: horses[i].non_runner,
-				won_race: horses[i].finish_position === 1,
-				finish_position: horses[i].finish_position,
-			});
-		}
-
-		candidates.sort((a, b) => b.combined_score - a.combined_score);
-		const top3 = candidates.slice(0, 3);
-		const sim = simulateRace(
-			raceId,
-			raceDate,
-			top3,
-			bankroll,
-			MIN_ODD_THRESHOLD,
-			MAX_ODD_THRESHOLD,
-			true, // P/L com odd real (Betfair math) — sempre, independente do env
-		);
-		bankroll = sim.bankrollAfter;
-		results.push(sim);
-	}
-
-	return summarize(label, results, BANKROLL_INITIAL);
 }
 
 // ============================================================================
@@ -484,6 +181,7 @@ interface GateDecision {
 		minBets: number;
 		minOdd: number;
 		maxOdd: number;
+		commissionRate: number;
 	};
 	candidate: ModelSummary;
 	prod: ModelSummary | null;
@@ -546,7 +244,10 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 		);
 	}
 
-	const raceMap = await loadPeriodData(MODEL_TYPE_CONFIG[modelType].raceTypes);
+	const raceMap = await loadPeriodData(
+		MODEL_TYPE_CONFIG[modelType].raceTypes,
+		GATE_PERIOD_DAYS,
+	);
 	logger.info(
 		`Staging gate [${label}]: ${raceMap.size} corridas nos últimos ${GATE_PERIOD_DAYS} dias`,
 	);
