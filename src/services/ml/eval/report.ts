@@ -2,7 +2,12 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { SimResult } from "./simulator";
+import {
+  ASSUMED_ODD,
+  COMMISSION_RATE,
+  STAKE,
+  type SimResult,
+} from "./simulator";
 
 export interface ModelSummary {
   modelLabel: string;
@@ -17,7 +22,7 @@ export interface ModelSummary {
     index2: number; // caiu pra #3
   };
   winRate: number; // % das apostas em que o cavalo apostado PERDEU (nós ganhamos)
-  breakEvenWinRate: number; // = 200/210
+  breakEvenWinRate: number; // liability/(liability + ganho líquido pós-comissão) na odd assumida 20
   edge: number; // winRate - breakEvenWinRate (positivo = lucrativo)
   totalPnl: number;
   bankrollInitial: number;
@@ -55,7 +60,13 @@ export function summarize(
   };
 
   const winRate = bets.length > 0 ? wins / bets.length : 0;
-  const breakEvenWinRate = 200 / 210;
+  // Break-even na odd assumida 20, com comissão sobre o ganho:
+  //   liability = stake × (odd - 1); ganho líquido = stake × (1 - comissão)
+  //   sem comissão: 190/(190+10) = 200/210 ≈ 95.24%
+  //   com 6,5%:     190/(190+9.35)        ≈ 95.31%
+  const liability = STAKE * (ASSUMED_ODD - 1);
+  const netWin = STAKE * (1 - COMMISSION_RATE);
+  const breakEvenWinRate = liability / (liability + netWin);
   const totalPnl = results.reduce((s, r) => s + r.pnl, 0);
   const bankrollFinal = bankrollInitial + totalPnl;
   const roiPct = (totalPnl / bankrollInitial) * 100;

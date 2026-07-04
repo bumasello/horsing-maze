@@ -266,7 +266,7 @@ Ran `eval_roi_offline` extensively. Two key discoveries changed everything:
 **LAY betting math (user-defined strategy):**
 - Bankroll starts at 200, stake fixed at 10 per race, assumed odd = 20 (constant; real odds too volatile).
 - Outcome per bet: +10 if horse loses, −200 if horse wins.
-- Break-even win rate: 200/210 = **95.24%** (model must be ≥95.24% confident in P(lose) for positive expectation).
+- Break-even win rate: 200/210 = **95.24%** SEM comissão. Com comissão Betfair BR de 6,5% sobre ganhos (pesquisa 2026-07-04, `docs/pesquisa_mercado_lay_2026-07-04.md`): 190/199.35 = **95.31%** na odd 20. O simulador aplica a comissão por default (`COMMISSION_RATE`, `src/services/ml/eval/simulator.ts`).
 - Cascade: try pick #1 first; if `runner_status='non_runner'` OR odd > 20, fall back to #2, then #3; skip race if none eligible.
 
 **Implication for future work:** Do NOT chase val_top1 improvements. Before changing the loss to ROI-first, run `eval_roi_offline` (Phase 6 of debug plan) to measure actual ROI of v53/v64/SP-only with current pick generator. If positive, the model is already serving the real task; stop tuning. If negative, pivot to ROI-first loss (raise `layLossAlpha`, or change target/output topology — see `project_loss_objective_mismatch.md` Options A/B/C).
@@ -299,6 +299,8 @@ ENABLE_CRON_RETRAIN=1   # opt-in: cron diário retreina VIA STAGING GATE (candid
 GATE_PERIOD_DAYS=90         # janela de eval do gate
 GATE_EDGE_TOLERANCE_PP=0.2  # candidato pode ser até X pp pior e ainda promover
 GATE_MIN_BETS=30            # amostra mínima de apostas simuladas pra promover
+COMMISSION_RATE=0.065       # comissão Betfair BR sobre ganhos no simulador/gate
+                            # (default 6.5%; =0 desativa pra comparar com evals antigos)
 MULTITASK_MODE=0        # opt-out: desativa cabeça multi-task (single-head legado).
                         # Default (unset) = multi-task ATIVO (arquitetura do mt_b05/v68-flat).
                         # ATENÇÃO: multi-task NÃO desvia mais o save pra baselines/ —

@@ -29,7 +29,11 @@ import {
 	calculateLayValueIndex,
 } from "./claude-generate-picks";
 import { type ModelSummary, summarize } from "./eval/report";
-import { type PickCandidate, simulateRace } from "./eval/simulator";
+import {
+	COMMISSION_RATE,
+	type PickCandidate,
+	simulateRace,
+} from "./eval/simulator";
 import {
 	MODEL_TYPE_CONFIG,
 	type ModelType,
@@ -553,6 +557,7 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 		minBets: GATE_MIN_BETS,
 		minOdd: MIN_ODD_THRESHOLD,
 		maxOdd: MAX_ODD_THRESHOLD,
+		commissionRate: COMMISSION_RATE,
 	};
 	const today = new Date().toISOString().slice(0, 10);
 

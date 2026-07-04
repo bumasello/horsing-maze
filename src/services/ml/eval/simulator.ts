@@ -9,9 +9,14 @@
 
 export const STAKE = 10;
 export const ASSUMED_ODD = 20;
-export const WIN_PNL = 10; // ganho quando o cavalo NÃO vence (fixed stake)
+export const WIN_PNL = 10; // ganho BRUTO quando o cavalo NÃO vence (fixed stake)
 // Perda LEGADA (hardcoded odd 20). Mantida como fallback pra retro-compat.
 export const LOSS_PNL_HARDCODED = -200;
+// Comissão Betfair BR (taxa base 6,5% sobre lucro líquido do mercado —
+// pesquisa 2026-07-04, ver docs/pesquisa_mercado_lay_2026-07-04.md).
+// Aplicada só no GANHO (perdas não pagam comissão). COMMISSION_RATE=0 desativa
+// (retro-compat com evals antigos).
+export const COMMISSION_RATE = Number(process.env.COMMISSION_RATE ?? "0.065");
 // Perda REAL Betfair LAY = -stake × (odd_real - 1).
 // USE_REAL_ODD_PNL=1 no env ativa cálculo dinâmico usando chosen.market_odd.
 export const USE_REAL_ODD_PNL =
@@ -60,6 +65,7 @@ export function simulateRace(
   // Default preserva comportamento antigo (env USE_REAL_ODD_PNL lido no load
   // do módulo). Callers novos (staging gate) devem passar explicitamente.
   useRealOddPnl: boolean = USE_REAL_ODD_PNL,
+  commissionRate: number = COMMISSION_RATE,
 ): SimResult {
   const emptyResult = (skipReason: SkipReason): SimResult => ({
     raceId,
@@ -95,7 +101,8 @@ export function simulateRace(
   if (!chosen) return emptyResult("all_ineligible");
 
   // P/L:
-  //   - Win (cavalo NÃO vence): +stake (fixo R$10)
+  //   - Win (cavalo NÃO vence): +stake × (1 - comissão) — Betfair cobra
+  //     comissão sobre o lucro líquido; perdas não pagam comissão
   //   - Loss (cavalo vence):
   //       modo REAL: -stake × (odd_real - 1) — Betfair math correta
   //       modo LEGADO: -200 (odd 20 hardcoded, retrocompat)
@@ -105,7 +112,7 @@ export function simulateRace(
       ? -STAKE * (chosen.market_odd - 1)
       : LOSS_PNL_HARDCODED;
   } else {
-    pnl = WIN_PNL;
+    pnl = WIN_PNL * (1 - commissionRate);
   }
 
   return {
