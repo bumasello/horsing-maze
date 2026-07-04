@@ -9,8 +9,9 @@ import { supabase } from "../..";
 // Limite superior 20 = limite operacional do usuário (aposta LAY na Betfair
 // BR só até odd 20 pela relação risco/retorno).
 const MIN_IVL_THRESHOLD = 1.1;
-const MIN_ODD_THRESHOLD = 13.0;
-const MAX_ODD_THRESHOLD = 20.0;
+// Exportadas pra reuso no staging gate (eval 1:1 com prod).
+export const MIN_ODD_THRESHOLD = 13.0;
+export const MAX_ODD_THRESHOLD = 20.0;
 
 // Gap filter: spread mínimo de P(não vence) entre pick1 e pick3
 // Se spread < threshold, o modelo não consegue discriminar → skip corrida
@@ -383,7 +384,8 @@ async function getMarketOdd(raceHorseId: number): Promise<number | null> {
 // CÁLCULOS
 // ============================================================================
 
-function calculateLayValueIndex(
+// Exportadas pra reuso no staging gate (eval 1:1 com prod — não copiar).
+export function calculateLayValueIndex(
   probability: number,
   marketOdd: number,
 ): number {
@@ -393,7 +395,7 @@ function calculateLayValueIndex(
   return probability - impliedProbLose;
 }
 
-function calculateCombinedScore(
+export function calculateCombinedScore(
   probability: number,
   ivl: number,
   marketOdd: number,

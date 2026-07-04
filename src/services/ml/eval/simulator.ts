@@ -57,6 +57,9 @@ export function simulateRace(
   bankrollBefore: number,
   minEligibleOdd: number = DEFAULT_MIN_ELIGIBLE_ODD,
   maxEligibleOdd: number = DEFAULT_MAX_ELIGIBLE_ODD,
+  // Default preserva comportamento antigo (env USE_REAL_ODD_PNL lido no load
+  // do módulo). Callers novos (staging gate) devem passar explicitamente.
+  useRealOddPnl: boolean = USE_REAL_ODD_PNL,
 ): SimResult {
   const emptyResult = (skipReason: SkipReason): SimResult => ({
     raceId,
@@ -98,7 +101,7 @@ export function simulateRace(
   //       modo LEGADO: -200 (odd 20 hardcoded, retrocompat)
   let pnl: number;
   if (chosen.won_race) {
-    pnl = USE_REAL_ODD_PNL
+    pnl = useRealOddPnl
       ? -STAKE * (chosen.market_odd - 1)
       : LOSS_PNL_HARDCODED;
   } else {

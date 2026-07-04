@@ -271,7 +271,7 @@ Ran `eval_roi_offline` extensively. Two key discoveries changed everything:
 
 **Implication for future work:** Do NOT chase val_top1 improvements. Before changing the loss to ROI-first, run `eval_roi_offline` (Phase 6 of debug plan) to measure actual ROI of v53/v64/SP-only with current pick generator. If positive, the model is already serving the real task; stop tuning. If negative, pivot to ROI-first loss (raise `layLossAlpha`, or change target/output topology — see `project_loss_objective_mismatch.md` Options A/B/C).
 
-**TODO (medium priority): Staging gate for cron retraining.** UPDATE 2026-07-04: o retreino do cron está DESATIVADO por default (guard `ENABLE_CRON_RETRAIN` em `trainAndPredict()`, `src/pipeline/pipeline.ts`) — prod fica congelado no modelo promovido (v68-flat/mt_b05) e o cron só gera predições/picks. Multi-task virou o default do treino (`MULTITASK_MODE`, ver env vars). O staging gate continua pendente e é PRÉ-REQUISITO pra reativar o retreino automático: (1) save new model to `baselines/candidate_flat`; (2) run `eval_roi_offline` OOS on last 90d; (3) if edge ≥ current prod (with -0.2pp tolerance) → promote; else keep prod, log the failed candidate for later analysis. Prevents accidental degradation like v65 (edge +0.06pp) → v66 (edge -0.53pp) observed 2026-07-02.
+**✅ Staging gate for cron retraining — IMPLEMENTADO 2026-07-04** (`src/services/ml/staging-gate.ts`). Com `ENABLE_CRON_RETRAIN=1`, o cron roda `trainAllModelsWithGate()`: (1) treina candidato em `baselines/candidate_{flat,jump}` (prod intocado); (2) avalia candidato vs prod nos últimos `GATE_PERIOD_DAYS` (90) com regras de pick 1:1 com prod (funções importadas de `claude-generate-picks.ts`, sp_decimal, P/L com odd real); (3) promove com backup (`baselines/prod_backup_YYYYMMDD_{type}`) se `edge_cand ≥ edge_prod − GATE_EDGE_TOLERANCE_PP` (0.2pp) e apostas ≥ `GATE_MIN_BETS` (30); senão mantém prod e loga rejeição. Decisões salvas em `horse_probability_model/staging_gate_logs/` no bucket. Execução manual: `src/oneTimeScript/run_staging_gate.ts` (suporta `GATE_DRY_RUN=1`, `GATE_SKIP_TRAINING=1`, `GATE_CANDIDATE_LABEL=x` pra testes). ⚠️ Caveat: a janela de eval é in-sample pro candidato — o gate protege contra REGRESSÃO, não é estimativa não-enviesada de ROI. Prevents accidental degradation like v65 (edge +0.06pp) → v66 (edge -0.53pp) observed 2026-07-02.
 
 **TODO (high priority): Betfair SP CSV → BSP real na simulação.** Hoje o eval usa `sp_decimal` de `race_horses_hr_enriched` (SP oficial das casas tradicionais). Isso é aproximação — não é a odd Betfair Exchange. Substituir por **BSP** (Betfair Starting Price) dos CSVs históricos gratuitos (sem auth, disponível desde 2008; ver `reference_data_providers.md`). Pipeline: baixar CSVs → populate `hml.betfair_sp_history` → simulator lê BSP em vez de sp_decimal. Reflete odd EXATA que se apostaria em produção. Provavelmente vai reduzir levemente o ROI simulado (BSP tende a ser maior que SP em outsiders) mas é o número mais próximo do real.
 
@@ -293,9 +293,12 @@ XRAPIDAPIKEY1 through XRAPIDAPIKEY90=<api_keys>
 PORT=3000 (default)
 
 # Pipeline / ML behavior (added 2026-07-04)
-ENABLE_CRON_RETRAIN=1   # opt-in: cron diário RETREINA e sobrescreve modelo de prod.
+ENABLE_CRON_RETRAIN=1   # opt-in: cron diário retreina VIA STAGING GATE (candidato → eval ROI
+                        # 90d vs prod → promove só se não regredir; ver staging-gate.ts).
                         # Default (unset) = cron só gera predições/picks com o modelo em prod.
-                        # NÃO ativar antes do staging gate estar implementado.
+GATE_PERIOD_DAYS=90         # janela de eval do gate
+GATE_EDGE_TOLERANCE_PP=0.2  # candidato pode ser até X pp pior e ainda promover
+GATE_MIN_BETS=30            # amostra mínima de apostas simuladas pra promover
 MULTITASK_MODE=0        # opt-out: desativa cabeça multi-task (single-head legado).
                         # Default (unset) = multi-task ATIVO (arquitetura do mt_b05/v68-flat).
                         # ATENÇÃO: multi-task NÃO desvia mais o save pra baselines/ —

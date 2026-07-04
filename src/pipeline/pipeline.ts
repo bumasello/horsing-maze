@@ -35,7 +35,7 @@ import {
   enrichRacecardsFromRacingApi,
   enrichResultsFromRacingApi,
 } from "../services/racing-api/racingApi.service";
-import { trainAllModels } from "../services/ml/training_final";
+import { trainAllModelsWithGate } from "../services/ml/staging-gate";
 import { updateRaceResults } from "../services/features/pipeline/update_race_result";
 
 /**
@@ -332,18 +332,19 @@ async function transferToSupabase(): Promise<void> {
 async function trainAndPredict(): Promise<void> {
   logger.info("Iniciando treinamento do modelo e geração de previsões");
 
-  // Guarda de retreino (2026-07-04): o retreino automático sobrescreve o modelo
-  // de prod SEM validação (staging gate ainda não implementado). Default é NÃO
-  // retreinar — o pipeline usa o modelo já promovido em prod (v68-flat/mt_b05).
-  // Pra reativar: ENABLE_CRON_RETRAIN=1 no env. Retreino manual continua
-  // disponível via GET /api/ml/training.
+  // Guarda de retreino (2026-07-04): com ENABLE_CRON_RETRAIN=1 o retreino
+  // roda ATRÁS do staging gate (treina candidato em path isolado, avalia ROI
+  // vs prod nos últimos 90d, promove só se não regredir — ver
+  // src/services/ml/staging-gate.ts). Default é NÃO retreinar — o pipeline
+  // usa o modelo já promovido em prod. Retreino manual direto (SEM gate)
+  // continua disponível via GET /api/ml/training.
   const cronRetrainEnabled =
     (process.env.ENABLE_CRON_RETRAIN || "").trim() === "1";
 
   if (cronRetrainEnabled) {
-    await metrics.measure("Treinamento do modelo", async () => {
-      await trainAllModels();
-      logger.info("Treinamento do modelo concluído com sucesso");
+    await metrics.measure("Treinamento do modelo (staging gate)", async () => {
+      await trainAllModelsWithGate();
+      logger.info("Retreino com staging gate concluído");
     });
   } else {
     logger.warn(

@@ -36,9 +36,10 @@ import { fitIsotonic } from "./calibration";
 const BUCKET_NAME = "modelos-tfjs-publicos";
 const MAX_HORSES = 30; // Cobre até o Grand National (40 horses são exceção rara)
 
-type ModelType = "flat" | "jump";
+export type ModelType = "flat" | "jump";
 
-const MODEL_TYPE_CONFIG = {
+// Exportado pra reuso no staging gate (raceTypes/name por tipo de modelo).
+export const MODEL_TYPE_CONFIG = {
   flat: {
     name: "claude-ml-model-flat",
     raceTypes: ["Flat"],
