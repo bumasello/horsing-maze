@@ -344,7 +344,11 @@ export async function trainAllModelsWithGate(): Promise<void> {
 	);
 	const start = Date.now();
 
-	const types: ModelType[] = ["flat", "jump"];
+	// GATE_TYPES=jump (ou flat) restringe a um tipo — útil pra rodadas manuais
+	const types = (process.env.GATE_TYPES || "flat,jump")
+		.split(",")
+		.map((t) => t.trim())
+		.filter((t): t is ModelType => t === "flat" || t === "jump");
 	const failures: string[] = [];
 	for (const t of types) {
 		try {

@@ -236,14 +236,16 @@ export async function loadPeriodData(
 // ============================================================================
 
 /**
- * Scores CRUS do modelo (logits pré-softmax) por cavalo. null = cavalo
- * inválido (sem sp_decimal/sp_implied_prob nas features ou fora do MAX_HORSES).
- * Base pra predictRace e pra composição externa (ex: blend Benter).
+ * Roda o modelo e retorna AMBAS as cabeças por cavalo:
+ * - score: logit cru pré-softmax (sempre presente)
+ * - lose: saída sigmoid da cabeça P(perder) (null em modelos single-head)
+ * null no array = cavalo inválido (sem sp_decimal/sp_implied_prob nas
+ * features ou fora do MAX_HORSES).
  */
-export function predictRaceScores(
+export function predictRaceHeads(
 	horses: HorseRecord[],
 	loaded: LoadedModel,
-): (number | null)[] {
+): { score: (number | null)[]; lose: (number | null)[] | null } {
 	const featureNames = loaded.config.features;
 	const median = loaded.config.normalization.median;
 	const iqr = loaded.config.normalization.iqr;
@@ -271,8 +273,8 @@ export function predictRaceScores(
 		}
 	}
 
-	const result: (number | null)[] = new Array(horses.length).fill(null);
-	if (validVecs.length === 0) return result;
+	const scoreResult: (number | null)[] = new Array(horses.length).fill(null);
+	if (validVecs.length === 0) return { score: scoreResult, lose: null };
 
 	const nValid = Math.min(validVecs.length, MAX_HORSES);
 	const featCount = featureNames.length;
@@ -285,7 +287,8 @@ export function predictRaceScores(
 		}
 	}
 
-	const rawScores = tf.tidy(() => {
+	// rawLose vazio = modelo single-head (tf.tidy não aceita null no retorno)
+	const [rawScores, rawLose] = tf.tidy(() => {
 		const x = tf.tensor3d(xBuf, [1, MAX_HORSES, featCount]);
 		const maskArr = new Float32Array(MAX_HORSES);
 		for (let i = 0; i < nValid; i++) maskArr[i] = 1;
@@ -293,15 +296,50 @@ export function predictRaceScores(
 		const rawOut = loaded.model.predict([x, maskT]) as
 			| tf.Tensor3D
 			| tf.Tensor3D[];
-		const scoreOut = Array.isArray(rawOut) ? rawOut[0] : rawOut;
+		const [scoreOut, loseOut] = Array.isArray(rawOut)
+			? [rawOut[0], rawOut[1] ?? null]
+			: [rawOut, null];
 		const scores = scoreOut.squeeze([0, 2]) as tf.Tensor1D;
-		return Array.from(scores.dataSync());
+		const scoreArr = Array.from(scores.dataSync());
+		const loseArr = loseOut
+			? Array.from((loseOut.squeeze([0, 2]) as tf.Tensor1D).dataSync())
+			: [];
+		return [scoreArr, loseArr];
 	});
 
 	for (let i = 0; i < nValid; i++) {
-		result[validOrigIdx[i]] = rawScores[i];
+		scoreResult[validOrigIdx[i]] = rawScores[i];
 	}
-	return result;
+	let loseResult: (number | null)[] | null = null;
+	if (rawLose.length > 0) {
+		loseResult = new Array(horses.length).fill(null);
+		for (let i = 0; i < nValid; i++) {
+			loseResult[validOrigIdx[i]] = rawLose[i];
+		}
+	}
+	return { score: scoreResult, lose: loseResult };
+}
+
+/** Scores crus (logit pré-softmax) por cavalo — atalho sobre predictRaceHeads. */
+export function predictRaceScores(
+	horses: HorseRecord[],
+	loaded: LoadedModel,
+): (number | null)[] {
+	return predictRaceHeads(horses, loaded).score;
+}
+
+/**
+ * P(lose) direto da cabeça sigmoid (multi-task). Retorna null se o modelo
+ * for single-head. -1 = cavalo inválido. NÃO passa por softmax race-level —
+ * são probabilidades independentes por cavalo.
+ */
+export function predictRaceLoseHead(
+	horses: HorseRecord[],
+	loaded: LoadedModel,
+): number[] | null {
+	const { lose } = predictRaceHeads(horses, loaded);
+	if (!lose) return null;
+	return lose.map((v) => (v === null ? -1 : v));
 }
 
 /** Softmax race-level sobre scores (com temperature). null → -1 no output. */
