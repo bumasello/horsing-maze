@@ -374,12 +374,24 @@ export function predictRace(
 // SIMULAÇÃO
 // ============================================================================
 
+export interface EvalOpts {
+	// Limites de ELEGIBILIDADE da simulação (default = constantes de prod).
+	// O combined_score continua usando a rampa de prod [13,20] — o sweep muda
+	// só o filtro da cascata, espelhando a metodologia do sweep de MIN_ODD
+	// do Flat (2026-07-01).
+	minOdd?: number;
+	maxOdd?: number;
+}
+
 /** predictFn deve retornar P(lose) por cavalo; -1 = cavalo inválido. */
 export function evaluateWithPredictor(
 	label: string,
 	raceMap: Map<number, HorseRecord[]>,
 	predictFn: (horses: HorseRecord[]) => number[],
+	opts: EvalOpts = {},
 ): ModelSummary {
+	const minOdd = opts.minOdd ?? MIN_ODD_THRESHOLD;
+	const maxOdd = opts.maxOdd ?? MAX_ODD_THRESHOLD;
 	let bankroll = BANKROLL_INITIAL;
 	const results = [];
 
@@ -417,8 +429,8 @@ export function evaluateWithPredictor(
 			raceDate,
 			top3,
 			bankroll,
-			MIN_ODD_THRESHOLD,
-			MAX_ODD_THRESHOLD,
+			minOdd,
+			maxOdd,
 			true, // P/L com odd real (Betfair math) — sempre, independente do env
 		);
 		bankroll = sim.bankrollAfter;
@@ -432,8 +444,12 @@ export function evaluateModel(
 	label: string,
 	loaded: LoadedModel,
 	raceMap: Map<number, HorseRecord[]>,
+	opts: EvalOpts = {},
 ): ModelSummary {
-	return evaluateWithPredictor(label, raceMap, (horses) =>
-		predictRace(horses, loaded),
+	return evaluateWithPredictor(
+		label,
+		raceMap,
+		(horses) => predictRace(horses, loaded),
+		opts,
 	);
 }
