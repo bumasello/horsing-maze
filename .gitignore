@@ -2,3 +2,8 @@ AGENTS.md
 dist
 node_modules
 .env
+pipeline.log
+racingapi.txt
+typeerror.txt
+tools/lgbm_benchmark/.venv
+tools/lgbm_benchmark/data

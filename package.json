@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node --expose-gc --max-old-space-size=4096 dist/index.js 2>&1 | tee -a pipeline.log",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "dev": "nodemon src/index.ts"
   },
   "keywords": [],
@@ -23,7 +23,8 @@
     "@types/node": "^22.13.14",
     "@types/node-telegram-bot-api": "^0.64.8",
     "nodemon": "^3.1.9",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
