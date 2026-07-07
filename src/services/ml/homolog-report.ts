@@ -82,13 +82,16 @@ export async function generateHomologReport(
 	}
 
 	const ids = picks.map((p) => p.race_horse_id);
-	const posMap = new Map<number, number | null>();
+	const rhMap = new Map<
+		number,
+		{ position: number | null; sp: number | null }
+	>();
 	const CHUNK = 500;
 	for (let i = 0; i < ids.length; i += CHUNK) {
 		const { data: rh, error: e2 } = await supabase
 			.schema("hml")
 			.from("race_horses_hr_enriched")
-			.select("id, position")
+			.select("id, position, sp_decimal")
 			.in("id", ids.slice(i, i + CHUNK));
 		if (e2) {
 			logger.error(
@@ -97,7 +100,11 @@ export async function generateHomologReport(
 			);
 			return null;
 		}
-		for (const r of rh || []) posMap.set(r.id, r.position);
+		for (const r of rh || [])
+			rhMap.set(r.id, {
+				position: r.position,
+				sp: r.sp_decimal ? Number(r.sp_decimal) : null,
+			});
 	}
 
 	const days: Record<string, DayStats> = {};
@@ -105,9 +112,13 @@ export async function generateHomologReport(
 
 	for (const p of picks) {
 		const day = (days[p.race_date] ??= emptyDay());
-		const odd = Number(p.market_odd);
+		const rh = rhMap.get(p.race_horse_id);
+		// Odd de LARGADA quando existe (é a odd em que a aposta real aconteceria
+		// — drift mediano geração→SP é ~35%, ver analyze_odds_drift); fallback
+		// pra odd da geração enquanto o resultado não chega.
+		const odd = rh?.sp && rh.sp > 1 ? rh.sp : Number(p.market_odd);
 		const inRange = odd >= MIN_ODD_THRESHOLD && odd <= MAX_ODD_THRESHOLD;
-		const pos = posMap.get(p.race_horse_id);
+		const pos = rh?.position;
 
 		for (const s of [day, totals]) {
 			s.picks++;

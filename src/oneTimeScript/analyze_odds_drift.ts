@@ -134,7 +134,7 @@ async function main(): Promise<void> {
 		for (const r of data) {
 			const raceDate = dateById.get(r.race_horse_id);
 			if (!raceDate) continue;
-			const genCutoff = `${raceDate}T04:00:00`;
+			const genCutoff = `${raceDate}T07:00:00`;
 			const ts = String(r.last_update);
 			if (ts > genCutoff) continue; // depois da geração — ignora
 			const cur = genById.get(r.race_horse_id);
@@ -157,7 +157,7 @@ async function main(): Promise<void> {
 		Row & { oddGen: number }
 	>;
 	console.log(
-		`  📊 ${withGen.length}/${rows.length} com odd pré-04:00 UTC (${pct(withGen.length, rows.length)} cobertura)\n`,
+		`  📊 ${withGen.length}/${rows.length} com odd pré-07:00 UTC (${pct(withGen.length, rows.length)} cobertura)\n`,
 	);
 
 	// ---- Métricas ----
