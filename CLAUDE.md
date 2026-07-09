@@ -301,6 +301,9 @@ GATE_EDGE_TOLERANCE_PP=0.2  # candidato pode ser até X pp pior e ainda promover
 GATE_MIN_BETS=30            # amostra mínima de apostas simuladas pra promover
 COMMISSION_RATE=0.065       # comissão Betfair BR sobre ganhos no simulador/gate
                             # (default 6.5%; =0 desativa pra comparar com evals antigos)
+ENABLE_INTRADAY_ODDS=1      # opt-in (2026-07-08): captura intraday de odds às 06:00 e
+                            # 09:00 local — resposta ao drift de 35% geração→SP.
+                            # EM TESTE EM DEV — não ativar em prod sem alguns dias de teste.
 MULTITASK_MODE=0        # opt-out: desativa cabeça multi-task (single-head legado).
                         # Default (unset) = multi-task ATIVO (arquitetura do mt_b05/v68-flat).
                         # ATENÇÃO: multi-task NÃO desvia mais o save pra baselines/ —

@@ -421,12 +421,56 @@ export const runPipeline = async (): Promise<PipelineResult> => {
 };
 
 /**
+ * Captura intraday de odds (2026-07-08, resposta ao drift de 35%
+ * geração→SP): re-busca race details das corridas de hoje ainda não
+ * iniciadas (odds frescas → MongoDB) e transfere pro Supabase
+ * (odds_enriched ganha novos snapshots com last_update mais recente).
+ * getMarketOdd (fallback "última odd") passa a enxergar odds atuais
+ * automaticamente. Fundação pra regeração de picks intraday.
+ */
+export async function captureIntradayOdds(): Promise<void> {
+	const begin = Date.now();
+	logger.info("Captura intraday de odds: iniciando");
+
+	// checked_detail=true → corridas de hoje já processadas pelo pipeline
+	// noturno, aguardando largada
+	const racecards = await raceCards.getUnfinishedRaceCard_Hr(true);
+	if (!racecards || racecards.length === 0) {
+		logger.warn("Captura intraday: nenhuma corrida aguardando largada");
+		return;
+	}
+	logger.info(`Captura intraday: ${racecards.length} corridas`);
+
+	await processBatch(racecards, async (rc, index, array) => {
+		await withRetry(
+			async () => {
+				logger.info(
+					`Captura intraday: odds da corrida ${rc.id_race} (${index + 1}/${array.length})`,
+				);
+				await raceDetails.getRaceDetailAndStore_Hr(rc.id_race);
+			},
+			{},
+			`intraday odds ${rc.id_race}`,
+		);
+	});
+
+	// Mongo → Supabase (upsert idempotente por race_horse_id+bookie+last_update)
+	await populateRaceDetail_spb();
+
+	logger.info(
+		`Captura intraday de odds concluída em ${formatMS(Date.now() - begin)}`,
+	);
+}
+
+/**
  * Configuração do Node Cron para execução automática.
  * node-cron SEM opção `timezone` usa a hora LOCAL do servidor
  * (mazeserver = America/Sao_Paulo, UTC-3):
  * - 20:00 local (23:00 UTC): enriquecimento de resultados via Racing API
  * - 00:00 local (03:00 UTC): pipeline completo (dados + features + predição
  *   + picks; retreino só com ENABLE_CRON_RETRAIN=1)
+ * - 06:00 e 09:00 local (09:00/12:00 UTC): captura intraday de odds
+ *   (só com ENABLE_INTRADAY_ODDS=1)
  */
 export function setupCronJob(): boolean {
 	try {
@@ -458,6 +502,26 @@ export function setupCronJob(): boolean {
 				);
 			}
 		});
+
+		// 06:00 e 09:00 local (09:00/12:00 UTC — ~3,5h e ~30min antes das
+		// primeiras corridas UK): captura intraday de odds. Opt-in via env.
+		if ((process.env.ENABLE_INTRADAY_ODDS || "").trim() === "1") {
+			cron.schedule("0 6,9 * * *", async () => {
+				try {
+					await captureIntradayOdds();
+				} catch (error) {
+					logger.error(
+						"Erro na captura intraday de odds:",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+			});
+			logger.info("Captura intraday de odds AGENDADA (06:00 e 09:00 local)");
+		} else {
+			logger.info(
+				"Captura intraday de odds desativada (ENABLE_INTRADAY_ODDS != 1)",
+			);
+		}
 
 		// 00:00 local / 03:00 UTC: pipeline completo diário
 		cron.schedule("00 00 * * *", async () => {
