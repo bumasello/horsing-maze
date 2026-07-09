@@ -1,4 +1,5 @@
 import { CONFIG } from "../shared/config";
+import { getDataSchema } from "../shared/db-config";
 /**
  * Pipeline automatizado para atualização de dados de corridas
  *
@@ -291,7 +292,7 @@ async function transferToSupabase(): Promise<void> {
 
 	await metrics.measure("Geração de features para previsão", async () => {
 		const { data: upcomingRaces, error } = await supabase
-			.schema("hml")
+			.schema(getDataSchema())
 			.from("racecards_hr_enriched")
 			.select("id_race")
 			.eq("finished", 0)

@@ -8,6 +8,7 @@
 
 import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../../..";
+import { getDataSchema, getOutputSchema } from "../../../shared/db-config";
 import "../layers/attention";
 import { withRetry } from "../../../shared/retry";
 import type { ModelConfig } from "../../../shared/types/ml.types";
@@ -133,7 +134,7 @@ export async function loadPeriodData(
 		const to = from + pageSize - 1;
 		const data = await queryWithRetry(`features page ${page}`, () =>
 			supabase
-				.schema("hml")
+				.schema(getOutputSchema())
 				.from("training_enriched_horse_features")
 				.select(
 					"race_id, race_date, race_horse_id, horse_id, features, finish_position",
@@ -168,7 +169,7 @@ export async function loadPeriodData(
 		const chunk = raceHorseIds.slice(i, i + CHUNK);
 		const data = await queryWithRetry(`race_horses chunk ${i}`, () =>
 			supabase
-				.schema("hml")
+				.schema(getDataSchema())
 				.from("race_horses_hr_enriched")
 				.select("id, non_runner, sp_decimal")
 				.in("id", chunk),
@@ -191,7 +192,7 @@ export async function loadPeriodData(
 		const chunk = raceHorseIds.slice(i, i + CHUNK);
 		const data = await queryWithRetry(`odds chunk ${i}`, () =>
 			supabase
-				.schema("hml")
+				.schema(getDataSchema())
 				.from("odds_enriched")
 				.select("race_horse_id, odd, last_update")
 				.in("race_horse_id", chunk),

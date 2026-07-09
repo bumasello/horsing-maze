@@ -15,6 +15,7 @@
 // conhecida do selectMainPick, fix pendente pós-homologação).
 
 import { supabase } from "../..";
+import { getDataSchema, getOutputSchema } from "../../shared/db-config";
 import { logger } from "../../shared/logger";
 import { MAX_ODD_THRESHOLD, MIN_ODD_THRESHOLD } from "./claude-generate-picks";
 import { BUCKET } from "./eval/harness";
@@ -64,7 +65,7 @@ export async function generateHomologReport(
 	const cutoffStr = cutoff.toISOString().split("T")[0];
 
 	const { data: picks, error } = await supabase
-		.schema("hml")
+		.schema(getOutputSchema())
 		.from("lay_betting_picks")
 		.select("race_date, race_horse_id, market_odd, model_version")
 		.gte("race_date", cutoffStr)
@@ -89,7 +90,7 @@ export async function generateHomologReport(
 	const CHUNK = 500;
 	for (let i = 0; i < ids.length; i += CHUNK) {
 		const { data: rh, error: e2 } = await supabase
-			.schema("hml")
+			.schema(getDataSchema())
 			.from("race_horses_hr_enriched")
 			.select("id, position, sp_decimal")
 			.in("id", ids.slice(i, i + CHUNK));
