@@ -24,14 +24,16 @@ notify() {
     -d "$msg ($(date '+%d/%m %H:%M'))" "https://ntfy.sh/$TOPIC" >/dev/null
 }
 
-# 1. API de pé?
+# 1. APIs de pé? (prd=3001, teste=3000)
+if ! curl -sf -m 10 http://localhost:3001/health >/dev/null; then
+  notify prd_down "PROD /health (3001) não responde — horsingmaze-prd pode estar morto"
+fi
 if ! curl -sf -m 10 http://localhost:3000/health >/dev/null; then
-  notify api_down "API /health não responde — serviço horsingmaze-hmlmanus pode estar morto"
-  exit 0
+  notify hml_down "TESTE /health (3000) não responde — horsingmaze-hmlmanus pode estar morto"
 fi
 
-# 2. Pipeline diário completou nas últimas 26h?
-if ! journalctl -u horsingmaze-hmlmanus --since "26 hours ago" --no-pager 2>/dev/null \
+# 2. Pipeline diário (roda SÓ no prd) completou nas últimas 26h?
+if ! journalctl -u horsingmaze-prd --since "26 hours ago" --no-pager 2>/dev/null \
     | grep -q "Resultado da execução agendada: Sucesso"; then
-  notify pipeline_stale "Pipeline diário SEM execução com sucesso nas últimas 26h — verificar cron/journal"
+  notify pipeline_stale "Pipeline diário do PROD sem sucesso nas últimas 26h — verificar cron/journal"
 fi
