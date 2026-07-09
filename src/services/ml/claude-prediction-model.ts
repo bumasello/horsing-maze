@@ -8,7 +8,11 @@
 import * as tf from "@tensorflow/tfjs-node";
 import dotenv from "dotenv";
 import { supabase } from "../..";
-import { getDataSchema, getOutputSchema } from "../../shared/db-config";
+import {
+	getDataSchema,
+	getOutputSchema,
+	modelPath,
+} from "../../shared/db-config";
 import "./layers/attention";
 import { applyIsotonicToRace } from "./calibration";
 
@@ -39,7 +43,9 @@ const MODEL_TYPE_CONFIG = {
 };
 
 function getModelPath(modelType: ModelType): string {
-	return `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
+	return modelPath(
+		`horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`,
+	);
 }
 
 // Temperature scaling para softmax

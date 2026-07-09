@@ -2,14 +2,14 @@
 
 import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../..";
-import { getOutputSchema } from "../../shared/db-config";
+import { getOutputSchema, modelPath } from "../../shared/db-config";
 
 import type { ModelConfig } from "../../shared/types/ml.types";
 
 // Configuração do modelo
 const MODEL_NAME = "claude-ml-model";
 const BUCKET_NAME = "modelos-tfjs-publicos";
-const MODEL_PATH = `horse_probability_model/${MODEL_NAME}`;
+const MODEL_PATH = modelPath(`horse_probability_model/${MODEL_NAME}`);
 
 const configGlobal = {
 	patience: 25,

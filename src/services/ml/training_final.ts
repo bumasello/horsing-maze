@@ -25,7 +25,7 @@
 
 import * as tf from "@tensorflow/tfjs-node";
 import { supabase } from "../..";
-import { getOutputSchema } from "../../shared/db-config";
+import { getOutputSchema, modelPath } from "../../shared/db-config";
 import type { ModelConfig } from "../../shared/types/ml.types";
 import { fitIsotonic } from "./calibration";
 import { createAttentionModel } from "./layers/attention";
@@ -64,18 +64,24 @@ function isMultiTask(): boolean {
 }
 
 function getModelPath(modelType: ModelType): string {
-	const base = `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
+	const base = modelPath(
+		`horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`,
+	);
 	// EXPERIMENT_LABEL tem prioridade sobre BASELINE_MODE — permite combinações
 	// como BASELINE_MODE=lean + EXPERIMENT_LABEL=multitask_lean.
 	// ATENÇÃO: multi-task NÃO desvia mais o path — é a arquitetura de prod.
 	// Runs isolados exigem EXPERIMENT_LABEL ou BASELINE_MODE explícitos.
 	const experiment = getExperimentLabel();
 	if (experiment) {
-		return `horse_probability_model/baselines/${experiment}_${modelType}`;
+		return modelPath(
+			`horse_probability_model/baselines/${experiment}_${modelType}`,
+		);
 	}
 	const baseline = getBaselineMode();
 	if (baseline) {
-		return `horse_probability_model/baselines/${baseline}_${modelType}`;
+		return modelPath(
+			`horse_probability_model/baselines/${baseline}_${modelType}`,
+		);
 	}
 	return base;
 }

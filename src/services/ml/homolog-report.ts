@@ -15,7 +15,11 @@
 // conhecida do selectMainPick, fix pendente pós-homologação).
 
 import { supabase } from "../..";
-import { getDataSchema, getOutputSchema } from "../../shared/db-config";
+import {
+	getDataSchema,
+	getOutputSchema,
+	modelPath,
+} from "../../shared/db-config";
 import { logger } from "../../shared/logger";
 import { MAX_ODD_THRESHOLD, MIN_ODD_THRESHOLD } from "./claude-generate-picks";
 import { BUCKET } from "./eval/harness";
@@ -180,7 +184,9 @@ export async function generateHomologReport(
 
 	// Persistência best-effort no bucket
 	const today = new Date().toISOString().split("T")[0];
-	const path = `horse_probability_model/homolog_reports/${today}.json`;
+	const path = modelPath(
+		`horse_probability_model/homolog_reports/${today}.json`,
+	);
 	const { error: upErr } = await supabase.storage
 		.from(BUCKET)
 		.upload(path, new TextEncoder().encode(JSON.stringify(report, null, 2)), {

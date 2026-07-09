@@ -18,6 +18,7 @@
 // candidato reportado aqui NÃO é estimativa não-enviesada de ROI futuro.
 
 import { supabase } from "../..";
+import { modelPath } from "../../shared/db-config";
 import { logger } from "../../shared/logger";
 import type { ModelConfig } from "../../shared/types/ml.types";
 import { MAX_ODD_THRESHOLD, MIN_ODD_THRESHOLD } from "./claude-generate-picks";
@@ -69,16 +70,22 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 function prodPath(modelType: ModelType): string {
-	return `horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`;
+	return modelPath(
+		`horse_probability_model/${MODEL_TYPE_CONFIG[modelType].name}`,
+	);
 }
 
 function candidatePath(modelType: ModelType): string {
-	return `horse_probability_model/baselines/${CANDIDATE_LABEL}_${modelType}`;
+	return modelPath(
+		`horse_probability_model/baselines/${CANDIDATE_LABEL}_${modelType}`,
+	);
 }
 
 function backupPath(modelType: ModelType): string {
 	const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-	return `horse_probability_model/baselines/prod_backup_${today}_${modelType}`;
+	return modelPath(
+		`horse_probability_model/baselines/prod_backup_${today}_${modelType}`,
+	);
 }
 
 // ============================================================================
@@ -188,7 +195,9 @@ interface GateDecision {
 }
 
 async function saveGateLog(decision: GateDecision): Promise<void> {
-	const path = `horse_probability_model/staging_gate_logs/${decision.date}_${decision.modelType}.json`;
+	const path = modelPath(
+		`horse_probability_model/staging_gate_logs/${decision.date}_${decision.modelType}.json`,
+	);
 	try {
 		await upload(
 			path,
