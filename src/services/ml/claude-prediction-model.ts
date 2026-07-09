@@ -380,7 +380,7 @@ async function processRaceAfterTraining(
 	const temperature: number =
 		(config as any).softmaxTemperature ?? DEFAULT_TEMPERATURE[modelType];
 
-	const { probabilities, diagnostics } = tf.tidy(() => {
+	const { probabilities, loseHead, diagnostics } = tf.tidy(() => {
 		const inputTensor = tf.tensor3d(xBuffer, [1, MAX_HORSES, featureCount]);
 		const maskArr = new Float32Array(MAX_HORSES);
 		for (let i = 0; i < validHorses.length; i++) maskArr[i] = 1;
@@ -388,13 +388,19 @@ async function processRaceAfterTraining(
 
 		// Passar pelo modelo. Modelos multi-task (mt_b05+) retornam ARRAY
 		// [scoreOutput, loseOutput]. Modelos legados retornam apenas o scoreOutput.
-		// Aqui usamos SEMPRE o scoreOutput (compatível com pipeline de softmax race-level).
+		// PREDICTION_PLOSE_SOURCE=heads_avg usa também a cabeça lose (validado
+		// por bootstrap pareado 2026-07-09: Δpnl +588 [0,1264], p=2.4%).
 		const rawOut = model.predict([inputTensor, maskTensor]) as
 			| tf.Tensor3D
 			| tf.Tensor3D[];
 		const scoresRaw = (
 			Array.isArray(rawOut) ? rawOut[0] : rawOut
 		) as tf.Tensor3D;
+		const loseOut =
+			Array.isArray(rawOut) && rawOut[1] ? (rawOut[1] as tf.Tensor3D) : null;
+		const loseHeadArr = loseOut
+			? Array.from((loseOut.squeeze([0, 2]) as tf.Tensor1D).dataSync())
+			: [];
 		const scores = scoresRaw.squeeze([0, 2]) as tf.Tensor1D; // [MAX_HORSES]
 
 		// Extrair raw scores dos cavalos válidos para diagnóstico
@@ -425,6 +431,7 @@ async function processRaceAfterTraining(
 
 		return {
 			probabilities: probsArr,
+			loseHead: loseHeadArr,
 			diagnostics: {
 				rawMin: rawMin.toFixed(4),
 				rawMax: rawMax.toFixed(4),
@@ -468,10 +475,18 @@ async function processRaceAfterTraining(
 
 	const predictionRecords = [];
 
+	// PREDICTION_PLOSE_SOURCE=heads_avg → P(perder) = média de (1−softmax) e
+	// da cabeça lose (só em modelos multi-task). Default: softmax (prod atual).
+	const useHeadsAvg =
+		(process.env.PREDICTION_PLOSE_SOURCE || "softmax").trim() === "heads_avg" &&
+		loseHead.length > 0;
+
 	for (let i = 0; i < validHorses.length; i++) {
 		const horse = validHorses[i];
 		const winProb = probabilities[i];
-		const notWinProb = 1 - winProb;
+		const notWinProb = useHeadsAvg
+			? (1 - winProb + loseHead[i]) / 2
+			: 1 - winProb;
 
 		let layRecommendation: string;
 		if (winProb <= avgWinProb * 0.4) layRecommendation = "STRONG_LAY";

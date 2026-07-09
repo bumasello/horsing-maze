@@ -537,6 +537,53 @@ export function setupCronJob(): boolean {
 			logger.warn(
 				"Serviço de TESTE (DISABLE_PIPELINE_CRON=1): pipeline 00:00 e enriquecimento 20:00 NÃO agendados",
 			);
+			// 01:00 local: picks do ambiente de teste — A/B contra o prd.
+			// Lê os dados que o prd acabou de ingerir (compartilhados) e escreve
+			// features/predições/picks no OUTPUT_SCHEMA do teste (hml). Sem
+			// chamadas a APIs externas. PREDICTION_PLOSE_SOURCE do .env define
+			// a variante em teste (ex: heads_avg).
+			cron.schedule("0 1 * * *", async () => {
+				try {
+					logger.info("Teste A/B: gerando features/predições/picks (hml)");
+					await metrics.measure("Features de previsão (teste)", async () => {
+						const { data: upcomingRaces, error } = await supabase
+							.schema(getDataSchema())
+							.from("racecards_hr_enriched")
+							.select("id_race")
+							.eq("finished", 0)
+							.eq("canceled", 0);
+						if (error) throw error;
+						if (!upcomingRaces || upcomingRaces.length === 0) {
+							logger.info("Teste A/B: sem corridas futuras, pulando");
+							return;
+						}
+						await generatePredictionFeatures_v4(
+							supabase,
+							upcomingRaces.map((r) => r.id_race),
+							{
+								mode: "prediction",
+								saveToDatabase: true,
+								minQualityScore: 0.5,
+							},
+						);
+					});
+					await metrics.measure("Predições (teste)", async () => {
+						await generatePredictions_v4();
+					});
+					await metrics.measure("Picks (teste)", async () => {
+						await generateLayBettingPicks();
+					});
+					logger.info("Teste A/B: picks do dia gerados com sucesso");
+				} catch (error) {
+					logger.error(
+						"Erro na geração de picks do teste:",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+			});
+			logger.info(
+				"Cron de picks do TESTE agendado (01:00 local, pós-ingestão do prd)",
+			);
 			return true;
 		}
 		cron.schedule("00 00 * * *", async () => {
