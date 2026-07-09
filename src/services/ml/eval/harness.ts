@@ -385,12 +385,12 @@ export interface EvalOpts {
 }
 
 /** predictFn deve retornar P(lose) por cavalo; -1 = cavalo inválido. */
-export function evaluateWithPredictor(
-	label: string,
+/** Simulação crua (SimResult[] por corrida) — base pro summarize e pro bootstrap. */
+export function simulateWithPredictor(
 	raceMap: Map<number, HorseRecord[]>,
 	predictFn: (horses: HorseRecord[]) => number[],
 	opts: EvalOpts = {},
-): ModelSummary {
+) {
 	const minOdd = opts.minOdd ?? MIN_ODD_THRESHOLD;
 	const maxOdd = opts.maxOdd ?? MAX_ODD_THRESHOLD;
 	let bankroll = BANKROLL_INITIAL;
@@ -438,7 +438,20 @@ export function evaluateWithPredictor(
 		results.push(sim);
 	}
 
-	return summarize(label, results, BANKROLL_INITIAL);
+	return results;
+}
+
+export function evaluateWithPredictor(
+	label: string,
+	raceMap: Map<number, HorseRecord[]>,
+	predictFn: (horses: HorseRecord[]) => number[],
+	opts: EvalOpts = {},
+): ModelSummary {
+	return summarize(
+		label,
+		simulateWithPredictor(raceMap, predictFn, opts),
+		BANKROLL_INITIAL,
+	);
 }
 
 export function evaluateModel(
