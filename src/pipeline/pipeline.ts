@@ -477,32 +477,40 @@ export function setupCronJob(): boolean {
 	try {
 		// Importação dinâmica para evitar dependência em ambientes onde node-cron não está disponível
 		const cron = require("node-cron");
+		// DISABLE_PIPELINE_CRON=1 (serviço de TESTE na arquitetura prd/hml):
+		// não agenda ingestão (00:00) nem enriquecimento (20:00) — o serviço
+		// prod é o ÚNICO que escreve dados compartilhados via APIs externas.
+		// Captura intraday (se habilitada) continua — é o objeto de teste.
+		const isTestService =
+			(process.env.DISABLE_PIPELINE_CRON || "").trim() === "1";
+
 		// 20:00 local / 23:00 UTC (depois que as corridas UK terminam)
-		cron.schedule("0 20 * * *", async () => {
-			try {
-				logger.info("Iniciando enriquecimento de resultados (Racing API)");
-				await enrichResultsFromRacingApi();
-				logger.info("Enriquecimento de resultados concluído");
-			} catch (error) {
-				logger.error(
-					"Erro no enriquecimento de resultados (Racing API):",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			}
-			// Relatório de homologação (picks × resultados) — roda aqui porque os
-			// resultados acabaram de ser enriquecidos. Best-effort.
-			try {
-				const { generateHomologReport } = await import(
-					"../services/ml/homolog-report"
-				);
-				await generateHomologReport();
-			} catch (error) {
-				logger.error(
-					"Erro no relatório de homologação:",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			}
-		});
+		if (!isTestService)
+			cron.schedule("0 20 * * *", async () => {
+				try {
+					logger.info("Iniciando enriquecimento de resultados (Racing API)");
+					await enrichResultsFromRacingApi();
+					logger.info("Enriquecimento de resultados concluído");
+				} catch (error) {
+					logger.error(
+						"Erro no enriquecimento de resultados (Racing API):",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+				// Relatório de homologação (picks × resultados) — roda aqui porque os
+				// resultados acabaram de ser enriquecidos. Best-effort.
+				try {
+					const { generateHomologReport } = await import(
+						"../services/ml/homolog-report"
+					);
+					await generateHomologReport();
+				} catch (error) {
+					logger.error(
+						"Erro no relatório de homologação:",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+			});
 
 		// 06:00 e 09:00 local (09:00/12:00 UTC — ~3,5h e ~30min antes das
 		// primeiras corridas UK): captura intraday de odds. Opt-in via env.
@@ -525,6 +533,12 @@ export function setupCronJob(): boolean {
 		}
 
 		// 00:00 local / 03:00 UTC: pipeline completo diário
+		if (isTestService) {
+			logger.warn(
+				"Serviço de TESTE (DISABLE_PIPELINE_CRON=1): pipeline 00:00 e enriquecimento 20:00 NÃO agendados",
+			);
+			return true;
+		}
 		cron.schedule("00 00 * * *", async () => {
 			logger.info("Iniciando execução agendada do pipeline de atualização");
 			const result = await runPipeline();
