@@ -7,15 +7,31 @@
 //   2. Avalia candidato vs prod atual: simulação LAY nos últimos
 //      GATE_PERIOD_DAYS com regras de pick 1:1 com prod (funções importadas
 //      de claude-generate-picks, odds sp_decimal, P/L com odd real)
-//   3. Promove (com backup do prod) se:
-//        edge_candidato >= edge_prod - GATE_EDGE_TOLERANCE_PP
-//        E apostas simuladas >= GATE_MIN_BETS
+//   3. Promove (com backup do prod) conforme GATE_MODE:
+//        "bootstrap" (default, desde 2026-08-19): bootstrap PAREADO por corrida
+//           do ROI de LAY (candidato − prod). Promove só se
+//           IC95_lower(ROI_diff) > 0 E pnl_candidato > pnl_prod.
+//        "edge_tolerance" (legado): edge_cand >= edge_prod - GATE_EDGE_TOLERANCE_PP.
+//      Em ambos, apostas simuladas >= GATE_MIN_BETS.
 //   4. Grava log da decisão em staging_gate_logs/ no bucket
 //
 // ⚠️ CAVEAT metodológico: a janela de eval é IN-SAMPLE pro candidato (treinado
 // com dados até ontem) e ~OOS pro prod (treinado antes). O gate protege contra
 // REGRESSÃO (candidato quebrado, dado ruim, treino degenerado) — o edge do
 // candidato reportado aqui NÃO é estimativa não-enviesada de ROI futuro.
+//
+// ⚠️ POR QUE O MODO LEGADO FOI APOSENTADO (2026-08-19): `edge_cand >= edge_prod
+// - 0.2pp` compara dois pontos sem intervalo. Em 90 dias (~520 apostas) o
+// erro-padrão da margem é da ordem de ~1pp — o limiar de 0.2pp é ~5x mais fino
+// que a resolução da medição, então entre dois modelos parecidos a promoção era
+// sorteio. GATE_MIN_BETS=30 também estava duas ordens de grandeza abaixo das
+// ~6.200 apostas necessárias pra distinguir edge de zero (medição de 2026-08-12).
+//
+// ⚠️ O GATE NÃO ESTÁ ATIVO. Nenhum serviço seta ENABLE_CRON_RETRAIN, então
+// trainAllModelsWithGate() nunca é chamado pelo cron. Ligar o retreino consome
+// a janela cega do pré-registro #1 (docs/pre_registro_falsificacao_2026-08-18.md),
+// que só é limpa porque o modelo está congelado desde 2026-07-03. Não ativar sem
+// decisão explícita.
 
 import { supabase } from "../..";
 import { modelPath } from "../../shared/db-config";
@@ -23,15 +39,22 @@ import { logger } from "../../shared/logger";
 import type { ModelConfig } from "../../shared/types/ml.types";
 import { MAX_ODD_THRESHOLD, MIN_ODD_THRESHOLD } from "./claude-generate-picks";
 import {
+	type BootstrapCI,
+	bootstrapRisk,
+	pairedRoiBootstrap,
+} from "./eval/bootstrap";
+import {
+	BANKROLL_INITIAL,
 	BUCKET,
 	type LoadedModel,
 	download,
-	evaluateModel,
 	loadModelFromPath,
 	loadPeriodData,
+	predictRace,
+	simulateWithPredictor,
 } from "./eval/harness";
-import type { ModelSummary } from "./eval/report";
-import { COMMISSION_RATE } from "./eval/simulator";
+import { type ModelSummary, summarize } from "./eval/report";
+import { COMMISSION_RATE, STAKE, type SimResult } from "./eval/simulator";
 import {
 	MODEL_TYPE_CONFIG,
 	type ModelType,
@@ -49,7 +72,15 @@ const GATE_EDGE_TOLERANCE_PP = Number(
 	process.env.GATE_EDGE_TOLERANCE_PP || 0.2,
 );
 // Amostra mínima de apostas simuladas pra decisão ser significativa.
-const GATE_MIN_BETS = Number(process.env.GATE_MIN_BETS || 30);
+// Subido de 30 pra 300 em 2026-08-19: 30 não sustenta nenhuma inferência.
+// Continua MUITO abaixo das ~6.200 necessárias pra distinguir edge de zero —
+// serve pra barrar candidato degenerado, não pra confirmar edge.
+const GATE_MIN_BETS = Number(process.env.GATE_MIN_BETS || 300);
+
+// "bootstrap" (default) | "edge_tolerance" (legado, ver caveat no topo)
+const GATE_MODE = (process.env.GATE_MODE || "bootstrap").trim();
+// Iterações do cluster bootstrap por corrida.
+const GATE_BOOTSTRAP_B = Number(process.env.GATE_BOOTSTRAP_B || 1000);
 
 // Controles operacionais (teste/dry-run — ver run_staging_gate.ts):
 //   GATE_DRY_RUN=1         → avalia e loga decisão mas NÃO promove nem escreve log no bucket
@@ -183,15 +214,27 @@ interface GateDecision {
 	reason: string;
 	promotedVersion: number | null;
 	params: {
+		mode: string;
 		periodDays: number;
 		edgeTolerancePp: number;
 		minBets: number;
 		minOdd: number;
 		maxOdd: number;
 		commissionRate: number;
+		stake: number;
+		bootstrapB: number;
 	};
 	candidate: ModelSummary;
 	prod: ModelSummary | null;
+	// Preenchido só no GATE_MODE=bootstrap
+	stats: {
+		roiDiff: BootstrapCI; // candidato − prod, pareado por corrida
+		nPairedRaces: number;
+		candidateRoi: BootstrapCI;
+		candidateMaxDrawdown: BootstrapCI;
+		prodRoi: BootstrapCI | null;
+		prodMaxDrawdown: BootstrapCI | null;
+	} | null;
 }
 
 async function saveGateLog(decision: GateDecision): Promise<void> {
@@ -262,23 +305,35 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 	);
 
 	const params = {
+		mode: GATE_MODE,
 		periodDays: GATE_PERIOD_DAYS,
 		edgeTolerancePp: GATE_EDGE_TOLERANCE_PP,
 		minBets: GATE_MIN_BETS,
 		minOdd: MIN_ODD_THRESHOLD,
 		maxOdd: MAX_ODD_THRESHOLD,
 		commissionRate: COMMISSION_RATE,
+		stake: STAKE,
+		bootstrapB: GATE_BOOTSTRAP_B,
 	};
 	const today = new Date().toISOString().slice(0, 10);
 
 	try {
-		const candSummary = evaluateModel(
-			`candidate_${modelType}`,
-			candidate,
-			raceMap,
+		// Simulação crua por corrida — o bootstrap precisa dos SimResult, não
+		// só do agregado.
+		const candResults: SimResult[] = simulateWithPredictor(raceMap, (h) =>
+			predictRace(h, candidate),
 		);
-		const prodSummary = prod
-			? evaluateModel(`prod_${modelType}`, prod, raceMap)
+		const prodResults: SimResult[] | null = prod
+			? simulateWithPredictor(raceMap, (h) => predictRace(h, prod))
+			: null;
+
+		const candSummary = summarize(
+			`candidate_${modelType}`,
+			candResults,
+			BANKROLL_INITIAL,
+		);
+		const prodSummary = prodResults
+			? summarize(`prod_${modelType}`, prodResults, BANKROLL_INITIAL)
 			: null;
 
 		const candEdgePp = candSummary.edge * 100;
@@ -286,6 +341,40 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 		logger.info(
 			`Staging gate [${label}]: candidato edge=${candEdgePp.toFixed(2)}pp (${candSummary.betsPlaced} apostas, pnl=${candSummary.totalPnl.toFixed(0)}) | prod edge=${prodEdgePp !== null ? prodEdgePp.toFixed(2) : "n/a"}pp (${prodSummary?.betsPlaced ?? 0} apostas, pnl=${prodSummary?.totalPnl.toFixed(0) ?? "n/a"})`,
 		);
+
+		// Bootstrap: risco de cada lado + diff pareado por corrida.
+		let stats: GateDecision["stats"] = null;
+		if (GATE_MODE === "bootstrap") {
+			const candRisk = bootstrapRisk(candResults, STAKE, GATE_BOOTSTRAP_B);
+			const prodRisk = prodResults
+				? bootstrapRisk(prodResults, STAKE, GATE_BOOTSTRAP_B)
+				: null;
+			const paired = prodResults
+				? pairedRoiBootstrap(candResults, prodResults, STAKE, GATE_BOOTSTRAP_B)
+				: { roiDiff: { mean: 0, lo95: 0, hi95: 0 }, nRaces: 0 };
+			stats = {
+				roiDiff: paired.roiDiff,
+				nPairedRaces: paired.nRaces,
+				candidateRoi: candRisk.roi,
+				candidateMaxDrawdown: candRisk.maxDrawdown,
+				prodRoi: prodRisk ? prodRisk.roi : null,
+				prodMaxDrawdown: prodRisk ? prodRisk.maxDrawdown : null,
+			};
+			const pctOf = (c: BootstrapCI) =>
+				`${(c.mean * 100).toFixed(2)}% [${(c.lo95 * 100).toFixed(2)}, ${(c.hi95 * 100).toFixed(2)}]`;
+			logger.info(
+				`Staging gate [${label}]: ROI cand=${pctOf(candRisk.roi)}${
+					prodRisk ? ` | ROI prod=${pctOf(prodRisk.roi)}` : ""
+				} | diff pareado=${pctOf(paired.roiDiff)} (${paired.nRaces} corridas, B=${GATE_BOOTSTRAP_B})`,
+			);
+			logger.info(
+				`Staging gate [${label}]: max drawdown cand=${candRisk.maxDrawdown.mean.toFixed(0)} [${candRisk.maxDrawdown.lo95.toFixed(0)}, ${candRisk.maxDrawdown.hi95.toFixed(0)}]${
+					prodRisk
+						? ` | prod=${prodRisk.maxDrawdown.mean.toFixed(0)} [${prodRisk.maxDrawdown.lo95.toFixed(0)}, ${prodRisk.maxDrawdown.hi95.toFixed(0)}]`
+						: ""
+				} (banca inicial ${BANKROLL_INITIAL}, stake ${STAKE})`,
+			);
+		}
 
 		let decision: GateDecision["decision"];
 		let reason: string;
@@ -296,12 +385,28 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 		} else if (candSummary.betsPlaced < GATE_MIN_BETS) {
 			decision = "rejected";
 			reason = `Amostra insuficiente: ${candSummary.betsPlaced} apostas < GATE_MIN_BETS=${GATE_MIN_BETS}.`;
+		} else if (GATE_MODE === "bootstrap") {
+			// Critério novo: o candidato precisa ser melhor que o prod com
+			// significância, não por diferença pontual. IC95 do diff pareado
+			// tem que excluir zero POR CIMA, e o P/L tem que acompanhar.
+			const lo = stats?.roiDiff.lo95 ?? 0;
+			const pnlBetter = candSummary.totalPnl > prodSummary.totalPnl;
+			if (lo > 0 && pnlBetter) {
+				decision = "promoted";
+				reason = `IC95 do ROI pareado (cand−prod) = [${(lo * 100).toFixed(2)}%, ${((stats?.roiDiff.hi95 ?? 0) * 100).toFixed(2)}%] exclui zero por cima, e pnl_cand ${candSummary.totalPnl.toFixed(0)} > pnl_prod ${prodSummary.totalPnl.toFixed(0)}.`;
+			} else {
+				decision = "rejected";
+				const why = !pnlBetter
+					? `pnl_cand ${candSummary.totalPnl.toFixed(0)} <= pnl_prod ${prodSummary.totalPnl.toFixed(0)}`
+					: `IC95 do ROI pareado = [${(lo * 100).toFixed(2)}%, ${((stats?.roiDiff.hi95 ?? 0) * 100).toFixed(2)}%] não exclui zero`;
+				reason = `${why}. Prod mantido; candidato fica em ${candidatePath(modelType)} pra análise.`;
+			}
 		} else if (candEdgePp >= prodEdgePp - GATE_EDGE_TOLERANCE_PP) {
 			decision = "promoted";
-			reason = `edge_cand ${candEdgePp.toFixed(2)}pp >= edge_prod ${prodEdgePp.toFixed(2)}pp - ${GATE_EDGE_TOLERANCE_PP}pp.`;
+			reason = `[legado] edge_cand ${candEdgePp.toFixed(2)}pp >= edge_prod ${prodEdgePp.toFixed(2)}pp - ${GATE_EDGE_TOLERANCE_PP}pp.`;
 		} else {
 			decision = "rejected";
-			reason = `edge_cand ${candEdgePp.toFixed(2)}pp < edge_prod ${prodEdgePp.toFixed(2)}pp - ${GATE_EDGE_TOLERANCE_PP}pp. Prod mantido; candidato fica em ${candidatePath(modelType)} pra análise.`;
+			reason = `[legado] edge_cand ${candEdgePp.toFixed(2)}pp < edge_prod ${prodEdgePp.toFixed(2)}pp - ${GATE_EDGE_TOLERANCE_PP}pp. Prod mantido; candidato fica em ${candidatePath(modelType)} pra análise.`;
 		}
 
 		let promotedVersion: number | null = null;
@@ -317,6 +422,7 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 				reason,
 				candidate_edge_pp: candEdgePp,
 				prod_edge_pp: prodEdgePp,
+				stats,
 				...params,
 			});
 			logger.info(
@@ -335,6 +441,7 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 			params,
 			candidate: candSummary,
 			prod: prodSummary,
+			stats,
 		});
 	} finally {
 		candidate.model.dispose();
@@ -349,7 +456,7 @@ async function runGateForType(modelType: ModelType): Promise<void> {
 
 export async function trainAllModelsWithGate(): Promise<void> {
 	logger.info(
-		`Staging gate: retreino gated iniciando (period=${GATE_PERIOD_DAYS}d, tolerância=${GATE_EDGE_TOLERANCE_PP}pp, min_bets=${GATE_MIN_BETS})`,
+		`Staging gate: retreino gated iniciando (mode=${GATE_MODE}, period=${GATE_PERIOD_DAYS}d, min_bets=${GATE_MIN_BETS}, B=${GATE_BOOTSTRAP_B})`,
 	);
 	const start = Date.now();
 

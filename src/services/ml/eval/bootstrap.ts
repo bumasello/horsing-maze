@@ -123,3 +123,108 @@ export function pairedBootstrap(
 		nRaces: n,
 	};
 }
+
+// ============================================================================
+// ROI E DRAWDOWN — adicionados 2026-08-19 pro staging gate (Ticket 4)
+// ============================================================================
+
+/**
+ * ROI por aposta de um conjunto de corridas simuladas.
+ * ROI = pnl_total / (nº apostas × stake). Corridas sem aposta não entram no
+ * denominador. Retorna 0 se não houve aposta (neutro, não lucrativo).
+ */
+export function roiOf(results: SimResult[], stake: number): number {
+	let pnl = 0;
+	let bets = 0;
+	for (const r of results) {
+		pnl += r.pnl;
+		if (r.pickIndexUsed !== null) bets++;
+	}
+	return bets > 0 ? pnl / (bets * stake) : 0;
+}
+
+/**
+ * Max drawdown de uma sequência de corridas, em unidades de banca.
+ * Percorre na ordem dada acumulando pnl e medindo a maior queda desde o pico.
+ */
+export function maxDrawdownOf(results: SimResult[]): number {
+	let acc = 0;
+	let peak = 0;
+	let maxDd = 0;
+	for (const r of results) {
+		acc += r.pnl;
+		if (acc > peak) peak = acc;
+		const dd = peak - acc;
+		if (dd > maxDd) maxDd = dd;
+	}
+	return maxDd;
+}
+
+export interface RiskBootstrapResult {
+	roi: BootstrapCI; // ROI por aposta (fração, não %)
+	maxDrawdown: BootstrapCI; // em unidades de banca
+	nRaces: number;
+}
+
+/**
+ * IC95 de ROI e de max drawdown de UMA config, via cluster bootstrap por
+ * corrida. O drawdown é medido sobre a sequência reamostrada — reflete a
+ * distribuição de trajetórias plausíveis, não só a que aconteceu.
+ */
+export function bootstrapRisk(
+	results: SimResult[],
+	stake: number,
+	B = 2000,
+	seedFn: () => number = Math.random,
+): RiskBootstrapResult {
+	const n = results.length;
+	const rois: number[] = [];
+	const dds: number[] = [];
+	if (n === 0) {
+		const zero: BootstrapCI = { mean: 0, lo95: 0, hi95: 0 };
+		return { roi: zero, maxDrawdown: zero, nRaces: 0 };
+	}
+	for (let b = 0; b < B; b++) {
+		const sample: SimResult[] = new Array(n);
+		for (let k = 0; k < n; k++) {
+			sample[k] = results[Math.floor(seedFn() * n)];
+		}
+		rois.push(roiOf(sample, stake));
+		dds.push(maxDrawdownOf(sample));
+	}
+	return { roi: ci(rois), maxDrawdown: ci(dds), nRaces: n };
+}
+
+/**
+ * Diferença PAREADA de ROI entre A e B nas mesmas corridas.
+ * Complementa pairedBootstrap (que devolve pnl e win rate) com a métrica que
+ * o gate usa pra decidir. Corridas ausentes em B são ignoradas.
+ */
+export function pairedRoiBootstrap(
+	resultsA: SimResult[],
+	resultsB: SimResult[],
+	stake: number,
+	B = 2000,
+	seedFn: () => number = Math.random,
+): { roiDiff: BootstrapCI; nRaces: number } {
+	const byRaceB = new Map(resultsB.map((r) => [r.raceId, r]));
+	const pairs: Array<[SimResult, SimResult]> = [];
+	for (const a of resultsA) {
+		const b = byRaceB.get(a.raceId);
+		if (b) pairs.push([a, b]);
+	}
+	const n = pairs.length;
+	if (n === 0) return { roiDiff: { mean: 0, lo95: 0, hi95: 0 }, nRaces: 0 };
+	const diffs: number[] = [];
+	for (let bIdx = 0; bIdx < B; bIdx++) {
+		const sampleA: SimResult[] = new Array(n);
+		const sampleB: SimResult[] = new Array(n);
+		for (let k = 0; k < n; k++) {
+			const p = pairs[Math.floor(seedFn() * n)];
+			sampleA[k] = p[0];
+			sampleB[k] = p[1];
+		}
+		diffs.push(roiOf(sampleA, stake) - roiOf(sampleB, stake));
+	}
+	return { roiDiff: ci(diffs), nRaces: n };
+}

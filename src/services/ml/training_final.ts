@@ -172,8 +172,12 @@ const configGlobal = {
 	maxLrReductions: 4,
 
 	// ── Custom LAY Loss ──
-	layLossAlpha: 0.3, // peso do LAY loss no total: L = ListMLE + α * L_lay
-	layLossWarmup: 5, // épocas de warmup (só ListMLE) antes de ativar LAY loss
+	// peso do LAY loss no total: L = ListMLE + α * L_lay
+	// Env-configurável desde 2026-08-19 pra análise de sensibilidade (α=0 desliga).
+	// ⚠️ Varrer α é otimização em cima da estratégia atual: exige pré-registro e
+	// janela nunca tocada, senão reproduz os falsos positivos do histórico.
+	layLossAlpha: Number(process.env.LAY_LOSS_ALPHA ?? "0.3"),
+	layLossWarmup: Number(process.env.LAY_LOSS_WARMUP ?? "5"), // épocas só ListMLE antes de ativar
 
 	// ── Multi-task Loss (Fase 1 do model improvement plan) ──
 	// Se MULTITASK_MODE=1, modelo tem cabeça extra `lose_output` (sigmoid).
