@@ -274,6 +274,25 @@ Teste de encompassing (`src/oneTimeScript/benter_alpha_probe.ts`): logit condici
 
 **Consequência: a conclusão vale pros dois grupos.** Não há mais frente aberta de "talvez o Jump seja diferente". O edge residual de 15,9% do Jump sem look-ahead não vem de informação que o modelo tenha além do preço.
 
+### 🛡️ Hipótese do "Guarda-Costas" — REFUTADA (2026-08-19)
+
+Ideia testada (`src/oneTimeScript/winner_avoidance.ts`): usar o `win_head` como veto — banir do lay qualquer cavalo com P(win) do modelo acima de um limiar, pra manter o vencedor fora da lista de 3. Métrica proposta era "taxa de sobrevivência".
+
+**Esta sonda não precisa de BSP** — compara ranking contra desfecho, não simula aposta. Roda mesmo com os CSVs bloqueados.
+
+⚠️ **A comparação só vale restrita à banda negociável.** Sem restringir, "3 maiores odds" do mercado pega azarão de odd 40-80 (que quase nunca vence) enquanto o `combined_score` puxa pra [13,20] via `odd_range_score`: o mercado ganha por nível de odd, não por skill. Irrestrito o modelo aparece 2× pior (15,44% vs 7,58%) — **número confundido, não usar.** Com os dois lados restritos a [13,20]:
+
+| grupo | corridas | vencedor na lista do MODELO | do MERCADO | diferença | IC95 |
+|---|---:|---:|---:|---:|---|
+| Flat | 333 | 42 (12,61%) | 42 (12,61%) | **+0,00pp** | [−1,80, +1,80] |
+| Jump | 194 | 31 (15,98%) | 34 (17,53%) | −1,55pp | [−4,12, +0,52] |
+
+**Empate exato no Flat.** Dentro do universo onde se aposta, o modelo não evita o vencedor melhor que o preço.
+
+**O veto não faz nada.** Em [13,20] o modelo concorda com o mercado que são azarões: a P(win) que ele atribui a esses cavalos já está quase sempre abaixo de 0,15. Nos limiares 0,10–0,30 o veto evita **0 reds e custa 0 corridas** — não morde. O único limiar que morde é 0,05, que evita 100% dos reds destruindo 97% das corridas, ou seja, é "não apostar".
+
+**Por que a métrica proposta não serve:** "taxa de sobrevivência" é o complemento da win rate que o eval já reporta, e sozinha é maximizada trivialmente apostando menos. Sem prender o volume de apostas, ela não decide nada.
+
 ### 🎯 Meta do projeto (definida 2026-08-12) — SOBREVIVÊNCIA, não ROI
 
 O objetivo **não** é maximizar ROI: é fazer uma banca de **R$200 durar novembro/2026 inteiro, terminando positiva, sem quebrar**. Toda proposta se avalia por *probabilidade de ruína*, max drawdown e tamanho de aposta vs banca — não por ROI/edge médio.
