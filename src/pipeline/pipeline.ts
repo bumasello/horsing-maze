@@ -475,6 +475,13 @@ export async function captureIntradayOdds(): Promise<void> {
  */
 export function setupCronJob(): boolean {
 	try {
+		// NO_CRON=1: nenhum cron é agendado. Pra rodar scripts de eval/análise
+		// numa máquina de dev sem risco de escrever no Supabase compartilhado
+		// (os scripts importam supabase de src/index.ts, que chama esta função).
+		if ((process.env.NO_CRON || "").trim() === "1") {
+			logger.warn("NO_CRON=1: nenhum cron agendado (modo eval/dev)");
+			return false;
+		}
 		// Importação dinâmica para evitar dependência em ambientes onde node-cron não está disponível
 		const cron = require("node-cron");
 		// DISABLE_PIPELINE_CRON=1 (serviço de TESTE na arquitetura prd/hml):
