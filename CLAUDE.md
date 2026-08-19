@@ -442,6 +442,8 @@ GATE_MIN_BETS=300           # amostra mínima de apostas simuladas pra promover 
                             # serve pra barrar candidato degenerado, não pra confirmar edge)
 LAY_LOSS_ALPHA=0.3          # (2026-08-19) peso do LAY loss: L = ListMLE + α * L_lay.
 LAY_LOSS_WARMUP=5           # épocas só com ListMLE antes de ativar o LAY loss.
+LAY_LOSS_TAU=0.1            # temperatura do softmin do LAY loss (era hardcoded).
+                            # Menor = seleção mais dura; maior = mais suave.
                             # ⚠️ Varrer α é otimização sobre a estratégia atual: exige
                             # pré-registro e janela nunca tocada.
 COMMISSION_RATE=0.065       # comissão Betfair BR sobre ganhos no simulador/gate

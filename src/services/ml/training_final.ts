@@ -1099,13 +1099,19 @@ function calculateECE(
  *   - Via probs: modelo aprende a aumentar P(win) do vencedor real
  *   - Via seleção: modelo aprende a não colocar vencedores no bottom do ranking
  */
+// Temperatura do softmin do LAY loss. Menor = seleção mais "dura" (concentra
+// peso nos cavalos de menor P(win)); maior = seleção mais suave.
+const LAY_LOSS_TAU = Number(process.env.LAY_LOSS_TAU ?? "0.1");
+
 function laySelectionLoss(probs: tf.Tensor2D, targets: tf.Tensor2D): tf.Scalar {
 	return tf.tidy(() => {
 		const mask = targets.greaterEqual(0).toFloat() as tf.Tensor2D;
 		const targetsClean = targets.maximum(0) as tf.Tensor2D;
 
-		// Softmin: cavalos com menor P(win) recebem maior peso de seleção
-		const tau = 0.1;
+		// Softmin: cavalos com menor P(win) recebem maior peso de seleção.
+		// τ env-configurável desde 2026-08-19 (LAY_LOSS_TAU) — o grid de
+		// sensibilidade do Ticket 1 precisa varrer τ junto com α.
+		const tau = LAY_LOSS_TAU;
 		const negProbs = probs.neg().div(tau);
 		const maskedNeg = negProbs.add(mask.sub(1).mul(1e9)) as tf.Tensor2D;
 		const selectionWeights = tf.softmax(maskedNeg, -1) as tf.Tensor2D;
