@@ -383,6 +383,26 @@ Simulação de mês (`sim_month_ruin.ts`):
 
 **Staking proporcional zeraria a ruína, mas exige stake de R$0,26–0,65 — abaixo do mínimo.** O melhor caso executável é 44,3% de ruína. E mesmo com ruína zero o teto de P(positivo) é ~62%, porque o edge continua não-significativo: **staking resolve sobrevivência, não cria vantagem.**
 
+### 🎲 O rollout 150→490 foi SORTE (2026-08-19) — e a "regra dos 80%" não salva
+
+`src/oneTimeScript/simulate_conservative_entry.ts`. Banca 150, stake 10, seleção pela odd da manhã, liquidação no BSP real, 3.832 corridas (Flat+Jump), janela [288,38).
+
+⚠️ Uma trajetória histórica não distingue sorte de estratégia — é amostra de 1. O script reamostra corridas (cluster bootstrap, B=2000) e reporta a distribuição.
+
+| cenário | mediana final | IC95 | P(ruína) | P(final>490) | **P(PICO>490)** |
+|---|---:|---|---:|---:|---:|
+| A) atual, cascata [13,20] | 0 | [0, 0] | 99,8% | 0,1% | **29,5%** |
+| B) regra 80%, sem filtro | 150 | [150, 150] | 0,0% | 0,0% | 0,0% |
+| C) regra 80% + odd [8,16] | 34 | [0, 87] | 35,9% | 2,1% | **26,1%** |
+
+**A resposta:** ~28% das trajetórias PASSAM por 490 em algum momento, mas só ~1-2% TERMINAM lá. O rollout 150→490 não foi improvável — foi o desfecho modal intermediário de um sistema de edge zero com win rate alta: sobe devagar em muitas vitórias pequenas e devolve tudo em poucos reds. **Ter passado por 490 não é evidência de estratégia.**
+
+Outros achados:
+- **A é incompatível com banca 150.** A primeira aposta perdida zera a banca (responsabilidade 120–190 em [13,20] contra banca de 150). P(ruína) 99,8%.
+- **B é degenerada: 0 apostas em 3.832 corridas.** Com banca 150, 80% = 120, e a responsabilidade em odd ≥13 já é ≥120. **A regra dos 80% e a banda de produção são mutuamente incompatíveis nessa banca** — a regra não gere risco, ela simplesmente proíbe tudo.
+- **C não elimina a ruína** (35,9%), que era o critério de aceite. Reduz drawdown e permite 423 apostas, mas a mediana termina em 34 — perde dinheiro mais devagar.
+- A regra dos 80% **não é controle de risco**: ela autoriza arriscar até 80% da banca numa aposta. Só barra o que passa disso.
+
 ### 🚫 Bandas de odd — nenhuma tem edge demonstrável
 
 Sweep de 14 bandas (`sweep_band_ruin.ts`): **todas com IC95 cruzando zero.** Bandas vizinhas e sobrepostas dão sinal oposto ([1.5,3] +3,70pp vs [2,3] −2,12pp vs [1.8,3.5] −1,21pp) — assinatura de seleção de ruído, não de edge real.
