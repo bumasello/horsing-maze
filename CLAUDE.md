@@ -232,48 +232,140 @@ The model is **trained** to rank the WINNER (softmax + categorical CE + Top-K Li
 
 **Empirical confirmation (2026-06-27):** SP-only baseline (1 feature = `sp_implied_prob`) achieves val_top1 = 30.23% Flat, matching/beating v53 (60 features, 29.6%) and v64 (74 features + pace, 29.78%). Implies ~30% is the Bayes error of top-1 with pre-race info AND that val_top1 is a misaligned proxy for the real task. See `~/.claude/.../memory/project_loss_objective_mismatch.md` and `project_debug_plan_val_top1.md` for full context.
 
-**ROI evaluation (2026-07-01 to 2026-07-03) — MULTIPLE ITERATIONS:**
+### 🛑 RESULTADO DECISIVO (2026-08-18) — as features não superam o preço de mercado
 
-Ran `eval_roi_offline` extensively. Two key discoveries changed everything:
+Teste de encompassing (`src/oneTimeScript/benter_alpha_probe.ts`): logit condicional por corrida combinando o score do fundamental `baselines/no_market_flat` (67 features, SEM mercado) com a prob implícita do SP. Flat, fit em [581,360) (2.999 corridas), held-out em [360,180) (2.243).
 
-1. **Odds source fix (2026-07-01):** Old code used `getAverageOdd` (average of captured odds), which inflated results by including snapshots when odd was later >20 (unbettable). Switched to `sp_decimal` (real starting price). ROI dropped ~500pp initially.
-
-2. **P/L calculation fix (2026-07-02, user-spotted):** Simulator was using **hardcoded odd=20 for loss calculation** (`-R$200 per loss`). In real Betfair LAY, loss = `-stake × (odd_real - 1)`, average ~R$130 per loss. Corrected via `USE_REAL_ODD_PNL=1` env var in `src/services/ml/eval/simulator.ts`.
-
-**Impact of the P/L fix:** ROI jumped from +65% (hardcoded) to **+1175%** (real math) for Prod v66 on the same 180d window. **All previous "marginal agent" conclusions were artifacts of the hardcoded loss.**
-
-**Final ranking (180d, MIN_ODD ≥ 13, sp_decimal, USE_REAL_ODD_PNL=1):**
-
-| Model | Features | ROI | Bank 200→ | Max DD |
+| modelo | alpha | beta | CE fit | CE held-out |
 |---|---:|---:|---:|---:|
-| Prod v66 | 60 | +1175% | 2550 | 720 |
-| lean | 34 | +1435% | 3070 | 590 |
-| **mt_b05** (multitask β=0.5) | 74 | **+1495%** 🏆 | **3190** | **570** |
-| mt_b02 (multitask β=0.2) | 74 | +1200% | 2600 | 510 |
-| mt_b10 (multitask β=1.0) | 74 | +1190% | 2580 | 660 |
+| M0 só mercado | — | 1,0987 | 1,8444 | 1,8922 |
+| M1 só modelo | 1,4478 | — | 1,9475 | 2,0104 |
+| M2 ambos | **0,1509** | 1,0204 | 1,8435 | **1,8922** |
 
-**Recommended prod model: `mt_b05`** (multitask β=0.5, 74 features including pace). Path: `horse_probability_model/baselines/multitask_flat`.
+- **O modelo sozinho é pior que só ler o preço.** Contra o uniforme (~ln 10 = 2,303 nats), o preço ganha 0,46 nats e o modelo só 0,29.
+- **Somar o modelo ao preço rende 0,00094 nats/corrida in-sample e −0,00002 fora da amostra.** Nada, e levemente negativo.
+- LR test dá p=0,0175 in-sample — **ignorar**: ganho out-of-sample zero. Efeito de memorização.
+- **α cai de 1,4478 para 0,1509** ao competir com o preço: ~90% do que o modelo "sabia" era reconstrução do próprio preço. Confirma o SP-only baseline empatar com 60-74 features.
+- **β ≈ 1,10 > 1**: afiar as probabilidades do mercado melhora o ajuste (favorito pra cima, azarão pra baixo) — é o **viés favorito-azarão**. Essa é a explicação dos +0,35pp em [13,20]: **nunca foi mérito do modelo**, é viés de mercado capturável sem ML, exatamente na faixa onde a economia exige ~18% de ROI.
 
-**Recommended next steps (in order):**
-1. Promote mt_b05 to prod (replace `claude-ml-model-flat`).
-2. Fix `getAverageOdd` → `sp_decimal` in `claude-generate-picks.ts`.
-3. Adjust constants: `MIN_ODD_THRESHOLD` 4→13, `MAX_ODD_THRESHOLD` 34→20.
-4. Implement staging gate on cron retraining (see TODO below).
-5. Download Betfair BSP CSVs and swap `sp_decimal` for `BSP` — final precision.
+**Consequência:** loss e arquitetura redistribuem capacidade, não criam informação. Isso explica de uma vez por que a cabeça `lose_output` (BCE no alvo invertido, β=0.5), o `layLossAlpha=0.3`, o blend Benter e o baseline `no_market` deram todos em nada — todos atacam *como* usar a informação, quando o problema é que não há informação além do preço.
 
-**Loss sequence analysis:** Max consecutive losses in 906 bets = 2. 77% of days positive. Max daily loss = R$280. No catastrophic streaks — earlier "high volatility" concern was artifact of hardcoded math.
+**NÃO propor nova loss, arquitetura ou feature engineering sobre o mesmo conjunto de features.** O caminho seria informação nova que o mercado não precifica bem.
+
+**Única lacuna:** o teste é Flat-only (não existe `no_market_jump`). Jump é o grupo que segurou edge sem look-ahead (17,6% → 15,9%), então é a única frente que poderia mudar a conclusão — exigiria treinar o baseline sem mercado pro Jump e repetir a sonda.
+
+### 🎯 Meta do projeto (definida 2026-08-12) — SOBREVIVÊNCIA, não ROI
+
+O objetivo **não** é maximizar ROI: é fazer uma banca de **R$200 durar novembro/2026 inteiro, terminando positiva, sem quebrar**. Toda proposta se avalia por *probabilidade de ruína*, max drawdown e tamanho de aposta vs banca — não por ROI/edge médio.
+
+### ❌ ROIs de três dígitos (julho/2026) — REFUTADOS, não usar
+
+O bloco de avaliação de julho reportava ROI de **+1175% a +1495%** (mt_b05 🏆, lean, Prod v66) numa janela de 180d com `sp_decimal`. **Esses números estavam inflados por look-ahead** e foram substituídos pela medição de 2026-08-12. Não são base pra nenhuma decisão. O que sobrou de válido daquele ciclo:
+
+- **Odds source fix (2026-07-01):** `getAverageOdd` (média de snapshots capturados) inflava resultados por incluir momentos em que a odd depois passava de 20. Trocado por `sp_decimal`.
+- **P/L fix (2026-07-02):** o simulador usava **odd 20 hardcoded na derrota**. LAY real perde `stake × (odd_real − 1)`. Corrigido via `USE_REAL_ODD_PNL=1` (`src/services/ml/eval/simulator.ts`).
+- **`mt_b05` continua sendo o modelo de prod** (multitask β=0.5, 74 features com pace, `horse_probability_model/baselines/multitask_flat`), mas a escolha dele foi feita com a métrica inflada — nunca foi revalidada honestamente.
+
+### ✅ Medição honesta com BSP real (2026-08-12) — a referência atual
+
+Feita com **BSP real da Betfair** (CSVs históricos, join 97,6%) e **sem look-ahead**: seleção pela odd da manhã (quando o pick é gerado), liquidação no BSP.
+
+| modo | ROI/aposta | apostas | WR | break-even | margem |
+|---|---:|---:|---:|---:|---:|
+| **honesto** (seleção pela odd da manhã → BSP) | **+8,8%** | 1039 | 94,61% | 94,26% | **+0,35pp** |
+| antigo sp/sp (base dos ROIs de julho) | +33,3% | — | — | — | — |
+
+**Cluster bootstrap por corrida (B=2000): P/L +918, IC95 [−1418, +3064] — cruza zero.** Flat e Jump separados também cruzam. **O edge do projeto não se distingue de zero.** A diferença entre os dois modos é puro look-ahead: o modo antigo selecionava usando o SP, conhecido só depois da corrida.
+
+Outros achados do mesmo dia:
+- Flat perde quase todo o edge sem look-ahead (42,5% → 6,7%); Jump segura (17,6% → 15,9%). O esforço histórico foi quase todo em Flat.
+- **Só 25,8% dos picks são apostáveis.** Dos que caem fora da banda [13,20], **57,7% é drift** de odd entre geração (00:00) e largada (razão SP/odd de geração: p10 0,40, mediana 1,12, p90 2,27); só 13,2% é o bug do fallback sem filtro de odd em `selectMainPick`.
+
+### 💀 Risco de ruína — a banda [13,20] é incompatível com R$200
+
+- **Mínimo da Betfair em BRL é R$5 de STAKE** (não de liability; [fonte oficial](https://forum.developer.betfair.com/forum/developer-program/announcements/35967-betfair-exchange-change-of-minimum-stake-multiple-currencies-28th-march-2022), 28/03/2022).
+- Na banda [13,20], stake mínimo de R$5 gera **responsabilidade ~R$77 = 38% de uma banca de 200 por aposta**.
+
+Simulação de mês (`sim_month_ruin.ts`):
+
+| política | P(ruína/mês) | P(positivo) | banca final (mediana) | executável? |
+|---|---:|---:|---:|---|
+| stake fixo 10 (atual) | **75,3%** | 24,4% | 92 | sim |
+| stake fixo 5 | 44,3% | 51,9% | 234 | sim (mínimo) |
+| stake fixo 2 | 6,2% | 67,9% | 250 | **não** (< R$5) |
+| liability 10% da banca | 0,0% | 56,1% | 212 | **não** |
+| liability 5% da banca | 0,0% | 61,0% | 211 | **não** |
+| liability 2% da banca | 0,0% | 62,3% | 205 | **não** |
+
+**Staking proporcional zeraria a ruína, mas exige stake de R$0,26–0,65 — abaixo do mínimo.** O melhor caso executável é 44,3% de ruína. E mesmo com ruína zero o teto de P(positivo) é ~62%, porque o edge continua não-significativo: **staking resolve sobrevivência, não cria vantagem.**
+
+### 🚫 Bandas de odd — nenhuma tem edge demonstrável
+
+Sweep de 14 bandas (`sweep_band_ruin.ts`): **todas com IC95 cruzando zero.** Bandas vizinhas e sobrepostas dão sinal oposto ([1.5,3] +3,70pp vs [2,3] −2,12pp vs [1.8,3.5] −1,21pp) — assinatura de seleção de ruído, não de edge real.
+
+A banda [1.5,3] parecia a saída (responsabilidade baixa + ROI +10%) e **morreu out-of-sample** (`oos_band_low.ts`):
+
+| janela | apostas | WR | break-even | margem | ROI |
+|---|---:|---:|---:|---:|---:|
+| in-sample [180,0) | 318 | 60,69% | 56,99% | +3,70pp | +10,0% |
+| **out-of-sample [360,180)** | 888 | 55,74% | 57,32% | **−1,58pp** | **−0,2%** |
+
+Com 2,8× mais amostra o edge sumiu e inverteu o sinal. **Ambas as janelas [180,0) e [360,180) estão queimadas pra seleção de banda** — qualquer validação futura precisa de janela nunca tocada.
+
+**Confirmado por pré-registro em 2026-08-18** (`docs/pre_registro_banda_media_2026-08-18.md`, rodado por `src/oneTimeScript/test_banda_media.ts`). Duas células de banda média, janela [581,360) — a última nunca tocada — com IC de 97,5% (Bonferroni, 2 hipóteses):
+
+| célula | apostas | WR | break-even | margem | ROI | IC97,5% | veredicto |
+|---|---:|---:|---:|---:|---:|---|---|
+| LAY [3,5] | 1.917 | 72,77% | 76,07% | **−3,30pp** | −10,56% | [−19,37%, −1,60%] | ❌ **morta** |
+| LAY [4,7] | 2.766 | 82,00% | 82,68% | −0,68pp | −1,82% | [−11,19%, +7,29%] | ⚠️ sem edge demonstrável |
+
+- **[3,5] é perda significativa** (IC inteiro < 0), e a janela era **in-sample pro modelo** (anterior ao split de treino 2025-12-22 Flat / 2026-01-29 Jump) — perder com vantagem de treino é conclusivo.
+- **[4,7] descarta o edge exigido**: o limite SUPERIOR do IC (+7,29%) fica abaixo dos ~8% que o mapa de viabilidade (`feasibility_map.ts`) exige pra P(sobreviver e terminar positivo) ≥ 80%.
+
+**Síntese por faixa de odd: [3,5] −3,30pp · [4,7] −0,68pp · [13,20] +0,35pp.** O pouco de sinal existente mora em **odd alta**, exatamente onde a economia é hostil ([13,20] exige ~18% de ROI mesmo com banca 2000). Onde a economia é favorável (~8,5%), o modelo é neutro ou negativo. **O sinal mora onde não dá pra lucrar com ele.**
+
+**🚫 Cláusula anti-viés acionada: NÃO testar mais bandas.** A última janela limpa do histórico foi gasta aqui. Bandas queimadas agora: [180,0), [360,180) e [581,360).
+
+**⚠️ Regra de trabalho (ver memória `feedback-metodo-testar-pesquisar-validar`):** este projeto já reverteu conclusão por medição melhor **quatro vezes** (ROI inflado por odd hardcoded; ROI inflado por look-ahead do SP; `heads_avg` significativo offline e negativo ao vivo; sweep de banda desmentido pelo out-of-sample). Nunca aceitar melhora que não sobreviva a bootstrap pareado/cluster por corrida + janela cega. **Não otimizar mais em cima da estratégia atual sem pré-registro** — foi o que gerou todos os falsos positivos.
+
+**Scripts da medição honesta** (untracked em 2026-08-18): `src/oneTimeScript/eval_bsp.ts`, `bootstrap_bsp_vs_zero.ts`, `bootstrap_bsp_flat.ts`, `diag_offrange.ts`, `sim_month_ruin.ts`, `sweep_band_ruin.ts`, `oos_band_low.ts`, `src/services/ml/eval/bsp-lookup.ts`. Rodar com `NO_CRON=1` (guard em `setupCronJob()`, evita escrever no Supabase compartilhado) e `BSP_DIR` apontando pros CSVs da Betfair.
 
 **LAY betting math (user-defined strategy):**
 - Bankroll starts at 200, stake fixed at 10 per race, assumed odd = 20 (constant; real odds too volatile).
-- Outcome per bet: +10 if horse loses, −200 if horse wins.
-- Break-even win rate: 200/210 = **95.24%** SEM comissão. Com comissão Betfair BR de 6,5% sobre ganhos (pesquisa 2026-07-04, `docs/pesquisa_mercado_lay_2026-07-04.md`): 190/199.35 = **95.31%** na odd 20. O simulador aplica a comissão por default (`COMMISSION_RATE`, `src/services/ml/eval/simulator.ts`).
+- Outcome per bet na odd 20: +10 if horse loses, **−190** if horse wins (LAY real: perda = `stake × (odd − 1)`, é o que `simulator.ts` / `eval_bsp.ts:131` fazem).
+- Break-even win rate: 190/200 = **95.00%** SEM comissão. Com comissão Betfair BR de 6,5% sobre ganhos (pesquisa 2026-07-04, `docs/pesquisa_mercado_lay_2026-07-04.md`): 190/199.35 = **95.31%** na odd 20. O simulador aplica a comissão por default (`COMMISSION_RATE`, `src/services/ml/eval/simulator.ts`).
+- ⚠️ Corrigido 2026-08-18: este doc dizia `200/210 = 95.24%` sem comissão. Errado — supunha perda de −200, resquício da era do **odd 20 hardcoded**. A fórmula geral, que reproduz o 95.31% com comissão, é `p_breakeven = (odd−1) / (odd−1 + 1−c)` (LAY) e `1 / ((odd−1)(1−c) + 1)` (BACK).
 - Cascade: try pick #1 first; if `runner_status='non_runner'` OR odd > 20, fall back to #2, then #3; skip race if none eligible.
 
-**Implication for future work:** Do NOT chase val_top1 improvements. Before changing the loss to ROI-first, run `eval_roi_offline` (Phase 6 of debug plan) to measure actual ROI of v53/v64/SP-only with current pick generator. If positive, the model is already serving the real task; stop tuning. If negative, pivot to ROI-first loss (raise `layLossAlpha`, or change target/output topology — see `project_loss_objective_mismatch.md` Options A/B/C).
+**Implication for future work:** Do NOT chase val_top1 improvements. O gargalo é o descasamento desta seção: o modelo é **treinado pra rankear o vencedor** e **avaliado por ROI de lay**. Enquanto isso não mudar, cada sweep vai continuar achando edge que não replica. Rotas honestas: (a) validação cega pré-registrada de UMA configuração, com critério de desistência escrito antes; (b) loss orientada a ROI/lay em vez de cross-entropy do vencedor (ver `project_loss_objective_mismatch.md` Options A/B/C).
 
 **✅ Staging gate for cron retraining — IMPLEMENTADO 2026-07-04** (`src/services/ml/staging-gate.ts`). Com `ENABLE_CRON_RETRAIN=1`, o cron roda `trainAllModelsWithGate()`: (1) treina candidato em `baselines/candidate_{flat,jump}` (prod intocado); (2) avalia candidato vs prod nos últimos `GATE_PERIOD_DAYS` (90) com regras de pick 1:1 com prod (funções importadas de `claude-generate-picks.ts`, sp_decimal, P/L com odd real); (3) promove com backup (`baselines/prod_backup_YYYYMMDD_{type}`) se `edge_cand ≥ edge_prod − GATE_EDGE_TOLERANCE_PP` (0.2pp) e apostas ≥ `GATE_MIN_BETS` (30); senão mantém prod e loga rejeição. Decisões salvas em `horse_probability_model/staging_gate_logs/` no bucket. Execução manual: `src/oneTimeScript/run_staging_gate.ts` (suporta `GATE_DRY_RUN=1`, `GATE_SKIP_TRAINING=1`, `GATE_CANDIDATE_LABEL=x` pra testes). ⚠️ Caveat: a janela de eval é in-sample pro candidato — o gate protege contra REGRESSÃO, não é estimativa não-enviesada de ROI. Prevents accidental degradation like v65 (edge +0.06pp) → v66 (edge -0.53pp) observed 2026-07-02.
 
-**TODO (high priority): Betfair SP CSV → BSP real na simulação.** Hoje o eval usa `sp_decimal` de `race_horses_hr_enriched` (SP oficial das casas tradicionais). Isso é aproximação — não é a odd Betfair Exchange. Substituir por **BSP** (Betfair Starting Price) dos CSVs históricos gratuitos (sem auth, disponível desde 2008; ver `reference_data_providers.md`). Pipeline: baixar CSVs → populate `hml.betfair_sp_history` → simulator lê BSP em vez de sp_decimal. Reflete odd EXATA que se apostaria em produção. Provavelmente vai reduzir levemente o ROI simulado (BSP tende a ser maior que SP em outsiders) mas é o número mais próximo do real.
+**⚠️ O gate NUNCA RODOU (verificado 2026-08-18).** `ENABLE_CRON_RETRAIN` não está setado em nenhum serviço, então o cron nunca chama `trainAllModelsWithGate()`; `staging_gate_logs/` está vazio. O modelo vivo é o **mt_b05 promovido à mão em 2026-07-03** (`promote_mt_b05_to_prod.ts`, que cria `prod_backup_YYYYMMDD_flat` com o mesmo padrão de nome do gate — daí a confusão). Congelado há ~46 dias.
+
+**Não ligar o retreino sem decisão explícita:** a janela cega do pré-registro (`docs/pre_registro_falsificacao_2026-08-18.md`) só é limpa porque o modelo está parado em 2026-07-03. Retreinar consome esses dias como treino e destrói o holdout.
+
+**Ressalva sobre o critério do gate, pra quando for ligado:** `edge_cand ≥ edge_prod − 0.2pp` com `GATE_MIN_BETS=30` em 90 dias. 90 dias ≈ 520 apostas, onde o erro-padrão da margem é da ordem de ~1pp — o limiar é ~5× mais fino que a resolução da medição, e 30 apostas está duas ordens de grandeza abaixo das ~6.200 necessárias pra distinguir edge de zero. Entre dois modelos parecidos, a promoção é sorteio. Trocar a comparação pontual pelo bootstrap pareado por corrida (`bootstrap_bsp_vs_zero.ts`) e subir `GATE_MIN_BETS`.
+
+**Topologia dos serviços (mazeserver, systemd, ambos ativos):** `horsingmaze-prd` → `HorsingMazePrd`, `OUTPUT_SCHEMA=prd`, `PORT=3001`. `horsingmaze-hml` → `HorsingMazeHmlManus`, `DISABLE_PIPELINE_CRON=1`, `ENABLE_INTRADAY_ODDS=1`, `PORT=3000`. `DATA_SCHEMA` não é setado em nenhum → default `hml`: **ingestão vive em `hml`, ML escreve em `prd`** (por isso `prd.racecards_hr_enriched` está vazio — é o desenho). As features de `hml` pararem em 2026-07-08 é consequência do `DISABLE_PIPELINE_CRON=1`, não quebra.
+
+**✅ Betfair BSP real na simulação — FEITO 2026-08-12** (`src/services/ml/eval/bsp-lookup.ts`). O eval não usa mais `sp_decimal` de `race_horses_hr_enriched` (SP das casas tradicionais, aproximação): lê **BSP** (Betfair Starting Price) dos CSVs históricos gratuitos, com join de 97,6%. É a odd EXATA que se apostaria em produção. O impacto foi muito maior que o esperado — junto com a remoção do look-ahead, derrubou o ROI de +1175% pra +8,8% não-significativo (ver medição honesta acima).
+
+### 🔒 BLOQUEIO ATIVO (desde 2026-08-18) — CSVs de BSP inacessíveis do Brasil
+
+**Os CSVs de BSP param em 2026-07-12** e não podem ser atualizados. Isso **bloqueia o pré-registro #1** (`docs/pre_registro_falsificacao_2026-08-18.md`), cuja janela cega é [2026-07-09, 2026-08-18]. Faltam ~71 arquivos (uk + ire).
+
+Diagnóstico de 2026-08-18:
+
+1. **Da máquina de dev (WSL):** `promo.betfair.com` é interceptado por **Cisco Umbrella** → **HTTP 403** com redirect pra `block.opendns.com` (bloqueio por categoria: gambling). O erro `unable to get local issuer certificate` era sintoma disso — o certificado é emitido por `Cisco Umbrella Secondary SubCA`, não pela Betfair.
+2. **Do `mazeserver` (sem Umbrella):** a requisição passa, mas a Betfair devolve **HTTP 302** pra `promo.betfair.bet.br` (operação regulada brasileira). Esse host dá **NXDOMAIN** em 1.1.1.1 e 8.8.8.8, embora `betfair.bet.br` resolva. O redirect está quebrado.
+3. **O 302 atinge todas as datas**, inclusive as já baixadas (testado 01/07, 12/07, 13/07, 01/08). O corte em 2026-07-12 **não é fim de cobertura** — é a data em que o geo-redirect entrou no ar.
+
+Arquivos existentes: 1827, em `/home/maze/dev/betfair_sp_data` e `mazeserver:/home/mazedev/betfair_sp_data` (idênticos), cobrindo 2024-01-01 → 2026-07-12.
+
+**⛔ Fallback pra `sp_decimal` é PROIBIDO em qualquer veredicto.** Foi exatamente a aproximação que produziu os ROIs inflados de julho. Uso em dev é tolerável se rotulado; alimentar decisão, não.
+
+Saídas possíveis: proxy/VPS fora do BR, Betfair API direta (exige conta + auth, ao contrário dos CSVs), ou provedor terceiro. Sem isso, **nenhuma validação honesta de Lay é executável.**
 
 ### Environment Variables Required
 
