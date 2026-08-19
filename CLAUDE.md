@@ -41,7 +41,14 @@ The Express server runs on `PORT` (default 3000) with:
 
 ### Testing
 
-No test suite configured — `npm test` currently fails.
+```bash
+npm test                # vitest run (37 testes, 5 arquivos — verificado 2026-08-19)
+```
+
+Cobertura concentrada no que já quebrou de verdade: `eval/simulator.test.ts`
+(odd média enviesada, P/L hardcoded, comissão), `eval/report.test.ts`,
+`eval/bootstrap.test.ts` (IC95 que cruza zero vs IC95 que exclui zero — o
+critério do staging gate) e `calibration.test.ts`.
 
 ## Architecture & Data Flow
 
@@ -252,7 +259,20 @@ Teste de encompassing (`src/oneTimeScript/benter_alpha_probe.ts`): logit condici
 
 **NÃO propor nova loss, arquitetura ou feature engineering sobre o mesmo conjunto de features.** O caminho seria informação nova que o mercado não precifica bem.
 
-**Única lacuna:** o teste é Flat-only (não existe `no_market_jump`). Jump é o grupo que segurou edge sem look-ahead (17,6% → 15,9%), então é a única frente que poderia mudar a conclusão — exigiria treinar o baseline sem mercado pro Jump e repetir a sonda.
+**✅ LACUNA FECHADA (2026-08-19) — Jump dá o mesmo resultado.** O baseline `baselines/no_market_jump` já existia no bucket (a nota anterior de que "não existe" estava errada), e `benter_alpha_probe.ts` já aceita `GROUP=Jump`. Rodado com fit em [581,360) (1.297 corridas) e held-out em [360,180) (1.446):
+
+| modelo | alpha | beta | CE fit | CE held-out |
+|---|---:|---:|---:|---:|
+| M0 só mercado | — | 1,1336 | 1,7738 | **1,6946** |
+| M1 só modelo | 1,4473 | — | 1,8415 | 1,8122 |
+| M2 ambos | **0,4063** | 0,8914 | 1,7656 | 1,6951 |
+
+- **Ganho fora da amostra: −0,00046 nats/corrida, IC95 [−0,0073, +0,0062]** — cruza zero e o ponto é negativo. Somar o modelo ao preço **piora** o held-out (1,6951 vs 1,6946).
+- LR test in-sample dá p=4,47e−6 — **ignorar**, mesma assinatura de memorização do Flat: significativo dentro da amostra, nulo fora.
+- **α cai de 1,4473 para 0,4063** (~72% do que o modelo "sabia" era reconstrução do preço; no Flat foram ~90%). Jump retém um pouco mais de sinal independente que o Flat, mas ainda assim **nada que sobreviva fora da amostra**.
+- ⚠️ As janelas são **in-sample pro fundamental** (o próprio script avisa), o que **infla** a contribuição do modelo. Ele não acrescenta nada nem com essa vantagem — o negativo é conclusivo, mesma lógica do pré-registro #2.
+
+**Consequência: a conclusão vale pros dois grupos.** Não há mais frente aberta de "talvez o Jump seja diferente". O edge residual de 15,9% do Jump sem look-ahead não vem de informação que o modelo tenha além do preço.
 
 ### 🎯 Meta do projeto (definida 2026-08-12) — SOBREVIVÊNCIA, não ROI
 
@@ -388,9 +408,23 @@ PORT=3000 (default)
 ENABLE_CRON_RETRAIN=1   # opt-in: cron diário retreina VIA STAGING GATE (candidato → eval ROI
                         # 90d vs prod → promove só se não regredir; ver staging-gate.ts).
                         # Default (unset) = cron só gera predições/picks com o modelo em prod.
+GATE_MODE=bootstrap         # (2026-08-19) critério de promoção:
+                            #   "bootstrap" (default) = cluster bootstrap por corrida
+                            #     do ROI de LAY, PAREADO candidato vs prod. Promove só se
+                            #     IC95_lower(ROI_cand − ROI_prod) > 0 E pnl_cand > pnl_prod.
+                            #   "edge_tolerance" = critério legado (diferença pontual de
+                            #     edge). Aposentado: 0.2pp é ~5x mais fino que o erro-padrão
+                            #     da medição em 90d, então promovia por sorteio.
+GATE_BOOTSTRAP_B=1000       # iterações do bootstrap
 GATE_PERIOD_DAYS=90         # janela de eval do gate
-GATE_EDGE_TOLERANCE_PP=0.2  # candidato pode ser até X pp pior e ainda promover
-GATE_MIN_BETS=30            # amostra mínima de apostas simuladas pra promover
+GATE_EDGE_TOLERANCE_PP=0.2  # só usado em GATE_MODE=edge_tolerance
+GATE_MIN_BETS=300           # amostra mínima de apostas simuladas pra promover (era 30;
+                            # segue muito abaixo das ~6.200 pra distinguir edge de zero —
+                            # serve pra barrar candidato degenerado, não pra confirmar edge)
+LAY_LOSS_ALPHA=0.3          # (2026-08-19) peso do LAY loss: L = ListMLE + α * L_lay.
+LAY_LOSS_WARMUP=5           # épocas só com ListMLE antes de ativar o LAY loss.
+                            # ⚠️ Varrer α é otimização sobre a estratégia atual: exige
+                            # pré-registro e janela nunca tocada.
 COMMISSION_RATE=0.065       # comissão Betfair BR sobre ganhos no simulador/gate
                             # (default 6.5%; =0 desativa pra comparar com evals antigos)
 ENABLE_INTRADAY_ODDS=1      # opt-in (2026-07-08): captura intraday de odds às 06:00 e
