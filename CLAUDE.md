@@ -274,6 +274,28 @@ Teste de encompassing (`src/oneTimeScript/benter_alpha_probe.ts`): logit condici
 
 **Consequência: a conclusão vale pros dois grupos.** Não há mais frente aberta de "talvez o Jump seja diferente". O edge residual de 15,9% do Jump sem look-ahead não vem de informação que o modelo tenha além do preço.
 
+### 📐 Calibração da cauda (2026-08-19) — o erro NÃO é excesso de confiança no Flat
+
+`src/oneTimeScript/calibration_plot.ts`. Bins por P(perder) do modelo, banda [13,20], janela [180,0). Não precisa de BSP.
+
+**Flat (v68, TEM curva isotônica):** o modelo é **sub-confiante**, não otimista. Em todo bin a taxa real de derrota é MAIOR que a prevista (+2,4 a +3,9pp): diz 91,25% e a realidade é 95,17%. O erro corre na direção segura pro LAY.
+
+**Jump (v65, 60 features, SEM curva de calibração):** o bin mais confiante (0,96–0,98) prevê 96,62% e entrega **93,06% — erro de −3,56pp, na direção cara**, abaixo do break-even de 94,56%. ⚠️ **n=144, ~1,7 erros-padrão, e é 1 de 8 bins olhados** — é sugestivo, NÃO estabelecido. Não tratar como achado sem janela cega.
+
+**O resultado durável é o Brier:** o **mercado estima P(perder) melhor que o modelo nos dois grupos** (Flat 0,040252 vs 0,041382; Jump 0,051826 vs 0,052137). Consistente com o encompassing test.
+
+⚠️ Os ✅ de break-even na tabela usam `market_odd` (sp_decimal), não BSP. Como o BSP tende a ser mais longo em azarões, o break-even real é mais alto e essas margens encolhem. Não ler a tabela como prova de lucratividade.
+
+**Implicação prática:** recalibrar é transformação monótona — não cria informação (o encompassing já disse que não há). Mas o `IVL = P_model(lose) − P_market(lose)` usa probabilidade ABSOLUTA, então a sub-confiança do Flat enviesa o IVL sistematicamente pra baixo e muda a seleção. É uma mudança testável e barata — e por isso mesmo **exige pré-registro e janela cega**, é exatamente o formato de "melhoria" que já reverteu quatro vezes.
+
+### 🌊 Drift de odd (2026-08-19) — direção sim, magnitude não
+
+`src/oneTimeScript/drift_predictability.ts`, 31.723 corridas dos CSVs, split 2025-10-01. Só preço, sem modelo nem banco.
+
+- Drift normalizado (soma zero na corrida, é o que dá pra negociar) é **monótono no decil de odd**: favorito encurta, azarão alonga (decil 1 −0,017 → decil 10 −0,333). É o viés favorito-azarão de novo.
+- **R² fora da amostra: −0,73%** — a odd da manhã prevê o drift PIOR que usar a média. Acerto direcional 57,55%, mas sem magnitude não dá pra dimensionar aposta.
+- A banda [13,20] cai nos decis 6–7, drift ≈ −0,11 a −0,14: os cavalos que selecionamos de manhã **alongam** sistematicamente até a largada, ou seja, a responsabilidade real no BSP é maior que a da seleção. É a origem dos 57,7% de picks que saem da banda.
+
 ### 🛡️ Hipótese do "Guarda-Costas" — REFUTADA (2026-08-19)
 
 Ideia testada (`src/oneTimeScript/winner_avoidance.ts`): usar o `win_head` como veto — banir do lay qualquer cavalo com P(win) do modelo acima de um limiar, pra manter o vencedor fora da lista de 3. Métrica proposta era "taxa de sobrevivência".
