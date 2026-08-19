@@ -288,6 +288,29 @@ Teste de encompassing (`src/oneTimeScript/benter_alpha_probe.ts`): logit condici
 
 **Implicação prática:** recalibrar é transformação monótona — não cria informação (o encompassing já disse que não há). Mas o `IVL = P_model(lose) − P_market(lose)` usa probabilidade ABSOLUTA, então a sub-confiança do Flat enviesa o IVL sistematicamente pra baixo e muda a seleção. É uma mudança testável e barata — e por isso mesmo **exige pré-registro e janela cega**, é exatamente o formato de "melhoria" que já reverteu quatro vezes.
 
+### 🟢 PRIMEIRO SINAL POSITIVO (2026-08-19) — o modelo prevê a DIREÇÃO do movimento do preço
+
+`src/oneTimeScript/analyze_directional_drift.ts`. Hipótese: a divergência entre P(win) do modelo e a prob implícita na odd da manhã prediz pra que lado o mercado vai se mover até a largada.
+
+⚠️ **O critério ">55% de acerto direcional" não serve** — a odd da manhã sozinha, sem modelo nenhum, já acerta 57,55% (`drift_predictability.ts`), porque o drift é monótono no nível de odd. Um sinal a 55% é PIOR que não ter sinal. O teste correto é sobre o **resíduo**: estima-se o drift médio por decil de odd numa janela FIT e testa-se se a divergência prediz o que sobra numa janela HELD disjunta.
+
+Flat, janela [288,38) dias, BSP casado 96,7%, split em 2026-03-07 (HELD é posterior ao corte de treino de 2025-12-22):
+
+| modelo | acerto direcional no resíduo | spread Q5−Q1 | IC95 |
+|---|---:|---:|---|
+| prod v68 (74 features, **com** `sp_decimal`) | 64,28% | 0,5516 | [0,5295, 0,5731] |
+| `no_market_flat` (67 features, **sem** mercado) | **57,38%** | **0,2061** | [0,1801, 0,2313] |
+
+- **~63% do efeito era vazamento.** O modelo de prod usa `sp_decimal`/`sp_implied_prob`/`sp_rank` como FEATURES, isto é, viu o preço de fechamento. Prever manhã→fechamento com ele é circular. Sempre usar o baseline sem mercado nesta pergunta.
+- **O que sobra é real e monotônico nos quintis:** quintil 1 (modelo acha o cavalo pior) → resíduo −0,0488; quintil 5 (acha melhor) → +0,1573. IC95 exclui zero com folga.
+
+**Por que isso NÃO contradiz o encompassing test:** são perguntas diferentes. O encompassing diz que o modelo não sabe **quem vence** além do preço. Este diz que ele sabe **pra onde o preço vai andar**. São compatíveis — e é uma tese de *trading*, não de aposta: fecha-se a posição no movimento, sem levar ao desfecho.
+
+**O que falta antes de qualquer decisão:**
+1. **Magnitude vs custo.** 0,2061 em log-odds é direção, não lucro. Falta traduzir em movimento de odd e confrontar com spread bid-ask + comissão de 6,5%.
+2. **Liquidez.** O volume negociado na manhã tem mediana de £357 (`drift_predictability.ts`) — fino. Sinal sem liquidez não é executável.
+3. **Pré-registro.** É hipótese nova, testada uma vez, sem parâmetro varrido — mas a regra do projeto exige janela cega antes de agir.
+
 ### 🌊 Drift de odd (2026-08-19) — direção sim, magnitude não
 
 `src/oneTimeScript/drift_predictability.ts`, 31.723 corridas dos CSVs, split 2025-10-01. Só preço, sem modelo nem banco.
