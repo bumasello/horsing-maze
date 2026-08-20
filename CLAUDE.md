@@ -471,9 +471,20 @@ Com 2,8× mais amostra o edge sumiu e inverteu o sinal. **Ambas as janelas [180,
 
 **✅ Staging gate for cron retraining — IMPLEMENTADO 2026-07-04** (`src/services/ml/staging-gate.ts`). Com `ENABLE_CRON_RETRAIN=1`, o cron roda `trainAllModelsWithGate()`: (1) treina candidato em `baselines/candidate_{flat,jump}` (prod intocado); (2) avalia candidato vs prod nos últimos `GATE_PERIOD_DAYS` (90) com regras de pick 1:1 com prod (funções importadas de `claude-generate-picks.ts`, sp_decimal, P/L com odd real); (3) promove com backup (`baselines/prod_backup_YYYYMMDD_{type}`) se `edge_cand ≥ edge_prod − GATE_EDGE_TOLERANCE_PP` (0.2pp) e apostas ≥ `GATE_MIN_BETS` (30); senão mantém prod e loga rejeição. Decisões salvas em `horse_probability_model/staging_gate_logs/` no bucket. Execução manual: `src/oneTimeScript/run_staging_gate.ts` (suporta `GATE_DRY_RUN=1`, `GATE_SKIP_TRAINING=1`, `GATE_CANDIDATE_LABEL=x` pra testes). ⚠️ Caveat: a janela de eval é in-sample pro candidato — o gate protege contra REGRESSÃO, não é estimativa não-enviesada de ROI. Prevents accidental degradation like v65 (edge +0.06pp) → v66 (edge -0.53pp) observed 2026-07-02.
 
-**⚠️ O gate NUNCA RODOU (verificado 2026-08-18).** `ENABLE_CRON_RETRAIN` não está setado em nenhum serviço, então o cron nunca chama `trainAllModelsWithGate()`; `staging_gate_logs/` está vazio. O modelo vivo é o **mt_b05 promovido à mão em 2026-07-03** (`promote_mt_b05_to_prod.ts`, que cria `prod_backup_YYYYMMDD_flat` com o mesmo padrão de nome do gate — daí a confusão). Congelado há ~46 dias.
+**✅ Gate LIGADO em 2026-08-20** (`ENABLE_CRON_RETRAIN=1` no `.env` de `HorsingMazePrd`), depois de o pré-registro #1 ter sido executado — não há mais janela cega a preservar. Até então o gate nunca havia rodado e `staging_gate_logs/` estava vazio; o modelo vivo era o **mt_b05 promovido à mão em 2026-07-03**, congelado por ~48 dias.
 
-**Não ligar o retreino sem decisão explícita:** a janela cega do pré-registro (`docs/pre_registro_falsificacao_2026-08-18.md`) só é limpa porque o modelo está parado em 2026-07-03. Retreinar consome esses dias como treino e destrói o holdout.
+O gate roda em `GATE_MODE=bootstrap` (default). **Volume por tipo vs `GATE_MIN_BETS=300`, medido em 2026-08-20:**
+
+| modelo | corridas/90d | apostas/90d | consequência |
+|---|---:|---:|---|
+| Flat | 671 | 545 | passa, julgado pelo bootstrap pareado |
+| Jump | 247 | 200 | **rejeita sempre** por amostra insuficiente |
+
+Manter o Jump no retreino foi decisão consciente: ele treina e é descartado. `GATE_TYPES=flat` resolveria, se o custo de CPU incomodar.
+
+**Validação em dry run (2026-08-19, Jump, candidato existente):** o critério ANTIGO teria **promovido** (cand +1,17pp vs prod −0,81pp, dentro da tolerância de 0,2pp). O novo **rejeitou** — diff pareado de ROI +32,76% com IC95 **[−0,65%, +73,41%]**, que cruza zero. É exatamente a promoção-por-ruído que a troca de critério existe pra barrar.
+
+**Deploy (2026-08-20):** `HorsingMazePrd` roda a branch `main`, que estava 22 commits atrás. ⚠️ **A chave SSH do `mazedev` não é aceita pelo GitHub** (`Permission denied (publickey)`), então `git pull` falha no servidor — o deploy foi feito por `git bundle` via SSH. Registrar a chave no GitHub resolveria de vez. ⚠️ **Não rodar `npm ci --omit=dev` lá**: o build acontece no próprio servidor e `tsc` vive nas devDependencies.
 
 **Ressalva sobre o critério do gate, pra quando for ligado:** `edge_cand ≥ edge_prod − 0.2pp` com `GATE_MIN_BETS=30` em 90 dias. 90 dias ≈ 520 apostas, onde o erro-padrão da margem é da ordem de ~1pp — o limiar é ~5× mais fino que a resolução da medição, e 30 apostas está duas ordens de grandeza abaixo das ~6.200 necessárias pra distinguir edge de zero. Entre dois modelos parecidos, a promoção é sorteio. Trocar a comparação pontual pelo bootstrap pareado por corrida (`bootstrap_bsp_vs_zero.ts`) e subir `GATE_MIN_BETS`.
 

@@ -27,11 +27,15 @@
 // sorteio. GATE_MIN_BETS=30 também estava duas ordens de grandeza abaixo das
 // ~6.200 apostas necessárias pra distinguir edge de zero (medição de 2026-08-12).
 //
-// ⚠️ O GATE NÃO ESTÁ ATIVO. Nenhum serviço seta ENABLE_CRON_RETRAIN, então
-// trainAllModelsWithGate() nunca é chamado pelo cron. Ligar o retreino consome
-// a janela cega do pré-registro #1 (docs/pre_registro_falsificacao_2026-08-18.md),
-// que só é limpa porque o modelo está congelado desde 2026-07-03. Não ativar sem
-// decisão explícita.
+// ✅ GATE ATIVO desde 2026-08-20: horsingmaze-prd tem ENABLE_CRON_RETRAIN=1.
+// O retreino roda no cron diário (00:00 local / 03:00 UTC). Foi ligado DEPOIS
+// de o pré-registro #1 ser executado, então não há mais janela cega a preservar.
+//
+// ⚠️ Volume por tipo vs GATE_MIN_BETS=300, medido em 2026-08-20:
+//     flat: 545 apostas/90d → passa, é julgado pelo bootstrap
+//     jump: 200 apostas/90d → REJEITA SEMPRE por amostra insuficiente
+// Manter o jump no retreino foi decisão consciente do usuário: ele treina e é
+// descartado. Se um dia isso incomodar, GATE_TYPES=flat resolve.
 
 import { supabase } from "../..";
 import { modelPath } from "../../shared/db-config";
