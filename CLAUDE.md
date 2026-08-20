@@ -311,6 +311,32 @@ Flat, janela [288,38) dias, BSP casado 96,7%, split em 2026-03-07 (HELD é poste
 2. **Liquidez.** O volume negociado na manhã tem mediana de £357 (`drift_predictability.ts`) — fino. Sinal sem liquidez não é executável.
 3. **Pré-registro.** É hipótese nova, testada uma vez, sem parâmetro varrido — mas a regra do projeto exige janela cega antes de agir.
 
+### 💱 Economia do drift (2026-08-19) — o custo de execução decide, e não temos como medi-lo
+
+`src/oneTimeScript/drift_economics.ts`. Antes de gastar janela cega no pré-registro #3, a pergunta "o sinal cobre o custo?" foi respondida na janela já queimada — legítimo porque não há parâmetro a escolher, é aritmética de custo sobre sinal já medido.
+
+**Fórmula correta de fechar um LAY:** lay em `O_ent` com stake `S`, back em `O_sai` com stake `S × O_ent/O_sai` → lucro travado `P = S × (O_sai − O_ent) / O_sai`. **LAY lucra quando a odd ALONGA.** (Duas armadilhas: sem o divisor, o lucro é superestimado em ~16× na odd 16; e o sinal é o inverso da intuição de "apostar contra".)
+
+**Ticks da Betfair são variáveis e caros em odd alta:** odd 4 → 2,50% do preço; odd 10 → 5,00%; odd 16 → 3,13%; odd 20 → 5,00%.
+
+⚠️ **A primeira medição estava confundida.** O bruto é positivo em TODOS os quintis (+1,85% a +6,77%) porque o livro da manhã tem overround maior e as odds alongam em bloco até o BSP — componente comum, não-negociável. Além disso o quintil de divergência correlaciona com nível de odd (Q5 entra a 5,85, Q1 a 14,05). Corrigido com baseline por decil de odd (Flat, filtro [4,20], 12.402 cavalos):
+
+| quintil | excesso | líq. otimista | líq. base | líq. pessimista |
+|---|---:|---:|---:|---:|
+| Q1 | −3,34% | −6,55% | −10,21% | −17,09% |
+| Q4 | +0,66% | −2,17% | −5,09% | −10,84% |
+| **Q5 (tese de LAY)** | **+5,39%** | **+2,82%** | **+0,51%** | **−4,31%** |
+
+Modelos de execução: *otimista* = 1 tick na entrada e saída grátis (ordem "at BSP" casa no BSP por construção, sem cruzar spread — é o mais realista pro desenho manhã→BSP); *base* = 1 tick por ponta; *pessimista* = 2 ticks por ponta.
+
+**A conclusão é o espalhamento, não o ponto:** de −4,31% a +2,82% conforme a hipótese de execução. **A faixa (7,1pp) é maior que o próprio sinal (5,39pp).** A estratégia é decidida por execução, não por previsão.
+
+**E não dá pra resolver com estes dados.** Os CSVs da Betfair **não têm bid-ask**. `ppmax`/`ppmin` são máximo e mínimo NEGOCIADOS ao longo de horas — amplitude mediana de **56,7%** —, não spread instantâneo; usá-los como proxy mataria qualquer estratégia por construção. As colunas são idênticas desde 2024-01 (só mudou a caixa do cabeçalho), então nenhuma janela ajuda: é limitação da fonte, não de cobertura.
+
+**Pré-requisito do pré-registro #3:** medir o spread real com dados de mercado ao vivo (Betfair Exchange API, exige conta + app key). Sem isso, qualquer backtest de trading escolhe implicitamente o próprio veredicto ao escolher o custo.
+
+Outros dados de contexto: volume negociado na manhã (odd 4–20) mediana £787 (p10 £227, p90 £2.799); pré-live total mediana £17.349. Stake de R$10 cabe; o gargalo não é tamanho.
+
 ### 🌊 Drift de odd (2026-08-19) — direção sim, magnitude não
 
 `src/oneTimeScript/drift_predictability.ts`, 31.723 corridas dos CSVs, split 2025-10-01. Só preço, sem modelo nem banco.

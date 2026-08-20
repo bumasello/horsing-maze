@@ -268,21 +268,33 @@ const mean = (x: number[]) =>
 		base.push(mean(sl.map((r) => (r.bsp - r.morning) / r.bsp)));
 	}
 	console.log(
-		"  quintil        n   bruto%   baseline%   EXCESSO%   custo%   LÍQUIDO%",
+		"  quintil        n   EXCESSO%   LÍQ.otimista   LÍQ.base   LÍQ.pessimista",
 	);
 	for (let k = 0; k < 5; k++) {
 		const sl = byDiv.slice(k * q, k === 4 ? byDiv.length : (k + 1) * q);
 		const g = mean(sl.map((r) => (r.bsp - r.morning) / r.bsp));
 		const b = mean(sl.map((r) => base[decOf(r.morning)]));
 		const exc = g - b;
-		const c = mean(
+		// Três modelos de execução. A diferença entre eles é MAIOR que o sinal
+		// — é o ponto central: a decisão depende de execução, não de previsão.
+		//   otimista  = 1 tick na entrada, SAÍDA GRÁTIS. Uma ordem "at BSP" casa
+		//               no BSP por construção, sem cruzar spread. É o mais
+		//               realista pro desenho manhã→BSP.
+		//   base      = 1 tick em cada ponta.
+		//   pessimista= 2 ticks em cada ponta (sugestão do ticket #11).
+		const cOpt = mean(sl.map((r) => tickSize(r.morning) / r.morning));
+		const cBase = mean(
 			sl.map((r) => tickSize(r.morning) / r.morning + tickSize(r.bsp) / r.bsp),
 		);
-		const netB = exc - c;
-		const net = netB - (netB > 0 ? netB * COMMISSION_RATE : 0);
+		const netOf = (c: number) => {
+			const nb = exc - c;
+			return nb - (nb > 0 ? nb * COMMISSION_RATE : 0);
+		};
+		const fm = (x: number) =>
+			(x * 100 >= 0 ? "+" : "") + (x * 100).toFixed(2).padStart(6) + "%";
 		const tag = k === 4 ? " (LAY)" : "      ";
 		console.log(
-			`  Q${k + 1}${tag} ${String(sl.length).padStart(6)}  ${(g * 100).toFixed(2).padStart(6)}%   ${(b * 100).toFixed(2).padStart(6)}%   ${(exc * 100 >= 0 ? "+" : "") + (exc * 100).toFixed(2).padStart(6)}%  ${(c * 100).toFixed(2).padStart(6)}%  ${(net * 100 >= 0 ? "+" : "") + (net * 100).toFixed(2).padStart(7)}%`,
+			`  Q${k + 1}${tag} ${String(sl.length).padStart(6)}   ${(exc * 100 >= 0 ? "+" : "") + (exc * 100).toFixed(2).padStart(6)}%     ${fm(netOf(cOpt))}    ${fm(netOf(cBase))}     ${fm(netOf(cBase * 2))}`,
 		);
 	}
 	console.log(
