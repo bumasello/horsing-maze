@@ -120,3 +120,63 @@ exatamente a aproximação que produziu os ROIs inflados.
 
 Nenhum dado de resultado da janela cega foi consultado até aqui, então este
 pré-registro segue válido e não precisa ser reescrito quando o acesso voltar.
+
+
+---
+
+## RESULTADO (rodado 2026-08-19, `src/oneTimeScript/run_preregistro_1.ts`)
+
+Bloqueio resolvido no mesmo dia: VM Oracle Always Free em uk-london-1 (fora do
+geo-bloqueio) baixou os 73 CSVs faltantes. Cobertura de BSP agora vai até
+2026-08-18, e o join na janela foi **100%** — zero apostas descartadas por falta
+de BSP, então o fallback proibido nunca precisou ser cogitado.
+
+### Desvio de configuração, registrado
+
+O pré-registro especificava `DATA_SCHEMA=prd OUTPUT_SCHEMA=prd`. **A parte
+`DATA_SCHEMA=prd` estava factualmente errada**: `prd.race_horses_hr_enriched`
+não existe. A medição rodou com `DATA_SCHEMA=hml OUTPUT_SCHEMA=prd`.
+
+Por que isso não é grau de liberdade: cada tabela existe em **um único** schema
+— `race_horses_hr_enriched` só em `hml` (347.334 linhas), e
+`training_enriched_horse_features` da janela cega só em `prd` (4.569 linhas na
+janela; `hml` tem zero, para em 2026-07-08). Não havia escolha entre dois
+conjuntos de dados, logo não há seleção. É a topologia default já descrita no
+CLAUDE.md ("ingestão vive em hml, ML escreve em prd"); o erro estava no
+documento, não na execução.
+
+### Números
+
+| recorte | corridas | apostas | reds | odd média | WR | break-even | margem | P/L | ROI/aposta | IC95 do P/L |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| **agregado (primário)** | 320 | 190 | 16 | 16,51 | 91,58% | 94,31% | **−2,73pp** | **−848** | −44,64% | **[−2222, +352]** |
+| Flat (descritivo) | 231 | 140 | 11 | 16,46 | 92,14% | 94,30% | −2,15pp | −444 | −31,72% | [−1553, +491] |
+| Jump (descritivo) | 89 | 50 | 5 | 16,65 | 90,00% | 94,36% | −4,36pp | −404 | −80,80% | [−1247, +240] |
+
+### Veredicto: ⚠️ NÃO DEMONSTRÁVEL
+
+O IC95 do P/L agregado é **[−2222, +352]** e cruza zero. Pela tabela de critérios
+congelada antes da medição, o veredicto é **não demonstrável** — exatamente o
+resultado registrado como esperado a priori, e com 190 apostas contra as 200–260
+previstas.
+
+**Consequência declarada antes, e mantida: não apostar R$200 nesta estratégia
+em novembro.** A cláusula anti-viés está acionada: o próximo passo **não** é
+procurar um corte que passe.
+
+### Leitura, sem extrapolar
+
+O ponto estimado piorou em relação à medição de 2026-08-12 (margem +0,35pp →
+−2,73pp; ROI +8,8% → −44,6%), e o sinal agora é negativo nos dois grupos. Mas
+**o IC95 continua cruzando zero**, então a diferença entre as duas janelas não é
+distinguível de ruído — não se pode afirmar "piorou", só que não há evidência de
+edge. A potência é a ressalva já registrada: 190 apostas é ~1/32 das ~6.200
+necessárias pra resolver um edge desse tamanho.
+
+O que **é** novo e não depende de significância: a estratégia teve 41 dias fora
+da amostra do modelo, e não produziu lucro em nenhum recorte. Somado ao
+encompassing test (que fechou Flat e Jump) e ao pré-registro #2 (bandas médias
+mortas), não sobrou hipótese viva no eixo "apostar no desfecho".
+
+A única frente positiva do projeto continua sendo o **drift direcional** — que é
+tese de trading, não de aposta, e tem pré-registro próprio a escrever.
