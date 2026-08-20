@@ -61,18 +61,28 @@ while [ "$(date -u -d "$d" +%s)" -le "$(date -u -d "$END" +%s)" ]; do
     f="dwbfprices${cc}win${ddmmyyyy}.csv"
     out="$BSP_DIR/$f"
     if [ -s "$out" ]; then skip=$((skip+1)); continue; fi
-    http=$(curl -sS -o "$out.part" -w "%{http_code}" --max-time 60 "$BASE/$f" 2>/dev/null)
-    if [ "$http" = "200" ] && [ -s "$out.part" ] && head -1 "$out.part" | grep -qi "SP\|EVENT"; then
-      mv "$out.part" "$out"; ok=$((ok+1))
-      printf '  ✅ %s (%s)\n' "$f" "$(du -h "$out" | cut -f1)"
-    elif [ "$http" = "404" ]; then
-      # dia sem corrida naquele país — normal, não é erro
-      rm -f "$out.part"; miss=$((miss+1))
-    else
-      rm -f "$out.part"; fail=$((fail+1))
-      printf '  ❌ %s (HTTP %s)\n' "$f" "$http"
+    # A Betfair devolve 429 (rate limit) e 302 esporádico sob rajada. Sem
+    # retry, ~38% dos arquivos falham. Backoff linear resolve 100% deles.
+    got=0
+    for try in 1 2 3 4 5; do
+      http=$(curl -sS -o "$out.part" -w "%{http_code}" --max-time 60 "$BASE/$f" 2>/dev/null)
+      if [ "$http" = "200" ] && [ -s "$out.part" ] && head -1 "$out.part" | grep -qi "^event_id,"; then
+        mv "$out.part" "$out"; ok=$((ok+1)); got=1
+        printf '  ✅ %s (%s)\n' "$f" "$(du -h "$out" | cut -f1)"
+        break
+      fi
+      rm -f "$out.part"
+      if [ "$http" = "404" ]; then
+        # dia sem corrida naquele país — normal, não é erro
+        miss=$((miss+1)); got=1; break
+      fi
+      sleep $((try * 4))
+    done
+    if [ "$got" = "0" ]; then
+      fail=$((fail+1))
+      printf '  ❌ %s (HTTP %s após 5 tentativas)\n' "$f" "$http"
     fi
-    sleep 0.3
+    sleep 2
   done
   d=$(date -u -d "$d +1 day" +%F)
 done
