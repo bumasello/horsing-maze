@@ -497,6 +497,26 @@ Arquivos existentes: 1827, em `/home/maze/dev/betfair_sp_data` e `mazeserver:/ho
 
 Saídas possíveis: proxy/VPS fora do BR, Betfair API direta (exige conta + auth, ao contrário dos CSVs), ou provedor terceiro. Sem isso, **nenhuma validação honesta de Lay é executável.**
 
+### 🖥️ Infra de coleta fora do Brasil (2026-08-19/20)
+
+O geo-bloqueio da Betfair atinge **todos** os hosts dela a partir de IP brasileiro (302 → `.bet.br`, que dá NXDOMAIN): `promo.betfair.com` (CSVs de BSP), `api.betfair.com`, `identitysso.betfair.com` e `historicdata.betfair.com`. O `mazeserver` também sai pelo Brasil (191.41.40.89, TIM), então tunelar por ele **não** resolve.
+
+**Solução:** VM Oracle Cloud **Always Free** em `uk-london-1` (VM.Standard.A1.Flex, 1 OCPU/6 GB, Ubuntu 24.04). Nome na tailnet: **`bspnode`**, IP `100.92.130.99`. Acesso daqui: `ssh bspnode` (entrada no `~/.ssh/config`, `ProxyJump mazeserver`).
+
+⚠️ **Usar sempre o IP da tailnet, nunca o público.** O IP público da Oracle é efêmero e muda se a instância for parada/religada.
+
+O que roda lá:
+- `scripts/fetch_betfair_bsp.sh` — backfill dos CSVs de BSP. Já trouxe a cobertura até 2026-08-18 (1900 arquivos, sincronizados aqui e no `mazeserver`). ⚠️ A Betfair devolve **429 em rajada**: sem retry com backoff, ~38% dos downloads falham.
+- `scripts/smarkets_collector.py` — coletor de **bid-ask** de corrida, cron `*/15 8-21 * * *` UTC. Grava `~/smarkets_data/smarkets_book_AAAAMMDD.csv`.
+
+**Por que Smarkets e não Betfair:** a conta Betfair BR não autentica em `betfair.com`, e a API da Exchange exige conta internacional. O Smarkets expõe o livro de ofertas **sem autenticação** (`api.smarkets.com/v3`, verificado). Smarkets e Matchbook aceitam residentes do Brasil, caso um dia seja preciso executar de verdade.
+
+⚠️ **Smarkets não é Betfair:** liquidez menor em corrida UK, logo spread **mais largo**. É **limite superior conservador** — serve pra MATAR a hipótese de trading barato, não pra confirmá-la.
+
+Preço no Smarkets = probabilidade percentual × 100 → `odd = 10000 / price`.
+
+**Riscos operacionais registrados:** a Oracle recupera instâncias Always Free ociosas por 7 dias (o cron do coletor serve de atividade); e a chave do nó Tailscale expira em 180 dias por padrão, derrubando o nó da rede — desabilitar *key expiry* no admin console.
+
 ### Environment Variables Required
 
 ```bash
