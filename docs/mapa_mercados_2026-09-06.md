@@ -841,3 +841,101 @@ que não junta com resultado não é dado. Reversível com `--countries all`.
   esperar acumular corridas.
 - **§9 continua valendo:** nada disso é executável do Brasil. A pergunta de
   acesso segue aberta e é ortogonal à coleta.
+
+---
+
+# 12. Os dois últimos ⚪ do mapa, medidos (2026-09-06)
+
+## 12.1 ⛔ Rule 4 (método C3) — é CUSTO, não edge. E faltava em tudo que medimos
+
+`src/oneTimeScript/rule4_probe.ts`. 19.869 apostas, 1.646 corridas.
+
+A álgebra prevê uma folga real: a Tattersalls deduz `d ≈ p` (prob implícita do
+retirado) **dos GANHOS**, quando o ajuste justo seria sobre o **RETORNO TOTAL**
+(odd nova = `O(1−p)`). A folga é `p/(O−1)` por unidade de ganho, ou `≈ q·p` por
+unidade de stake — grande em favorito, desprezível em azarão.
+
+**A folga existe e foi medida: +0,98% por aposta.** E é só isso.
+
+| medição | ROI |
+|---|---:|
+| sem aplicar dedução nenhuma | −23,20% |
+| **com a dedução R4 real** | **−31,33%** |
+| com a dedução "justa" (sobre o retorno) | −32,31% |
+
+**A leitura que importa não é a folga — é que R4 custa 8,1pp e NENHUMA medição
+anterior deste projeto aplicava isso.** O BOG de −15,65% da mesma sessão é
+otimista; com R4 fica ≈ −24%. Toda avaliação de aposta em casa (não exchange)
+deste repositório precisa somar esse custo.
+
+⚠️ Aproximação declarada: a tabela usa o preço do retirado **no momento da
+retirada**; usamos o preço de manhã dele. Se encurtou até ser retirado,
+subestimamos a dedução — ou seja, o −31,33% ainda é otimista.
+
+## 12.2 🟡 Market making passivo (método B4) — a seleção adversa é 2-4× a spread
+
+`src/oneTimeScript/market_making_probe.py`. 147.654 cotações UK/IRE, 7.770 séries
+(corrida × cavalo), 101.184 pares (t, t+15min), 18 dias de livro do Smarkets.
+
+Posto duas ordens passivas a uma fração `f` da meia-spread e marco contra o mid
+15 min depois:
+
+| profundidade | execuções | taxa | meia-spread | seleção adversa | **líquido** |
+|---|---:|---:|---:|---:|---:|
+| no toque (f=1,0) | 21.858 | 21,6% | +3,44% | −8,03% | **−4,59%** |
+| f=0,75 | 29.221 | 28,9% | +2,82% | −7,06% | **−4,24%** |
+| f=0,50 | 40.534 | 40,1% | +2,19% | −6,12% | **−3,93%** |
+| perto do mid (f=0,25) | 59.644 | 59,0% | +1,32% | −4,98% | **−3,66%** |
+
+Negativo em toda profundidade, antes de comissão. Consistente com o achado
+anterior de que o drift é **monotônico no nível de odd** — movimento com
+tendência é o pior cenário pra quem faz mercado: você é atropelado do lado que
+executa e nunca executa do lado bom.
+
+### ⚠️ Por que isto NÃO está morto (e é a ressalva honesta)
+
+**A regra de execução só enxerga o caso ADVERSO.** Eu executo quando o mid
+atravessa minha ordem. A execução **benigna** — alguém cruza por necessidade de
+liquidez sem o preço andar — é invisível no livro a cada 15 min, e é justamente
+ela que paga o market maker.
+
+O que dá pra afirmar é o **limiar**, não o veredicto:
+
+| profundidade | execuções benignas por adversa, pra empatar |
+|---|---:|
+| no toque | **1,33** |
+| f=0,75 | 1,50 |
+| f=0,50 | 1,79 |
+| perto do mid | 2,77 |
+
+### ✅ O que destrava isso: coletor v3, já no ar
+
+A API do Smarkets expõe `/markets/{id}/last_executed_prices/` com
+**contract_id + preço + TIMESTAMP**, e `/volumes/`. Com o carimbo dá pra saber
+SE houve negócio entre duas fotos, e comparando o preço negociado com o livro
+daquele instante dá pra inferir QUEM CRUZOU — o discriminador benigno/adverso.
+
+`scripts/smarkets_collector.py` subiu pra **esquema v3** com
+`last_exec_price`, `last_exec_ts`, `market_volume`, `market_double_stake_volume`.
+Rodando desde 2026-09-06 16:40 UTC. Em ~2 semanas o B4 fecha, pra cima ou pra
+baixo. ⚠️ Volume é do MERCADO (a API não expõe por contrato): serve de
+intensidade, não de fluxo por cavalo.
+
+## 12.3 Onde o mapa fica
+
+| método | status |
+|---|---|
+| A1–A5 (prever desfecho) | ⛔ refutado |
+| B1 (drift pré-corrida) | 🟡 sinal real, custo maior |
+| B2/B3 (DOB/LOB em corrida) | ⛔ refutado |
+| **B4 (market making)** | 🟡 **limiar quantificado (1,33), decide em ~2 semanas** |
+| B5 (arbitragem entre casas) | ⛔ **refutado hoje** — 0 de 560 corridas sem retirada |
+| C1 (each-way + vaga extra) | 🟡 medição enviesada; termos reais chegando |
+| C2 (BOG sozinho) | ⛔ −15,65%, e ≈−24% depois do R4 |
+| **C3 (Rule 4)** | ⛔ **é custo de 8,1pp; a folga da tabela é só 0,98pp** |
+| C4 (matched betting / bônus) | ⚪ nunca testado — e é o único +EV garantido da lista |
+| D (tote) | ⛔ por economia |
+
+**Sobraram dois ⚪ de verdade:** o veredicto do B4 (aguardando dado) e o C4
+(matched betting), que nunca foi tocado porque não é "este projeto" — mas é o
+único item da lista inteira com EV positivo garantido.

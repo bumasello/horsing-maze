@@ -18,12 +18,30 @@ RESSALVAS REGISTRADAS
       LARGO. É LIMITE SUPERIOR conservador. Serve pra MATAR a hipótese barato,
       não pra confirmá-la.
     * Preço Smarkets = probabilidade percentual x 100 → odd = 10000 / price.
+    * ⚠️ SEMÂNTICA DAS PONTAS — armadilha que já mordeu na v1 deste arquivo.
+      `bids` são ordens de COMPRA (back) já postadas: quem CRUZA um bid está
+      VENDENDO, ou seja, LAYando. Então o bid é `lay_exec_odd` (a odd em que
+      VOCÊ consegue layar AGORA) e a offer é `back_exec_odd`. Como o preço do
+      bid é sempre menor que o da offer, sai lay_exec_odd > back_exec_odd —
+      o contrário seria arbitragem (backar a 16 e layar a 7,8). A v1 gravava
+      `back_odd` a partir dos bids, isto é, com os nomes TROCADOS. Os CSVs v1
+      seguem válidos (o spread é simétrico), basta ler os nomes invertidos;
+      por isso o arquivo passou a se chamar `smarkets_book_v2_*`.
     * `quantity` vem em unidades de 1/10000 da moeda; gravamos o valor CRU e
       convertemos só na análise, pra não embutir suposição no dado.
     * Rodar FORA do Brasil (Umbrella bloqueia por categoria aqui).
     * NÃO filtramos país na coleta — gravamos `full_slug` e filtramos na
       análise. Filtrar na coleta jogaria fora dado que não dá pra recuperar
       depois; filtrar na análise é reversível.
+    * v3 (2026-09-06) acrescenta ÚLTIMO NEGÓCIO e VOLUME. Motivo: o probe de
+      market making (`market_making_probe.py`) mostrou que o livro sozinho só
+      permite ver a execução ADVERSA (o mid atravessa a sua ordem). A execução
+      BENIGNA — alguém cruza por necessidade sem o preço andar — é invisível, e
+      é dela que depende o veredicto: precisa de 1,33 a 2,77 benignas por
+      adversa pra market making empatar. Com `last_exec_ts` dá pra saber SE
+      houve negócio entre duas fotos, e com `last_exec_price` comparado ao livro
+      dá pra inferir QUEM CRUZOU. `volume` é do MERCADO (a API não expõe por
+      contrato), então serve de intensidade, não de fluxo por cavalo.
     * O livro só é informativo perto da largada e em horário de turfe UK/IRE
       (~11:00-20:00 UTC). Fora disso o spread medido reflete mercado não
       formado, não custo de execução.
@@ -36,11 +54,17 @@ from datetime import datetime, timezone
 
 API = "https://api.smarkets.com/v3"
 UA = {"User-Agent": "horsingmaze-research/1.0"}
+SCHEMA = "v3"
 COLS = [
     "ts_utc", "event_id", "event_name", "start_dt", "mins_to_off",
     "full_slug", "market_id", "contract_id", "contract_name",
-    "back_price_raw", "back_odd", "back_qty_raw",
-    "lay_price_raw", "lay_odd", "lay_qty_raw", "spread_pct",
+    # bid = ordem de compra alheia; cruzar = VOCÊ LAYA (ver docstring)
+    "bid_price_raw", "lay_exec_odd", "lay_exec_qty_raw",
+    # offer = ordem de venda alheia; cruzar = VOCÊ BACKA
+    "offer_price_raw", "back_exec_odd", "back_exec_qty_raw",
+    "mid_odd", "spread_pct",
+    "last_exec_price", "last_exec_ts", "market_volume",
+    "market_double_stake_volume",
 ]
 
 
@@ -105,6 +129,16 @@ def collect(outdir):
             for c in get(f"{API}/markets/{mid}/contracts/").get("contracts", []):
                 names[str(c["id"])] = c.get("name") or c.get("slug") or ""
 
+            # último negócio por contrato (com carimbo) e volume do mercado
+            lep = {}
+            for x in get(f"{API}/markets/{mid}/last_executed_prices/").get(
+                    "last_executed_prices", {}).get(str(mid), []) or []:
+                lep[str(x.get("contract_id"))] = (
+                    x.get("last_executed_price"), x.get("timestamp"))
+            vols = get(f"{API}/markets/{mid}/volumes/").get("volumes", [])
+            mvol = vols[0].get("volume", "") if vols else ""
+            mdvol = vols[0].get("double_stake_volume", "") if vols else ""
+
             quotes = get(f"{API}/markets/{mid}/quotes/")
             for cid, book in quotes.items():
                 bids, offers = book.get("bids", []), book.get("offers", [])
@@ -113,8 +147,11 @@ def collect(outdir):
                 pb, po = bids[0].get("price", 0), offers[0].get("price", 0)
                 if pb <= 0 or po <= 0:
                     continue
-                ob, ol = 10000.0 / pb, 10000.0 / po
-                mid_odd = (ob + ol) / 2.0
+                lay_exec, back_exec = 10000.0 / pb, 10000.0 / po
+                # mid em PROBABILIDADE (média dos preços), não média das odds:
+                # odd é convexa em prob, então a média das odds superestima o
+                # meio do livro justamente onde o spread é largo.
+                mid_odd = 10000.0 / ((pb + po) / 2.0)
                 rows.append({
                     "ts_utc": now.isoformat(timespec="seconds"),
                     "event_id": eid, "event_name": e.get("name", ""),
@@ -122,11 +159,16 @@ def collect(outdir):
                     "full_slug": e.get("full_slug", ""),
                     "market_id": mid, "contract_id": cid,
                     "contract_name": names.get(str(cid), ""),
-                    "back_price_raw": pb, "back_odd": f"{ob:.4f}",
-                    "back_qty_raw": bids[0].get("quantity", 0),
-                    "lay_price_raw": po, "lay_odd": f"{ol:.4f}",
-                    "lay_qty_raw": offers[0].get("quantity", 0),
-                    "spread_pct": f"{abs(ob - ol) / mid_odd * 100:.4f}",
+                    "bid_price_raw": pb, "lay_exec_odd": f"{lay_exec:.4f}",
+                    "lay_exec_qty_raw": bids[0].get("quantity", 0),
+                    "offer_price_raw": po, "back_exec_odd": f"{back_exec:.4f}",
+                    "back_exec_qty_raw": offers[0].get("quantity", 0),
+                    "mid_odd": f"{mid_odd:.4f}",
+                    "spread_pct": f"{(lay_exec - back_exec) / mid_odd * 100:.4f}",
+                    "last_exec_price": (lep.get(str(cid)) or ("", ""))[0],
+                    "last_exec_ts": (lep.get(str(cid)) or ("", ""))[1],
+                    "market_volume": mvol,
+                    "market_double_stake_volume": mdvol,
                 })
             time.sleep(0.6)  # folga no rate limit (o 429 é de rajada)
 
@@ -135,8 +177,19 @@ def collect(outdir):
         return 0
 
     os.makedirs(outdir, exist_ok=True)
-    path = os.path.join(outdir, f"smarkets_book_{now.strftime('%Y%m%d')}.csv")
+    path = os.path.join(
+        outdir, f"smarkets_book_{SCHEMA}_{now.strftime('%Y%m%d')}.csv")
     new = not os.path.exists(path)
+    if not new:
+        # Guarda: DictWriter em modo append NÃO revalida o cabeçalho. Se o
+        # esquema mudar de novo, as colunas sairiam desalinhadas em silêncio —
+        # dado corrompido é pior que dado faltando.
+        with open(path, encoding="utf-8") as fh:
+            head = fh.readline().strip().split(",")
+        if head != COLS:
+            print(f"  ! cabeçalho de {os.path.basename(path)} não bate com o "
+                  f"esquema {SCHEMA}; não vou anexar", file=sys.stderr)
+            return -1
     with open(path, "a", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=COLS)
         if new:
