@@ -48,7 +48,7 @@ const db = createClient(
 const norm = (s: string) =>
 	s.toLowerCase().replace(/\([a-z]{2,3}\)/g, "").replace(/[^a-z0-9]/g, "");
 
-interface Out { won: boolean; race: string; date: string; bsp: number }
+interface Out { won: boolean; race: string; date: string; bsp: number; mw: number; mvol: number }
 
 // fieldOf: nº REAL de corredores por corrida, contado no próprio CSV da Betfair.
 // Contar pelo join seria circular: corrida em que metade dos nomes não casou
@@ -71,7 +71,7 @@ function loadCsv(): Map<string, Out> {
 			const race = `${c[1]}|${c[3]}`;
 			fieldOf.set(race, (fieldOf.get(race) || 0) + 1);
 			out.set(`${date}|${norm(c[5])}`, {
-				won: +c[6] === 1, race, date, bsp: +c[7],
+				won: +c[6] === 1, race, date, bsp: +c[7], mw: +c[9] || 0, mvol: +c[14] || 0,
 			});
 		}
 	}
@@ -80,7 +80,7 @@ function loadCsv(): Map<string, Out> {
 
 interface R {
 	race: string; date: string; won: boolean;
-	best: number; nBookies: number; sp: number; bsp: number;
+	best: number; nBookies: number; sp: number; bsp: number; mw: number; mvol: number;
 }
 
 const pct = (x: number) => `${(100 * x).toFixed(2)}%`;
@@ -169,7 +169,7 @@ async function main() {
 			agg.inv += 1 / b;
 			rows.push({
 				race: c.race, date: c.date, won: c.won, best: b,
-				nBookies: nb.get(rhid) || 0, sp: v.sp > 1 ? v.sp : Number.NaN, bsp: c.bsp,
+				nBookies: nb.get(rhid) || 0, sp: v.sp > 1 ? v.sp : Number.NaN, bsp: c.bsp, mw: c.mw, mvol: c.mvol,
 			});
 		}
 		perRace.set(c.race, agg);
@@ -247,6 +247,55 @@ async function main() {
 	};
 	console.log(`  ${"célula".padEnd(20)} ${"n".padStart(6)} ${"ROI com BOG".padStart(9)} ${"IC95".padStart(20)} ${"só SP".padStart(8)} ${"só manhã".padStart(9)}`);
 	for (const [lab, sel] of cells) show(lab, wBog.filter(sel));
+
+	// ===== Q3. CASA × EXCHANGE — o motor do matched betting =====
+	// Back na casa (melhor preço de manhã, Ob) e lay na exchange (Ol). Lucro
+	// travado sse Ob > (Ol − c)/(1 − c). Proxy de Ol = MORNINGWAP (média
+	// negociada da manhã — NÃO é o toque de lay, que é pior por meia spread;
+	// logo ISTO É OTIMISTA). Segunda régua: lay "at SP" (executável, mas o
+	// preço não é conhecido na hora — é EV, não lock).
+	console.log("\n  ══ Q3. CASA × EXCHANGE (back na casa de manhã, lay na exchange) ══");
+	const C = 0.065;
+	const lock = (ob: number, ol: number) => ob * (1 - C) / (ol - C) - 1; // por unidade de back
+	const wMw = rows.filter((r) => r.mw > 1.01);
+	console.log(`  runners com preço de manhã na casa E na exchange (MORNINGWAP): ${wMw.length}`);
+	const arbMw = wMw.filter((r) => lock(r.best, r.mw) > 0);
+	const arbBsp = rows.filter((r) => lock(r.best, r.bsp) > 0);
+	const med = (a: number[]) => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)] || 0; };
+	console.log(`  lock > 0 vs MORNINGWAP (otimista): ${arbMw.length} (${pct(arbMw.length / wMw.length)}) · lucro travado mediano ${pct(med(arbMw.map((r) => lock(r.best, r.mw))))}`);
+	console.log(`  lock > 0 vs BSP (não é lock, é EV): ${arbBsp.length} (${pct(arbBsp.length / rows.length)}) · mediano ${pct(med(arbBsp.map((r) => lock(r.best, r.bsp))))}`);
+	// quanto vale se você fizesse TODAS as que parecem arb pela manhã e liquidasse no BSP real
+	let pl = 0;
+	for (const r of arbMw) { pl += lock(r.best, r.bsp); }
+	console.log(`  P/L REAL (seleciona pela manhã, hedge liquida no BSP): ${pct(pl / Math.max(arbMw.length, 1))} por aposta em ${arbMw.length} apostas`);
+	const cheap = arbMw.filter((r) => r.best < 10);
+	let pl2 = 0; for (const r of cheap) pl2 += lock(r.best, r.bsp);
+	console.log(`    idem, só odd < 10 (liquidez de lay real): ${pct(pl2 / Math.max(cheap.length, 1))} em ${cheap.length}`);
+
+	// ---- diagnóstico do Q3: é preço real ou artefato? ----
+	console.log("\n  ── Q3 diagnóstico ──");
+	// (a) sanidade do join: correlação log(best) × log(bsp)
+	const lx = rows.map((r) => Math.log(r.best)), ly = rows.map((r) => Math.log(r.bsp));
+	const mx = lx.reduce((a, b) => a + b, 0) / lx.length, my = ly.reduce((a, b) => a + b, 0) / ly.length;
+	let sxy = 0, sxx = 0, syy = 0;
+	for (let i = 0; i < lx.length; i++) { sxy += (lx[i] - mx) * (ly[i] - my); sxx += (lx[i] - mx) ** 2; syy += (ly[i] - my) ** 2; }
+	console.log(`  (a) corr(log preço casa, log BSP) = ${(sxy / Math.sqrt(sxx * syy)).toFixed(3)}  (join certo ≈ 0,9; join errado ≈ 0)`);
+	// (b) volume matinal na exchange nas "arb" vs no resto
+	const mvA = med(arbMw.map((r) => r.mvol)), mvN = med(wMw.filter((r) => lock(r.best, r.mw) <= 0).map((r) => r.mvol));
+	console.log(`  (b) MORNINGTRADEDVOL mediano: 'arb' £${mvA.toFixed(0)} vs resto £${mvN.toFixed(0)}`);
+	// (c) refaz o Q3 exigindo volume matinal mínimo (a média só é preço se alguém negociou)
+	for (const minVol of [50, 200, 500, 1000]) {
+		const univ = wMw.filter((r) => r.mvol >= minVol);
+		const arb = univ.filter((r) => lock(r.best, r.mw) > 0);
+		let p2 = 0; for (const r of arb) p2 += lock(r.best, r.bsp);
+		console.log(`  (c) MORNINGTRADEDVOL ≥ £${String(minVol).padStart(4)}: universo ${String(univ.length).padStart(6)} · lock>0 ${String(arb.length).padStart(5)} (${pct(arb.length / Math.max(univ.length, 1)).padStart(6)}) · lock med ${pct(med(arb.map((r) => lock(r.best, r.mw)))).padStart(7)} · P/L real no BSP ${pct(p2 / Math.max(arb.length, 1)).padStart(7)}`);
+	}
+	// (d) por faixa de odd da casa
+	for (const [lo, hi] of [[1, 3], [3, 6], [6, 12], [12, 30], [30, 999]] as [number, number][]) {
+		const univ = wMw.filter((r) => r.best >= lo && r.best < hi && r.mvol >= 200);
+		const arb = univ.filter((r) => lock(r.best, r.mw) > 0);
+		console.log(`  (d) odd casa [${lo},${hi}) vol≥200: ${String(univ.length).padStart(6)} → lock>0 ${String(arb.length).padStart(5)} (${pct(arb.length / Math.max(univ.length, 1))})`);
+	}
 
 	console.log(`\n  ── FIT [${FROM},${SPLIT}) vs HELD [${SPLIT},${TO}] ──`);
 	show("FIT", wBog.filter((r) => r.date < SPLIT));

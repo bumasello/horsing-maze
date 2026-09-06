@@ -42,7 +42,7 @@ Selecionar com dado do futuro é o pecado. Liquidar com dado do futuro é o cert
 | `WIN_LOSE` | 🔴 | é o alvo |
 | `BSP` | 🔴 | formado NA largada. Liquidação: certo. Seleção: foi o erro de julho |
 | `PPWAP` | 🔴 | média ponderada de TODO o pré-live, inclui os minutos finais |
-| `MORNINGWAP` | 🟡 | média sobre a janela da manhã. Só use se seu instante de decisão for DEPOIS da janela inteira |
+| `MORNINGWAP` | 🟡/🔴 | média sobre a janela da manhã. 🟢 só se o instante de decisão for DEPOIS da janela inteira. **🔴 se a decisão é às 04:00 (odds_enriched)** — fabricou uma "arb casa×exchange" de +30% (mapa §13.2) |
 | `PPMAX`, `PPMIN` | 🔴 | extremos negociados ao longo de horas. Amplitude mediana **56,7%** — não servem nem como proxy de spread |
 | `IPMAX`, `IPMIN` | 🔴 | extremos EM CORRIDA. Só existem no fim |
 | `MORNINGTRADEDVOL` | 🟡 | volume da manhã |

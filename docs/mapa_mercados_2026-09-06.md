@@ -939,3 +939,97 @@ intensidade, não de fluxo por cavalo.
 **Sobraram dois ⚪ de verdade:** o veredicto do B4 (aguardando dado) e o C4
 (matched betting), que nunca foi tocado porque não é "este projeto" — mas é o
 único item da lista inteira com EV positivo garantido.
+
+---
+
+# 13. Varredura "todo tipo de aposta" (2026-09-06, noite)
+
+Pedido: testar todo tipo de aposta que exista, com a infra atual. Quase todo
+produto de aposta é combinação de três primitivas (back, lay, pool); combinar
+componentes de edge zero dá edge zero menos custo. O que vale medir é **fonte de
+preço diferente**. Hoje: favorito, casa×exchange, tote (win/place/exacta).
+
+## 13.1 Back no favorito — "acertar mais do que errar" (`back_favourite_probe.py`)
+
+33.508 corridas, seleção pelo preço da MANHÃ (MORNINGWAP), liquidação no BSP.
+
+| aposta | acerto | ROI sem comissão | ROI com 6,5% | IC95 (c/ comissão) |
+|---|---:|---:|---:|---|
+| favorito, vitória | 32,8% | **+0,50%** | −3,90% | [−5,64, −2,21] ❌ |
+| favorito, colocação | **60,6%** | **+0,37%** | −2,22% | [−3,17, −1,23] ❌ |
+| fav. do place, BSP < 1,5 | **78,8%** | — | −1,22% | [−2,20, −0,18] ❌ |
+| top-2 vitória | 26,5% | — | −4,79% | ❌ |
+
+Estável em 6 semestres. **Acertar 79% é fácil e perde dinheiro**: cada acerto paga
+menos que cada erro custa. O mercado é justo até ±0,5%; a comissão é maior que
+qualquer viés residual. Como o modelo ≈ preço, "o 1º do modelo" é esta mesma
+aposta.
+
+## 13.2 ⛔ Casa × exchange (motor do matched betting) — look-ahead de TEMPO
+
+`bog_value_probe.ts` Q3. Back na casa (melhor de 5, 04:00 UTC) + lay na
+exchange. Contra MORNINGWAP apareceu lock em 15–26% dos runners com mediana
+14,7% e "P/L real" +30%. **Falso.** Diagnóstico: corr(casa,BSP)=0,82 (join
+certo); filtrar por volume PIORA (não é cotação fina). O vazamento é temporal:
+**a casa é cotada às 04:00 e o MORNINGWAP é a média negociada horas depois**.
+Selecionar "casa > exchange" usa preço que só existe depois da aposta na casa —
+pega os cavalos que ENCURTARAM entre 04:00 e a manhã, que seguem encurtando até o
+BSP (momentum do drift). É o drift selecionado pelo futuro.
+
+Versão honesta (backar tudo às 04:00): é o BOG, ≈ −24% após R4. Versão
+executável (cotação da casa e da exchange **no mesmo minuto**): só com o coletor
+PP (horário) cruzado com o Smarkets (15 min), ambos rodando desde hoje. Join
+PP→CSV (`selection_id`→nome)→Smarkets (nome). ~1 semana pra amostra.
+
+**Registrado em `docs/contaminacao_dados.md`: MORNINGWAP é 🔴 pra qualquer
+seleção cujo instante de decisão seja anterior à janela da manhã.**
+
+## 13.3 ⛔ Tote vs exchange — medido pela primeira vez (`tote_vs_bsp_probe.py`)
+
+Fonte nova: API pública do Sporting Life (`/api/horse-racing/race/{id}`) traz
+`tote_win`, `place_win`, `exacta_win`, `trifecta`, `straight_forecast` por
+corrida. Backfill de 120 dias rodando no `bspnode` (`sl_tote_fetch.py`,
+`~/tote_data/sl_tote.jsonl`). CSVs de BSP atualizados até 2026-09-05 (a
+Betfair voltou a servir do IP de Londres).
+
+Parcial: 343 corridas casadas, 269 vencedores, 701 colocados, 270 exactas.
+Dividendo do tote (por £1, com stake) ÷ retorno líquido na exchange
+(`1+(BSP−1)×0,935`), **mediana por faixa**:
+
+| faixa BSP | win: tote/exch | place: tote/exch |
+|---|---:|---:|
+| [1,2) | 0,993 | 0,919 ([1,1.5)) |
+| [2,3) | 0,964 | 0,856 |
+| [3,5) | 0,947 | 0,842 |
+| [5,8) | 0,909 | 0,819 |
+| [8,30) | 0,92 | 0,759 (≥5) |
+| **TODOS** | **0,943** | **0,849** |
+
+**Exacta:** dividendo ÷ justo (Harville pelo BSP, sem dedução) = **0,813**
+mediano; paga acima do justo em só 11% dos casos. Dedução efetiva ≈ 19%.
+
+O tote paga menos que a exchange em TODA faixa, nos três produtos; tote > exchange
+em 14–17% dos casos sem nenhuma faixa que incline. **D1 e A3 saem de "⛔ por
+herança/economia" para ⛔ medido.** Ressalva: join de 25% (sobra Irlanda e
+variantes de nome); cobertura sobe conforme o backfill entra em mar–ago, onde
+os CSVs existem. Direção já é inequívoca.
+
+## 13.4 Quadro final do dia
+
+| primitiva / produto | veredicto | como |
+|---|---|---|
+| back favorito (win/place/top-2) | ⛔ −2 a −5% | 33k corridas |
+| lay favorito | ⛔ espelho: −0,5% − comissão | aritmética |
+| dutching / múltiplas | ⛔ | combinação de edge zero × custo |
+| casa×casa (arb) | ⛔ 0/560 | retirada = R4 |
+| casa×exchange (matched) | 🟡 medição contaminada; coletor simultâneo no ar | 1 semana |
+| BOG | ⛔ ≈ −24% após R4 | |
+| Rule 4 | ⛔ custo 8,1pp; folga 0,98pp | |
+| each-way + vaga extra | 🟡 termos reais chegando (PP v1) | 2–3 semanas |
+| tote win / place / exacta | ⛔ 0,94 / 0,85 / 0,81 da exchange | medido hoje |
+| market making | 🟡 limiar 1,33 benigna/adversa; coletor v3 no ar | 2 semanas |
+| DOB/LOB, drift, place, forecast por modelo | ⛔ | seções anteriores |
+| **matched betting / promoções (C4)** | ⚪ **único +EV garantido; nunca tocado** | precisa registrar promoções |
+
+Não medíveis por falta de preço histórico: winning distance, match bets,
+"without the favourite", insurebet, ante-post, spread betting.
