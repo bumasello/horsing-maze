@@ -228,6 +228,22 @@ def collect(outdir, days_ahead=1, countries=("GB", "IE")):
                         "ew_odds_dec": _dec(x.get("eachwayRunnerOdds") or {}),
                     }))
             time.sleep(1.0)   # folga; a proteção da PP reage a rajada
+        # hub de promoções (C4): grava o JSON do GraphQL do dia, 1 arquivo/dia.
+        # Não é parseado aqui — é registro bruto pra saber QUAIS promoções de
+        # turfe existiam em cada dia (extra place, money back, etc.).
+        try:
+            hub = {}
+            page.on("response", lambda r: hub.__setitem__("json", r.text())
+                    if "bff-gql" in r.url and r.request.method == "POST" else None)
+            page.goto("https://www.paddypower.com/promotions", timeout=60000,
+                      wait_until="networkidle")
+            page.wait_for_timeout(4000)
+            if hub.get("json"):
+                hp = os.path.join(outdir, f"pp_promohub_{now.strftime('%Y%m%d')}.json")
+                if not os.path.exists(hp):
+                    open(hp, "w").write(hub["json"])
+        except Exception as e:  # promo hub é acessório; não derruba a coleta
+            print(f"  ! promo hub: {e}", file=sys.stderr)
         browser.close()
 
     if not rows:
