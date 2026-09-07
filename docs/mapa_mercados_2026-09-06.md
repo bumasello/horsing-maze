@@ -1033,3 +1033,45 @@ os CSVs existem. Direção já é inequívoca.
 
 Não medíveis por falta de preço histórico: winning distance, match bets,
 "without the favourite", insurebet, ante-post, spread betting.
+
+---
+
+# 14. ⛔ "Pensamento humano" codificado — o mercado já leu o mesmo cartão (2026-09-07)
+
+`src/oneTimeScript/human_rules_probe.py`. Proposta: em vez de o ML prever,
+codificar a lógica que um apostador usa (forma, jóquei, treinador, parada,
+classe, peso, idade, estreia, viseira) e ver se ela bate o mercado. Teste
+correto: **os cavalos marcados perdem MAIS do que o BSP deles já implica?**
+
+Dados: `rpscrape_results` inteiro (662k linhas, 2019→2026-07) para histórico
+**ponto-no-tempo** — cada feature usa só corridas anteriores à data; jóquei e
+treinador com contagens acumuladas até o dia anterior. Join com BSP + desfecho
+(CSVs Betfair): **179.990 runners**. Controle: flag aleatória de 30%.
+
+| banda BSP | base: perde / mercado diz | melhor regra | diff | IC95 |
+|---|---|---|---:|---|
+| [13,20] prod | 93,7% / 93,7% | R1 nunca venceu | +0,83pp | [+0,01, +1,61] |
+| [6,13) | 88,3% / 88,4% | score ≥ 4 | +1,12pp | [−0,59, +2,81] |
+| [3,6) | 77,2% / 77,2% | R6 treinador fraco | +0,81pp | [−0,56, +2,30] |
+| todas | 89,0% / 89,0% | R3 parada longa | +0,14pp | [−0,13, +0,44] |
+
+**Em todas as ~55 células, a taxa real de derrota bate a implícita no BSP com
+erro de ±0,5pp — regra ou não, controle aleatório inclusive.** A única célula
+"✅" (R1 em [13,20], limite inferior +0,01pp) é 1 entre 55 testes e **não replica
+em nenhuma outra banda** (−0,05, +0,14, +0,07pp): ruído de comparação múltipla,
+o padrão exato que já enganou o projeto quatro vezes. Empilhar regras
+(score ≥ 2/3/4) não ajuda: o score ≥ 4 dá −0,56pp na banda de prod.
+
+Detalhe honesto: R4 ("sobe de classe") ficou vazio porque `race_class` é
+esparso no rpscrape (60%) e raramente existe nas duas corridas consecutivas.
+Não muda a conclusão — as outras nove são as regras clássicas.
+
+**Leitura:** a "análise humana" é um subconjunto do que 74 features expressam, e
+o encompassing test já dissera que 74 features = preço. Aqui está a mesma
+conclusão pela via oposta, com 10× a amostra: **cada regra que um apostador usa
+já está no preço, individualmente, com precisão de meio ponto percentual.** O
+mercado não é "o modelo"; é milhares de pessoas aplicando exatamente essas
+regras, mais o que não é público.
+
+Encerra a família "handicapping com dado público" — ML ou regra. Não reabrir
+sem informação que não esteja no Racing Post.
