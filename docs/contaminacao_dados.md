@@ -135,7 +135,7 @@ estrito, exclui a corrida atual e qualquer outra do mesmo dia. **Não mexer ness
 |---|---|---|
 | `training_enriched_horse_features.features` | 🟠 | **contém `sp_decimal`/`sp_implied_prob`/`sp_rank`** (via `market.features.ts`). Qualquer pergunta sobre movimento de preço feita com o modelo de prod é **circular** — foi o que inflou o sinal de drift de 57% pra 64% |
 | `.target`, `.finish_position` | 🔴 | |
-| `prediction_*.predicted_probability` | 🟠 | saída de um modelo que viu o SP |
+| `prediction_*.predicted_probability` | 🟠 | saída de um modelo que viu o SP. ⚠️ **6.740 linhas com `model_version='v5.0'` têm P=0,000** — são placeholders de feature sem predição (o orchestrator grava `v5.0` antes de o modelo preencher). Filtrar `model_version != 'v5.0'` em QUALQUER leitura, senão o "top do modelo" vira aleatório (14,7% vs 24,0% real) |
 | `.actual_position`, `.prediction_correct` | 🔴 | |
 | `lay_betting_*.market_odd` | 🟡 | depende do caminho: `sp_decimal` (🔴) ou última odd de `odds_enriched` (🟢). Conferir caso a caso |
 | `lay_betting_*.profit_loss`, `.result`, `.actual_position` | 🔴 | |
