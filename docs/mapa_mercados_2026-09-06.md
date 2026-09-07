@@ -1075,3 +1075,28 @@ regras, mais o que não é público.
 
 Encerra a família "handicapping com dado público" — ML ou regra. Não reabrir
 sem informação que não esteja no Racing Post.
+
+## 14.1 ⛔ Mudança de pista × preferência de terreno (`going_change_probe.py`, 2026-09-07)
+
+Going DECLARADO às 04:00 (`racecards_hr_enriched.going`) vs going FINAL
+(`rpscrape.going`), turf, 70.821 runners: a pista muda em **29%** dos casos
+(16% amolece, 13% firma). Preferência do cavalo = place rate em mole − em firme,
+histórico ponto-no-tempo, ≥3 corridas de cada lado (24.198 com preferência).
+
+| pista | grupo | n | placeia | BSP-place diz | diff | IC95 |
+|---|---|---:|---:|---:|---:|---|
+| amoleceu | gosta de MOLE (alinhado) | 1.231 | 28,2% | 30,8% | **−2,61pp** | [−4,75, −0,44] 🔻 |
+| amoleceu | gosta de firme | 1.121 | 30,3% | 30,0% | +0,38pp | ~0 |
+| firmou | gosta de FIRME (alinhado) | 1.036 | 29,2% | 29,2% | +0,08pp | ~0 |
+| firmou | gosta de mole | 914 | 29,1% | 29,3% | −0,18pp | ~0 |
+| igual (controle) | qualquer | 16.492 | — | — | ±0,6pp | ~0 |
+
+**O BSP já precifica a preferência de terreno — e quando a pista amolece ele
+até EXAGERA a favor dos "gosta de mole" (placeiam 2,6pp MENOS que o preço
+implica).** Não há back/place favorável em nenhuma célula. A coluna
+"win@MANHÃ+BOG" saiu com n de 1–5 (odds_enriched só existe desde 2026-03) e é
+ininformativa — ignorada.
+
+Consequência: um modelo de clima só teria valor no preço de MANHÃ (antes de a
+mudança ser conhecida), o que o transforma no trade de drift (B1), cujo custo
+de execução já foi medido acima do sinal. Encerrado.
