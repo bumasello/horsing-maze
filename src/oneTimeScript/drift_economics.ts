@@ -35,6 +35,10 @@ import {
 	predictRace,
 } from "../services/ml/eval/harness";
 import { COMMISSION_RATE } from "../services/ml/eval/simulator";
+import {
+	type SpreadCurve,
+	buildSpreadCurve,
+} from "../services/ml/eval/smarkets-spread";
 import { getDataSchema, modelPath } from "../shared/db-config";
 
 const GROUP = (process.env.GROUP || "Flat").trim();
@@ -49,6 +53,12 @@ const BSP_DIR = process.env.BSP_DIR || "/home/maze/dev/betfair_sp_data";
 const MODEL_PATH =
 	process.env.MODEL_PATH ||
 	`horse_probability_model/baselines/no_market_${G.mtype}`;
+// Livro do Smarkets coletado na VM de Londres. Troca a SUPOSIÇÃO de "1 tick
+// por ponta" pelo spread MEDIDO. SMARKETS_DIR="" desliga.
+const SMARKETS_DIR =
+	process.env.SMARKETS_DIR === undefined
+		? "/home/maze/dev/smarkets_data"
+		: process.env.SMARKETS_DIR;
 // filtro de odd do ticket #11
 const MIN_ODD = Number(process.env.MIN_ODD || 4);
 const MAX_ODD = Number(process.env.MAX_ODD || 20);
@@ -71,6 +81,7 @@ interface Row {
 	morning: number;
 	bsp: number;
 	div: number; // P_model(lose) - P_market(lose), positivo = modelo acha PIOR
+	race: number; // cluster do bootstrap: cavalos da mesma corrida não são independentes
 }
 
 async function fetchMap<T extends { id: number }>(
@@ -101,6 +112,26 @@ const mean = (x: number[]) =>
 	console.log(
 		`📋 filtro de odd de entrada [${MIN_ODD}, ${MAX_ODD}] (ticket #11)\n`,
 	);
+
+	let curva: SpreadCurve | null = null;
+	if (SMARKETS_DIR) {
+		try {
+			curva = buildSpreadCurve(SMARKETS_DIR);
+			console.log(
+				`📏 spread MEDIDO (Smarkets, ${curva.files.length} dia(s), ${curva.nQuotes} cotações UK/IRE na janela da manhã):`,
+			);
+			for (const b of curva.bins)
+				if (b.n >= 30)
+					console.log(
+						`     odd ${String(b.lo).padStart(2)}-${String(b.hi).padStart(2)} → spread mediano ${b.medianPct.toFixed(2)}%  (n=${b.n})`,
+					);
+			console.log(
+				"   ⚠️ Smarkets é menos líquido que a Betfair: LIMITE SUPERIOR de custo.\n",
+			);
+		} catch (e) {
+			console.log(`📏 sem curva de spread medido (${(e as Error).message})\n`);
+		}
+	}
 
 	const { lookup } = loadBspLookup(BSP_DIR);
 	await mongoose.connect(process.env.MONGOOSE as string);
@@ -144,7 +175,12 @@ const mean = (x: number[]) =>
 			const qM = 1 / r.m / sumM;
 			const pMlWin = (1 - pLose[r.i]) / sumMl;
 			// divergência em P(lose): positivo = modelo acha o cavalo PIOR
-			rows.push({ morning: r.m, bsp: r.b, div: 1 - pMlWin - (1 - qM) });
+			rows.push({
+				morning: r.m,
+				bsp: r.b,
+				div: 1 - pMlWin - (1 - qM),
+				race: rid,
+			});
 		}
 	}
 	model.model.dispose();
@@ -268,7 +304,9 @@ const mean = (x: number[]) =>
 		base.push(mean(sl.map((r) => (r.bsp - r.morning) / r.bsp)));
 	}
 	console.log(
-		"  quintil        n   EXCESSO%   LÍQ.otimista   LÍQ.base   LÍQ.pessimista",
+		`  quintil        n   EXCESSO%   LÍQ.otimista   LÍQ.base   LÍQ.pessimista${
+			curva ? "   MEDIDO.1ponta   MEDIDO.2pontas" : ""
+		}`,
 	);
 	for (let k = 0; k < 5; k++) {
 		const sl = byDiv.slice(k * q, k === 4 ? byDiv.length : (k + 1) * q);
@@ -291,10 +329,23 @@ const mean = (x: number[]) =>
 			return nb - (nb > 0 ? nb * COMMISSION_RATE : 0);
 		};
 		const fm = (x: number) =>
-			(x * 100 >= 0 ? "+" : "") + (x * 100).toFixed(2).padStart(6) + "%";
+			`${x * 100 >= 0 ? "+" : ""}${(x * 100).toFixed(2).padStart(6)}%`;
 		const tag = k === 4 ? " (LAY)" : "      ";
+		// custo MEDIDO: cruzar o spread é meia-spread contra o mid. 1 ponta =
+		// entra cruzando e sai "at BSP" (casa no BSP por construção); 2 pontas
+		// = cruza também na saída.
+		let medido = "";
+		if (curva) {
+			const c1 = mean(sl.map((r) => curva.halfSpreadFrac(r.morning)));
+			const c2 = mean(
+				sl.map(
+					(r) => curva.halfSpreadFrac(r.morning) + curva.halfSpreadFrac(r.bsp),
+				),
+			);
+			medido = `    ${fm(netOf(c1))}     ${fm(netOf(c2))}`;
+		}
 		console.log(
-			`  Q${k + 1}${tag} ${String(sl.length).padStart(6)}   ${(exc * 100 >= 0 ? "+" : "") + (exc * 100).toFixed(2).padStart(6)}%     ${fm(netOf(cOpt))}    ${fm(netOf(cBase))}     ${fm(netOf(cBase * 2))}`,
+			`  Q${k + 1}${tag} ${String(sl.length).padStart(6)}   ${(exc * 100 >= 0 ? "+" : "") + (exc * 100).toFixed(2).padStart(6)}%     ${fm(netOf(cOpt))}    ${fm(netOf(cBase))}     ${fm(netOf(cBase * 2))}${medido}`,
 		);
 	}
 	console.log(
@@ -306,6 +357,86 @@ const mean = (x: number[]) =>
 	console.log(
 		"  já aconteceria por nível de preço. É o único componente negociável.",
 	);
+
+	// ===== O SINAL DO Q5 SE DISTINGUE DE ZERO? =====
+	// Cluster bootstrap por CORRIDA: cavalos da mesma corrida compartilham o
+	// livro e o overround, então tratá-los como independentes estreitaria o IC
+	// artificialmente. Os limites dos quintis ficam FIXOS no ponto estimado —
+	// o IC é da média do Q5, não da regra de seleção.
+	{
+		const q5b = byDiv.slice(4 * q);
+		const custo = (r: Row, pontas: 1 | 2) =>
+			curva
+				? curva.halfSpreadFrac(r.morning) +
+					(pontas === 2 ? curva.halfSpreadFrac(r.bsp) : 0)
+				: tickSize(r.morning) / r.morning;
+		const porCorrida = new Map<number, Row[]>();
+		for (const r of q5b) {
+			const a = porCorrida.get(r.race);
+			if (a) a.push(r);
+			else porCorrida.set(r.race, [r]);
+		}
+		const corridas = Array.from(porCorrida.values());
+		// A comissão incide sobre o lucro líquido POR MERCADO (= corrida), não
+		// sobre a média da carteira: perdas de uma corrida não abatem o ganho de
+		// outra. Como o retorno por trade tem dispersão alta, aplicar a comissão
+		// sobre a média subestima o custo — é a diferença entre +0,95% e +0,34%.
+		// Recebe a amostra JÁ AGRUPADA por corrida: no bootstrap a mesma corrida
+		// pode ser sorteada duas vezes e cada cópia é um mercado independente,
+		// então o agrupamento não pode ser reconstruído por id.
+		const netMedio = (amostra: Row[][], pontas: 1 | 2) => {
+			let acc = 0;
+			let n = 0;
+			for (const corrida of amostra) {
+				let mercado = 0;
+				for (const r of corrida) {
+					mercado +=
+						(r.bsp - r.morning) / r.bsp -
+						base[decOf(r.morning)] -
+						custo(r, pontas);
+					n++;
+				}
+				acc += mercado > 0 ? mercado * (1 - COMMISSION_RATE) : mercado;
+			}
+			return acc / (n || 1);
+		};
+		const B = Number(process.env.BOOT_B || 2000);
+		console.log(
+			"\n════════════════════════════════════════════════════════════════════════",
+		);
+		console.log(
+			"  O LÍQUIDO DO Q5 SE DISTINGUE DE ZERO? (cluster bootstrap por corrida)",
+		);
+		console.log(
+			"════════════════════════════════════════════════════════════════════════",
+		);
+		for (const pontas of [1, 2] as const) {
+			const ponto = netMedio(corridas, pontas);
+			const boot: number[] = [];
+			for (let b = 0; b < B; b++) {
+				const amostra: Row[][] = [];
+				for (let i = 0; i < corridas.length; i++)
+					amostra.push(corridas[Math.floor(Math.random() * corridas.length)]);
+				boot.push(netMedio(amostra, pontas));
+			}
+			boot.sort((x, y) => x - y);
+			const lo95 = boot[Math.floor(0.025 * B)];
+			const hi95 = boot[Math.floor(0.975 * B)];
+			const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+			console.log(
+				`  ${curva ? "MEDIDO" : "tick"} ${pontas} ponta(s): líquido ${pct(ponto)}  IC95 [${pct(lo95)}, ${pct(hi95)}]  ${
+					lo95 > 0
+						? "✅ exclui zero (positivo)"
+						: hi95 < 0
+							? "❌ exclui zero (NEGATIVO)"
+							: "⚠️ cruza zero"
+				}`,
+			);
+		}
+		console.log(
+			`  (${q5b.length} trades em ${corridas.length} corridas, B=${B})`,
+		);
+	}
 
 	// tamanho do tick por faixa — o motivo estrutural
 	console.log("\n  tick da Betfair como % do preço:");

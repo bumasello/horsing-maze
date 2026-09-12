@@ -38,10 +38,27 @@ const EVAL_DAYS = Number(process.env.EVAL_DAYS || 180);
 const MONTHS = Number(process.env.MONTHS || 5000);
 const DAYS_IN_MONTH = Number(process.env.DAYS_IN_MONTH || 30);
 const BANK0 = Number(process.env.BANK0 || 200);
+// BANKS="200,500,1000,2000,5000" varre tamanhos de banca. A pergunta "existe
+// banca que aguente os reds?" é separada de "existe edge": banca resolve
+// SOBREVIVÊNCIA, não cria vantagem.
+const BANKS = (process.env.BANKS || String(BANK0)).split(",").map(Number);
+// staking proporcional: responsabilidade = FRAC_LIAB da banca (0 = stake fixo
+// no mínimo). Só vira executável com banca grande, porque o stake resultante
+// precisa respeitar o mínimo de R$5 da Betfair.
+const FRAC_LIAB = Number(process.env.FRAC_LIAB || 0);
 const MIN_STAKE = Number(process.env.MIN_STAKE || 5); // mínimo Betfair BRL
 const BSP_DIR = process.env.BSP_DIR || "/home/mazedev/betfair_sp_data";
 
-const BANDS: Array<[number, number]> = [
+// Exigir BSP dos DOIS lados (seleção e liquidação) em vez de cair pro
+// sp_decimal quando o join falha. O fallback silencioso é exatamente a
+// aproximação que produziu os ROIs inflados de julho — opt-in pra não mudar
+// o comportamento das medições já registradas.
+const REQUIRE_BSP = process.env.REQUIRE_BSP === "1";
+
+// BANDS="4-8,8-13,13-20" sobrescreve a lista fixa. Serve pra responder uma
+// pergunta pontual sem editar o script; NÃO é convite pra varrer banda (ver
+// cláusula anti-viés no CLAUDE.md — as janelas de seleção já foram queimadas).
+const BANDS_DEFAULT: Array<[number, number]> = [
 	[1.01, 2],
 	[1.2, 2.2],
 	[1.5, 2.5],
@@ -57,6 +74,12 @@ const BANDS: Array<[number, number]> = [
 	[10, 16],
 	[13, 20],
 ];
+const BANDS: Array<[number, number]> = process.env.BANDS
+	? process.env.BANDS.split(",").map((b) => {
+			const [lo, hi] = b.split("-").map(Number);
+			return [lo, hi] as [number, number];
+		})
+	: BANDS_DEFAULT;
 
 const ALL_GROUPS = [
 	{
@@ -142,6 +165,7 @@ function collectBets(L: Loaded, lo: number, hi: number): Bet[] {
 		for (let i = 0; i < horses.length; i++) {
 			if (pLose[i] < 0) continue;
 			const od = L.oddsOf(horses[i].race_horse_id);
+			if (REQUIRE_BSP && !(od?.morningwap && od?.bsp)) continue;
 			const selOdd = od?.morningwap ?? horses[i].market_odd;
 			if (!selOdd || selOdd < lo || selOdd > hi) continue;
 			const ivl = calculateLayValueIndex(pLose[i], selOdd);
@@ -154,6 +178,7 @@ function collectBets(L: Loaded, lo: number, hi: number): Bet[] {
 		for (const c of cands.slice(0, 3)) {
 			if (c.h.non_runner) continue;
 			const od = L.oddsOf(c.h.race_horse_id);
+			if (REQUIRE_BSP && !od?.bsp) continue;
 			const settle = od?.bsp ?? c.h.market_odd;
 			if (!settle || settle < lo || settle > hi) continue;
 			bets.push({
@@ -172,6 +197,7 @@ function collectBets(L: Loaded, lo: number, hi: number): Bet[] {
 function ruinSim(
 	byDay: Bet[][],
 	fracLiability: number,
+	bank0: number,
 ): {
 	ruin: number;
 	positive: number;
@@ -183,7 +209,7 @@ function ruinSim(
 	let ruin = 0;
 	let positive = 0;
 	for (let m = 0; m < MONTHS; m++) {
-		let bank = BANK0;
+		let bank = bank0;
 		let n = 0;
 		let busted = false;
 		for (let d = 0; d < DAYS_IN_MONTH && !busted; d++) {
@@ -203,7 +229,7 @@ function ruinSim(
 			}
 		}
 		if (busted) ruin++;
-		if (bank > BANK0) positive++;
+		if (bank > bank0) positive++;
 		finals.push(bank);
 		placed.push(n);
 	}
@@ -219,7 +245,11 @@ const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
 async function main(): Promise<void> {
 	console.log("🔎 Sweep de banda de odd × sobrevivência da banca (DEV-ONLY)\n");
 	console.log(
-		`📋 ${EVAL_DAYS}d | ${MONTHS} meses de ${DAYS_IN_MONTH}d | banca ${BANK0} | stake mín Betfair R$${MIN_STAKE} | comissão ${(COMMISSION_RATE * 100).toFixed(1)}%`,
+		`📋 ${EVAL_DAYS}d | ${MONTHS} meses de ${DAYS_IN_MONTH}d | bancas ${BANKS.join("/")} | ${
+			FRAC_LIAB > 0
+				? `liab ${(FRAC_LIAB * 100).toFixed(0)}% da banca`
+				: "stake fixo no mínimo"
+		} R$${MIN_STAKE} | comissão ${(COMMISSION_RATE * 100).toFixed(1)}%`,
 	);
 	await mongoose.connect(process.env.MONGOOSE as string);
 	const { lookup, files } = loadBspLookup(BSP_DIR);
@@ -271,7 +301,7 @@ async function main(): Promise<void> {
 	}
 
 	console.log(
-		`\n${"banda".padEnd(11)}${"apostas".padStart(8)}${"/dia".padStart(6)}${"WR".padStart(8)}${"b/even".padStart(8)}${"marg".padStart(7)}${"ROI".padStart(8)}${"liab/aposta".padStart(12)}${"P(ruína)".padStart(10)}${"P(pos)".padStart(8)}${"mediana".padStart(9)}${"IC95 P/L".padStart(20)}`,
+		`\n${"banda".padEnd(11)}${"banca".padStart(6)}${"apostas".padStart(8)}${"/dia".padStart(6)}${"WR".padStart(8)}${"b/even".padStart(8)}${"marg".padStart(7)}${"ROI".padStart(8)}${"P/L R$".padStart(9)}${"liab/aposta".padStart(12)}${"P(ruína)".padStart(10)}${"P(pos)".padStart(8)}${"mediana".padStart(9)}${"IC95 P/L".padStart(20)}`,
 	);
 	console.log("─".repeat(115));
 
@@ -331,23 +361,27 @@ async function main(): Promise<void> {
 		const lo95 = boot[Math.floor(0.025 * boot.length)];
 		const hi95 = boot[Math.floor(0.975 * boot.length)];
 
-		const r = ruinSim(byDay, 0); // stake fixo no mínimo = melhor caso de sobrevivência
-		console.log(
-			`[${lo},${hi}]`.padEnd(11) +
-				`${bets.length}`.padStart(8) +
-				`${(bets.length / byDay.length).toFixed(1)}`.padStart(6) +
-				`${wr.toFixed(2)}%`.padStart(8) +
-				`${be.toFixed(2)}%`.padStart(8) +
-				`${(wr - be >= 0 ? "+" : "") + (wr - be).toFixed(2)}`.padStart(7) +
-				`${(roi >= 0 ? "+" : "") + roi.toFixed(1)}%`.padStart(8) +
-				`R$${(MIN_STAKE * (avgOdd - 1)).toFixed(0)}`.padStart(12) +
-				`${((r.ruin / MONTHS) * 100).toFixed(1)}%`.padStart(10) +
-				`${((r.positive / MONTHS) * 100).toFixed(0)}%`.padStart(8) +
-				`${q(r.finals, 0.5).toFixed(0)}`.padStart(9) +
-				`[${lo95.toFixed(0)}, ${hi95.toFixed(0)}]${lo95 > 0 ? " ✅" : ""}`.padStart(
-					20,
-				),
-		);
+		for (const bank0 of BANKS) {
+			const r = ruinSim(byDay, FRAC_LIAB, bank0);
+			console.log(
+				`[${lo},${hi}]`.padEnd(11) +
+					`${bank0}`.padStart(6) +
+					`${bets.length}`.padStart(8) +
+					`${(bets.length / byDay.length).toFixed(1)}`.padStart(6) +
+					`${wr.toFixed(2)}%`.padStart(8) +
+					`${be.toFixed(2)}%`.padStart(8) +
+					`${(wr - be >= 0 ? "+" : "") + (wr - be).toFixed(2)}`.padStart(7) +
+					`${(roi >= 0 ? "+" : "") + roi.toFixed(1)}%`.padStart(8) +
+					`${(pnl >= 0 ? "+" : "") + pnl.toFixed(0)}`.padStart(9) +
+					`R$${(MIN_STAKE * (avgOdd - 1)).toFixed(0)}`.padStart(12) +
+					`${((r.ruin / MONTHS) * 100).toFixed(1)}%`.padStart(10) +
+					`${((r.positive / MONTHS) * 100).toFixed(0)}%`.padStart(8) +
+					`${q(r.finals, 0.5).toFixed(0)}`.padStart(9) +
+					`[${lo95.toFixed(0)}, ${hi95.toFixed(0)}]${lo95 > 0 ? " ✅" : ""}`.padStart(
+						20,
+					),
+			);
+		}
 	}
 
 	for (const L of loaded) L.model.model.dispose();

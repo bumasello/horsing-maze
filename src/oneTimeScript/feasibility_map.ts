@@ -56,7 +56,9 @@ const BANDS: Array<[number, number]> = [
 	[13, 20],
 	[20, 40],
 ];
-const BANKS = [200, 300, 500, 800, 1200, 2000];
+const BANKS = (process.env.BANKS || "200,300,500,800,1200,2000")
+	.split(",")
+	.map(Number);
 type Side = "lay" | "back";
 
 const ALL_GROUPS = [
