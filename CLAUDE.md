@@ -2,6 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ LEIA PRIMEIRO — o projeto virou: de apostar para publicar dados
+
+Desde 2026-09-07 o objetivo deixou de ser bater o mercado (refutado, ver
+`docs/mapa_mercados_2026-09-06.md`) e passou a ser **vender a camada de dados
+que a coleta já produz**. O produto é **mazetick.com**, portal de dados de
+turfe de UK/IRE, domínio comprado em 2026-09-12.
+
+- **Vai construir ou mexer no site?** Leia `docs/site_handoff.md` ANTES de
+  qualquer outra coisa. Ele traz as regras invioláveis — a principal é **não
+  publicar preço derivado da Betfair**, porque a licença exige ser afiliado e o
+  programa de UK/IRE fechou em 01/07/2025 —, as páginas do MVP, o orçamento e o
+  que está decidido versus o que ainda está em aberto.
+- **Vai mexer em modelo, feature ou estratégia de aposta?** Vale tudo que está
+  abaixo, mas leia antes a cláusula anti-viés: o caminho de previsão está
+  fechado e não se reabre sem informação genuinamente nova.
+- **Divisão de sessões:** a orquestração (plano, etapas, decisões) e a
+  construção do site rodam em sessões separadas. A de construção começa fria e
+  se orienta só pelo `site_handoff.md`.
+
 ## Project Overview
 
 **HorsingMaze** is a horse racing prediction and lay-betting platform built in TypeScript/Node.js. The application:
@@ -175,6 +194,23 @@ Supabase (lay_picks table)
 - **MongoDB** (`mongoose`): Connected in `src/index.ts` at startup
 - Both are global singletons; passed to functions as needed
 
+⚠️ **O Supabase é SELF-HOSTED, não é supabase.com.** Não existe projeto na
+nuvem — é a stack docker oficial rodando no próprio `mazeserver`:
+
+| item | valor |
+|---|---|
+| compose dir | `mazeserver:/mnt/dados/supabase/docker` |
+| segredos (JWT, service_role, postgres, dashboard) | `/mnt/dados/supabase/docker/.env` (`mazedev:docker`, 0664 — lê sem sudo) |
+| API + Studio | `http://192.168.1.171:8000` (Kong) |
+| Studio login | user `bumasello`, senha em `DASHBOARD_PASSWORD` |
+| Postgres | pooler (supavisor) em `192.168.1.171:5432` (session) e `:6543` (transaction); container `172.18.0.10:5432`, db `postgres`, user `supabase_admin` |
+| schemas expostos | `public, storage, graphql_public, hml, prd` (`PGRST_DB_SCHEMAS` — schema novo só aparece na API depois de entrar aqui e subir o compose de novo) |
+
+Consequências práticas: não há dashboard na nuvem pra consultar, `NEXT_PUBLIC_SUPABASE_URL`
+é um IP de LAN (só funciona dentro da rede ou pela tailnet), e derrubar o docker
+do `mazeserver` derruba prd e hml junto. O MongoDB, ao contrário, é Atlas
+gerenciado (`cluster0.9nxzx.mongodb.net/HorsingMaze`).
+
 ### Feature Generation Details
 
 Located in `src/services/features/`, organized by concern:
@@ -333,9 +369,109 @@ Modelos de execução: *otimista* = 1 tick na entrada e saída grátis (ordem "a
 
 **E não dá pra resolver com estes dados.** Os CSVs da Betfair **não têm bid-ask**. `ppmax`/`ppmin` são máximo e mínimo NEGOCIADOS ao longo de horas — amplitude mediana de **56,7%** —, não spread instantâneo; usá-los como proxy mataria qualquer estratégia por construção. As colunas são idênticas desde 2024-01 (só mudou a caixa do cabeçalho), então nenhuma janela ajuda: é limitação da fonte, não de cobertura.
 
-**Pré-requisito do pré-registro #3:** medir o spread real com dados de mercado ao vivo (Betfair Exchange API, exige conta + app key). Sem isso, qualquer backtest de trading escolhe implicitamente o próprio veredicto ao escolher o custo.
+**Pré-requisito do pré-registro #3: MEDIDO em 2026-08-20** — ver a seção seguinte. O custo real consome 81% do sinal só na entrada.
 
 Outros dados de contexto: volume negociado na manhã (odd 4–20) mediana £787 (p10 £227, p90 £2.799); pré-live total mediana £17.349. Stake de R$10 cabe; o gargalo não é tamanho.
+
+### 📏 Spread real medido (2026-08-20) — o custo consome 81% do sinal só na entrada
+
+`src/oneTimeScript/spread_smarkets.ts`, sobre o livro coletado no Smarkets pela VM de Londres (`scripts/smarkets_collector.py`): **54 rodadas de cron entre 08:00 e 21:00 UTC**, sem buraco, 16.569 cotações UK/IRE em 148 corridas, 1 falha de coleta (503 num mercado às 11:30). Primeiro dia completo.
+
+Spread como % do preço, e em ticks da Betfair (a escada de `drift_economics.ts`):
+
+| faixa | manhã (240-360min) | ticks | tarde (60-240) | largada (0-15) |
+|---|---:|---:|---:|---:|
+| odd 4–8 | 8,7% | 4,0 | 10,8% | 8,9% |
+| odd 8–13 | 15,5% | 5,5 | 24,8% | 16,8% |
+| odd 13–20 (banda de prod) | 19,5% | 6,0 | 22,5% | 22,4% |
+
+**Célula decisiva — odd 4–8 de manhã** (o Q5 do drift entra com odd mediana 5,85), n=903:
+
+- spread%: p10 4,0 · p25 6,0 · **mediana 8,7** · p75 15,0 · p90 80,8
+- em ticks: p10 2,0 · **mediana 4,0** · p75 6,0 · p90 40,5
+- **só 15% das cotações têm o livro de 2 ticks que o cenário "otimista" supõe**; 56% cabem em 4 ticks
+- size no melhor lay: p10 £13, mediana £57, p90 £621 — **liquidez não é o gargalo** (stake de R$10 ≈ £1,4)
+
+**Confronto com `drift_economics.ts`:** cruzar o spread custa MEIA spread contra o mid = **4,35%**, contra sinal bruto Q5 de **5,39%**. Isso é **81% do bruto consumido só na entrada** — o kill switch #3 do próprio ticket ("custo consome >80% do bruto") **dispara**. O livro mediano de 4 ticks equivale à premissa **pessimista** (2 ticks por ponta), que rendia **−4,31%**. Mesmo com a saída grátis (ordem "at BSP", a hipótese mais generosa defensável), o Q5 cai de +2,82% para **≈ +0,25%**.
+
+**Veredicto: o pré-registro #3 não vale a janela cega.** A margem que existia era artefato do cenário otimista, e o cenário otimista é falso em 85% do livro. O sinal direcional de `analyze_directional_drift.ts` continua real — ele é que é menor que o custo de atravessar o spread uma única vez.
+
+⚠️ Duas ressalvas, e nenhuma salva a tese: (1) **Smarkets é limite superior** — menos líquido que a Betfair, então isso não prova que a Betfair é assim; prova que a premissa otimista não pode ser assumida de graça (o caso favorável exigiria a Betfair ser ~4× mais apertada na mesma faixa); (2) **é 1 dia** (quinta da semana do Ebor em York — se enviesa, enviesa pra líquido demais). O cron segue rodando; acumular alguns dias custa zero.
+
+### 🪦 Mercado PLACE — REFUTADO (2026-08-21), e o mercado fino é o MAIS informado
+
+`src/oneTimeScript/place_mispricing_probe.ts`. **Tese:** parar de tentar bater o
+preço do WIN (já sabemos que não dá) e em vez disso PEGAR o preço do WIN — o
+melhor estimador disponível — e convertê-lo em probabilidade de colocação melhor
+do que o mercado PLACE ("To Be Placed") converte. Atrativos: não exige informação
+nova, o PLACE é ~5,7× mais fino (vol. pré-live £2.536 vs £14.555), a conversão
+win→place é chata (Harville/Stern), e ordem "at BSP" casa no pool de reconciliação
+sem cruzar spread — o custo vira só a comissão.
+
+Corpus: **33.064 corridas, 309.840 cavalos, 2024-01-01 → 2026-08-17**, CSVs de
+win **e** place da Betfair. FIT [2024-01, 2025-10), HELD [2025-10, 2026-08].
+
+**Etapa A (sem parâmetro) — o mercado estima melhor.** Brier 0,16658 (mercado) vs
+0,16829 (Harville); LogLoss 0,49979 vs 0,50565. O Harville reproduz seu viés
+livro-texto: **+8,8pp** no favorito (bin 0,7–0,8: diz 74,70%, real 65,87%) e
+**−1,9pp** no azarão. O mercado erra no máximo **1,35pp** em qualquer bin de 300 mil
+observações.
+
+**Etapa A2 — Stern(λ) corrige a maior parte, e não basta.** λ=0,70 ajustado só no
+FIT (bate com a literatura). LogLoss no HELD: Harville 0,50626 → Stern 0,50115 →
+**mercado 0,49973**. A correção padrão da literatura não fecha a diferença.
+
+**Etapa B — encompassing: o preço do PLACE já contém a conversão.**
+
+| modelo | coef | logloss FIT | logloss HELD |
+|---|---|---:|---:|
+| M0 só mercado PLACE | β=1,0134 | 0,499811 | **0,499742** |
+| M1 só Harville | α=0,8000 | 0,501304 | 0,501503 |
+| M2 mercado+Harville | β=0,8495 **α=0,1316** | 0,499751 | 0,499689 |
+| M3 mercado+Stern(λ) | β=0,8459 **α=0,1701** | 0,499762 | 0,499693 |
+
+Ganho fora da amostra **+5,38e-5 nats/cavalo, IC95 [−2,28e-5, +1,31e-4] — cruza
+zero**. E a escala liquida a discussão: **o preço do place ganha 0,109494 nats
+sobre a taxa-base (29,8%); o Harville acrescenta 0,049% disso.** α colapsa de
+0,80 sozinho para 0,13 competindo com o preço — a mesma assinatura do mercado WIN.
+
+**Etapa C — a simulação honesta PERDE, com significância.** Sinal do `morningwap`
+dos dois mercados (o que dá pra ver quando a ordem "take SP" é enviada),
+liquidação no BSP do place, comissão 6,5%, cluster bootstrap por corrida:
+
+| margem | apostas | ROI | IC95 |
+|---|---:|---:|---|
+| 0,02 | 29.719 | −4,37% | [−7,51%, −1,11%] ❌ |
+| 0,04 | 14.181 | −5,73% | [−9,95%, −1,73%] ❌ |
+| 0,06 | 7.357 | −8,28% | [−15,51%, −1,86%] ❌ |
+| 0,08 | 4.114 | −9,99% | [−19,99%, −0,66%] ❌ |
+
+8 de 10 células com IC95 inteiramente abaixo de zero. **Não é o "cruza zero" de
+sempre — é perda demonstrada com amostra grande.**
+
+⛔ **E o teto também perde.** A variante COM look-ahead (usa o BSP do WIN, que só
+existe depois da largada, pra decidir) dá −0,76% a −4,27%. **Se nem com a resposta
+na mão dá lucro, nenhuma melhoria de sinal, timing ou execução resgata.**
+
+**O achado durável, e é o contrário da tese: o mercado fino é o MAIS informado.**
+O PLACE não está copiando o WIN — ele bate a melhor conversão possível do preço do
+WIN no held-out. Faz sentido: o que faz um cavalo *colocar* não é só função de
+quanto ele ganha (andamento, distância, terreno pesam diferente). **Não reabrir
+"converter win→place" nem variantes (forecast/tricast pela mesma via) sem
+informação genuinamente nova.**
+
+Achados laterais que valem sozinhos:
+- **Overround do PLACE no BSP ≈ 0,11%** — não há margem embutida no preço; o custo
+  é a comissão. A premissa de custo do caminho estava certa; era a tese que não.
+- **Só ~28% das corridas têm preço de manhã nos DOIS mercados** (mediana de volume
+  matinal no place: **£18**). Qualquer sinal matinal em place tem cobertura de menos
+  de um terço.
+- O probe é **autocontido**: lê só os CSVs, não toca Supabase, Mongo nem TensorFlow.
+  Roda sem `.env`. Join win↔place é 100% por `(menu_hint, event_dt)` + `selection_id`;
+  o número de vagas `k` sai do próprio arquivo (contagem de `win_lose=1`).
+- ⚠️ A primeira versão do probe tinha **look-ahead** (usava BSP do win pra decidir
+  aposta liquidada no BSP do place). Corrigido antes de qualquer leitura. A versão
+  com look-ahead ficou no script, rotulada, só como teto.
 
 ### 🌊 Drift de odd (2026-08-19) — direção sim, magnitude não
 
@@ -364,9 +500,20 @@ Ideia testada (`src/oneTimeScript/winner_avoidance.ts`): usar o `win_head` como 
 
 **Por que a métrica proposta não serve:** "taxa de sobrevivência" é o complemento da win rate que o eval já reporta, e sozinha é maximizada trivialmente apostando menos. Sem prender o volume de apostas, ela não decide nada.
 
-### 🎯 Meta do projeto (definida 2026-08-12) — SOBREVIVÊNCIA, não ROI
+### 🎯 Meta do projeto — banca de R$200 DESCARTADA em 2026-08-21
 
-O objetivo **não** é maximizar ROI: é fazer uma banca de **R$200 durar novembro/2026 inteiro, terminando positiva, sem quebrar**. Toda proposta se avalia por *probabilidade de ruína*, max drawdown e tamanho de aposta vs banca — não por ROI/edge médio.
+Definida em 2026-08-12 como: fazer **R$200 durarem novembro/2026 inteiro, terminando
+positiva, sem quebrar**, avaliando toda proposta por *probabilidade de ruína*, max
+drawdown e tamanho de aposta vs banca.
+
+**Descartada pelo usuário em 2026-08-21** ("esquece a meta de 200, quero encontrar
+alguma possibilidade de fazer esse projeto acontecer"). Soltar a restrição **não
+desbloqueia nada**: a banca nunca foi o gargalo. As simulações de ruína já mostravam
+que staking proporcional zera a ruína e mesmo assim o teto de P(terminar positivo) é
+~62% — porque o edge é zero. Banca maior faz perder mais devagar, não ganhar.
+
+O critério de avaliação continua valendo pra qualquer proposta que volte a ter banca
+fixa; o que mudou é que R$200/novembro não é mais o alvo.
 
 ### ❌ ROIs de três dígitos (julho/2026) — REFUTADOS, não usar
 
@@ -460,6 +607,8 @@ Com 2,8× mais amostra o edge sumiu e inverteu o sinal. **Ambas as janelas [180,
 
 **Scripts da medição honesta** (untracked em 2026-08-18): `src/oneTimeScript/eval_bsp.ts`, `bootstrap_bsp_vs_zero.ts`, `bootstrap_bsp_flat.ts`, `diag_offrange.ts`, `sim_month_ruin.ts`, `sweep_band_ruin.ts`, `oos_band_low.ts`, `src/services/ml/eval/bsp-lookup.ts`. Rodar com `NO_CRON=1` (guard em `setupCronJob()`, evita escrever no Supabase compartilhado) e `BSP_DIR` apontando pros CSVs da Betfair.
 
+⚠️ `place_mispricing_probe.ts` é a exceção: **não** importa `src/index.ts`, então não precisa de `NO_CRON=1` nem de `.env` — só de `BSP_DIR`.
+
 **LAY betting math (user-defined strategy):**
 - Bankroll starts at 200, stake fixed at 10 per race, assumed odd = 20 (constant; real odds too volatile).
 - Outcome per bet na odd 20: +10 if horse loses, **−190** if horse wins (LAY real: perda = `stake × (odd − 1)`, é o que `simulator.ts` / `eval_bsp.ts:131` fazem).
@@ -518,7 +667,12 @@ O geo-bloqueio da Betfair atinge **todos** os hosts dela a partir de IP brasilei
 
 O que roda lá:
 - `scripts/fetch_betfair_bsp.sh` — backfill dos CSVs de BSP. Já trouxe a cobertura até 2026-08-18 (1900 arquivos, sincronizados aqui e no `mazeserver`). ⚠️ A Betfair devolve **429 em rajada**: sem retry com backoff, ~38% dos downloads falham.
-- `scripts/smarkets_collector.py` — coletor de **bid-ask** de corrida, cron `*/15 8-21 * * *` UTC. Grava `~/smarkets_data/smarkets_book_AAAAMMDD.csv`.
+  **`MARKETS="win place"`** (2026-08-21) escolhe o mercado: `place` baixa os CSVs de
+  **"To Be Placed"**, mesmo endpoint, mesmo schema, mesma cobertura. **1.928 arquivos
+  de place já baixados** (2024-01-01 → 2026-08-18), em `/home/maze/dev/betfair_sp_data`
+  e no `bspnode`. Base do `place_mispricing_probe.ts` — ver a seção do mercado PLACE.
+- `scripts/smarkets_collector.py` — coletor de **bid-ask** de corrida, cron `*/15 8-21 * * *` UTC. Grava `~/smarkets_data/smarkets_book_v2_AAAAMMDD.csv`.
+  ⚠️ **O esquema v1 nomeava as pontas ao contrário**: `bids` são ordens de COMPRA alheias, então quem cruza um bid está LAYando — `back_odd` do v1 é na verdade a odd em que se LAYA. Por isso `back_odd > lay_odd` em 99,4% das linhas; se fosse ao contrário seria arbitragem. O v2 nomeia por execução (`lay_exec_odd`/`back_exec_odd`), grava `mid_odd` (mid em PROBABILIDADE) e recusa anexar a arquivo com cabeçalho de outro esquema. Os CSVs v1 seguem válidos — o spread é simétrico —, basta ler os nomes trocados; `spread_smarkets.ts` lê os dois.
 
 **Por que Smarkets e não Betfair:** a conta Betfair BR não autentica em `betfair.com`, e a API da Exchange exige conta internacional. O Smarkets expõe o livro de ofertas **sem autenticação** (`api.smarkets.com/v3`, verificado). Smarkets e Matchbook aceitam residentes do Brasil, caso um dia seja preciso executar de verdade.
 
@@ -531,9 +685,9 @@ Preço no Smarkets = probabilidade percentual × 100 → `odd = 10000 / price`.
 ### Environment Variables Required
 
 ```bash
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=<supabase_url>
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase_anon_key>
+# Supabase (SELF-HOSTED no mazeserver — ver "Database Connections")
+NEXT_PUBLIC_SUPABASE_URL="http://192.168.1.171:8000"   # Kong local, não supabase.com
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon_key>               # = ANON_KEY de /mnt/dados/supabase/docker/.env
 
 # MongoDB
 MONGOOSE=<mongodb_connection_string>
