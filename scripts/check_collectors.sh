@@ -78,6 +78,7 @@ remoto=$(ssh -n -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=20 \
   echo "smarkets $(idade smarkets_data/smarkets_book_v3_$(date -u +%Y%m%d).csv)"
   b=$(ls -1t betfair_sp_data/*.csv 2>/dev/null | head -1)
   if [ -n "$b" ]; then echo "bsp $(( (agora - $(stat -c %Y "$b")) / 60 ))"; else echo "bsp AUSENTE"; fi
+  echo "rapi $(idade racingapi_data/rapi_v1_$(date -u +%Y%m%d).jsonl)"
   echo "disco $(df --output=pcent / | tail -1 | tr -dc 0-9)"
 ' 2>/dev/null)
 
@@ -117,6 +118,24 @@ if [ "$hora_utc" -ge 9 ] && [ "$hora_utc" -le 21 ]; then
   fi
 else
   echo "  ⏸  smarkets         fora da janela (08–21 UTC)"
+fi
+
+# ------------------------------------------- 3b. theracingapi (tier gratuito)
+# Cartao as 6,9,11,13,15,17,19 UTC e resultado as 20,22,23. O maior intervalo
+# entre execucoes e 3h (06->09), entao 210 min tolera uma batida perdida.
+# Este e o unico dado que NAO da pra comprar depois: o tier gratuito so serve
+# "hoje" (?date= responde 422). Dia nao capturado e dia perdido pra sempre.
+rapi=$(campo rapi)
+if [ "$hora_utc" -ge 7 ] && [ "$hora_utc" -le 23 ]; then
+  if [ "$rapi" = "AUSENTE" ]; then
+    notify rapi_ausente "Coletor do theracingapi sem arquivo hoje — cartao e resultado do dia perdidos, e nao ha como comprar depois"
+  elif [ "$rapi" -gt 210 ]; then
+    notify rapi_parado "Coletor do theracingapi parado ha ${rapi} min"
+  else
+    echo "  ✅ theracingapi     ${rapi} min"
+  fi
+else
+  echo "  ⏸  theracingapi     fora da janela (06–23 UTC)"
 fi
 
 # ------------------------------------------------- 4. CSVs de BSP

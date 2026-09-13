@@ -33,7 +33,7 @@ set -uo pipefail
 SRC_HOST="${SRC_HOST:-ubuntu@100.92.130.99}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/bspnode_backup}"
 DEST="${DEST:-/mnt/dados/backup/bspnode}"
-DIRS="${DIRS:-betfair_sp_data smarkets_data pp_ew_data tote_data book_data funding_data logs}"
+DIRS="${DIRS:-betfair_sp_data smarkets_data pp_ew_data racingapi_data tote_data book_data funding_data logs}"
 MANIFEST_DIR="$DEST/.manifest"
 LOCK="/tmp/backup_bspnode.lock"
 
