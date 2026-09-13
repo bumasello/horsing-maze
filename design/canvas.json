@@ -1,0 +1,18 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Proposta" },
+    { "id": "page-2", "name": "Direções originais" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html",       "x": 0,    "y": 0, "w": 1180, "h": 940, "title": "Extra places — com alavanca de densidade", "page": "page-1", "is_interactive": true },
+    { "file": "DirectionA.dc.html", "x": 0,    "y": 0, "w": 1180, "h": 900, "title": "A — Form book",  "page": "page-2" },
+    { "file": "DirectionB.dc.html", "x": 1300, "y": 0, "w": 1180, "h": 900, "title": "B — Terminal",   "page": "page-2" }
+  ],
+  "annotations": [
+    { "id": "proposta", "x": 0, "y": -230, "w": 560, "page": "page-1",
+      "text": "Uma página, uma alavanca — não dois layouts.\n\nFULL: manchete, três cartões, linhas com respiro. É o que o Google indexa e o que o visitante novo vê.\n\nCOMPACT: o cabeçalho colapsa numa linha com a faixa de tempo do B, as linhas apertam, aparecem mais corridas. É o leitor que volta todo dia.\n\nClique em Full / Compact no canto superior direito.\n\nDados reais de 13/09. O toggle não dispensa escolher o padrão: quem chega pela busca vê o estado inicial." },
+    { "id": "originais", "x": 0, "y": -170, "w": 500, "page": "page-2",
+      "text": "As duas direções que alimentaram a proposta.\n\nDe A veio a disciplina de régua e numeral tabular; de B veio a faixa de tempo da coleta, que virou o cabeçalho compacto.\n\nO fundo escuro do B ficou de fora — a preferência foi pelo claro." }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

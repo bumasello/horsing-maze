@@ -7,3 +7,7 @@ racingapi.txt
 typeerror.txt
 tools/lgbm_benchmark/.venv
 tools/lgbm_benchmark/data
+
+# canvas de design: só os arquivos-fonte, não o pacote publicado
+design/*.html
+!design/*.dc.html

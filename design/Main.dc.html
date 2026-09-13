@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; font-family: "Archivo", system-ui, sans-serif; }
+    a { color: #1F5E4B; } a:hover { color: #14402F; }
+    .n { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="background: #FCFBF8; color: #171A19; min-height: 900px; padding: 44px 56px;">
+
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 34px;">
+    <span style="font-family: 'Newsreader', Georgia, serif; font-size: 21px; font-weight: 500;">mazetick</span>
+    <div style="display: flex; align-items: center; gap: 18px;">
+      <span class="n" style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7C867F;">as of 13:00 UTC</span>
+      <div style="display: flex; border: 1px solid #DDDED6; border-radius: 2px; overflow: hidden;">
+        <div onClick="{{ setFull }}" style="{{ fullBtn }}">Full</div>
+        <div onClick="{{ setCompact }}" style="{{ compactBtn }}">Compact</div>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{ full }}" hint-placeholder-val="{{ true }}">
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 44px; align-items: start; margin-bottom: 44px;">
+      <div style="grid-column: span 2;">
+        <h1 style="font-family: 'Newsreader', Georgia, serif; font-weight: 400; font-size: 46px; line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.015em; text-wrap: balance;">
+          Seven races added a place this&nbsp;morning
+        </h1>
+        <p style="margin: 0; font-size: 16.5px; line-height: 1.6; color: #4B534C; max-width: 54ch;">
+          Every upgrade landed between <strong style="color: #171A19;">06:00 and 09:00</strong>, at Thirsk,
+          Windsor and Kempton. The standard terms table would not have told you &mdash; we measured it
+          wrong in 43% of races.
+        </p>
+      </div>
+      <div style="border-left: 1px solid #E3E4DC; padding-left: 24px;">
+        <div class="n" style="font-family: 'Newsreader', Georgia, serif; font-size: 52px; line-height: 1;">53</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: #7C867F; margin-top: 6px;">races covered</div>
+        <div class="n" style="font-family: 'Newsreader', Georgia, serif; font-size: 52px; line-height: 1; margin-top: 22px; color: #1F5E4B;">7</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: #7C867F; margin-top: 6px;">upgraded since 06:00</div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ compact }}" hint-placeholder-val="{{ false }}">
+    <div style="display: flex; align-items: center; gap: 20px; padding: 14px 0 16px; border-top: 1px solid #E3E4DC; border-bottom: 1px solid #E3E4DC; margin-bottom: 22px;">
+      <span class="n" style="font-family: 'Newsreader', Georgia, serif; font-size: 26px; color: #1F5E4B; line-height: 1;">7</span>
+      <span style="font-size: 14px; color: #4B534C;">races upgraded, all between 06:00 and 09:00</span>
+      <span style="flex-grow: 1; display: flex; align-items: center; gap: 0; height: 16px;">
+        <span style="flex-grow: 1; height: 1px; background: #E3E4DC; position: relative; display: block;">
+          <span style="position: absolute; left: 0%; top: -4px; width: 1px; height: 9px; background: #C6C8BE; display: block;"></span>
+          <span style="position: absolute; left: 20%; top: -7px; width: 2px; height: 15px; background: #1F5E4B; display: block;"></span>
+          <span style="position: absolute; left: 40%; top: -4px; width: 1px; height: 9px; background: #C6C8BE; display: block;"></span>
+          <span style="position: absolute; left: 60%; top: -4px; width: 1px; height: 9px; background: #C6C8BE; display: block;"></span>
+          <span style="position: absolute; left: 80%; top: -4px; width: 1px; height: 9px; background: #C6C8BE; display: block;"></span>
+        </span>
+      </span>
+      <span class="n" style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9AA298;">06:00 &rarr; 19:00</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ full }}" hint-placeholder-val="{{ true }}">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #7C867F; border-bottom: 1px solid #171A19; padding-bottom: 9px; margin-bottom: 18px;">Upgraded today</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 42px;">
+      <sc-for list="{{ cards }}" as="c" hint-placeholder-count="3">
+        <div style="background: #F3F5F0; padding: 18px 20px;">
+          <div class="n" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #7C867F; margin-bottom: 6px;">{{ c.when }}</div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 12px;">{{ c.race }}</div>
+          <div style="display: flex; align-items: baseline; gap: 9px;">
+            <span class="n" style="font-family: 'Newsreader', serif; font-size: 30px; color: #ADB3A9; text-decoration: line-through;">{{ c.from }}</span>
+            <span style="color: #7C867F;">&rarr;</span>
+            <span class="n" style="font-family: 'Newsreader', serif; font-size: 34px; color: #1F5E4B;">{{ c.to }}</span>
+            <span style="font-size: 13px; color: #4B534C;">places at 1/5</span>
+          </div>
+          <div class="n" style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #7C867F; margin-top: 10px;">changed at 09:00</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #7C867F; border-bottom: 1px solid #171A19; padding-bottom: 9px;">All races &middot; most places first</div>
+
+  <table class="n" style="width: 100%; border-collapse: collapse; font-size: {{ fontSize }};">
+    <tbody>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+        <tr>
+          <td style="padding: {{ pad }} 0; border-bottom: 1px solid #EAEBE3; width: 7%;">{{ r.off }}</td>
+          <td style="padding: {{ pad }} 0; border-bottom: 1px solid #EAEBE3; width: 14%;">{{ r.course }}</td>
+          <td style="padding: {{ pad }} 0; border-bottom: 1px solid #EAEBE3; color: #4B534C;">{{ r.race }}</td>
+          <td style="padding: {{ pad }} 0; border-bottom: 1px solid #EAEBE3; text-align: right; color: #7C867F; width: 11%;">{{ r.runners }}</td>
+          <td style="padding: {{ pad }} 0 {{ pad }} 28px; border-bottom: 1px solid #EAEBE3; width: 20%;"><strong>{{ r.places }}</strong> <span style="color: #7C867F;">at {{ r.frac }}</span></td>
+          <td style="padding: {{ pad }} 0; border-bottom: 1px solid #EAEBE3; text-align: right; font-size: 13px; color: {{ r.noteColor }};">{{ r.note }}</td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+
+  <p style="margin: 24px 0 0; font-size: 12.5px; color: #7C867F; line-height: 1.6; max-width: 76ch;">
+    Terms are what the bookmaker announced at the time shown, and can change again before the off.
+    &ldquo;Standard&rdquo; is the classic terms table, kept only for comparison.
+  </p>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"density":{"editor":"enum","options":["full","compact"],"default":"full","section":"Layout"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { density: null };
+  }
+  renderVals() {
+    const density = this.state.density ?? this.props.density ?? 'full';
+    const compact = density === 'compact';
+    const on = 'padding: 5px 13px; font-size: 12px; cursor: pointer; background: #171A19; color: #FCFBF8;';
+    const off = 'padding: 5px 13px; font-size: 12px; cursor: pointer; background: transparent; color: #7C867F;';
+    const rows = [
+      { off: '12:45', course: 'Curragh',   race: '6f Hcap',       runners: '26 runners', places: '6 places', frac: '1/5', note: '2 more than standard',    noteColor: '#1F5E4B' },
+      { off: '12:25', course: 'Doncaster', race: '5f Hcap',       runners: '18 runners', places: '5 places', frac: '1/5', note: '1 more, but 1/5 not 1/4', noteColor: '#1F5E4B' },
+      { off: '13:51', course: 'Thirsk',    race: '6f Nursery',    runners: '14 runners', places: '5 places', frac: '1/5', note: 'upgraded 4 to 5 at 09:00', noteColor: '#1F5E4B' },
+      { off: '12:55', course: 'Doncaster', race: '7f Hcap',       runners: '15 runners', places: '4 places', frac: '1/5', note: '1 more than standard',    noteColor: '#1F5E4B' },
+      { off: '13:05', course: 'Bath',      race: '1m2f Hcap',     runners: '14 runners', places: '4 places', frac: '1/5', note: '1 more than standard',    noteColor: '#1F5E4B' },
+      { off: '13:21', course: 'Thirsk',    race: '1m4f Hcap',     runners: '12 runners', places: '4 places', frac: '1/5', note: 'upgraded 3 to 4 at 09:00', noteColor: '#1F5E4B' },
+      { off: '13:30', course: 'Doncaster', race: '7f Hcap',       runners: '16 runners', places: '4 places', frac: '1/5', note: 'standard',                noteColor: '#7C867F' },
+      { off: '13:15', course: 'Curragh',   race: '6f Cond Stks',  runners: '17 runners', places: '3 places', frac: '1/5', note: 'standard',                noteColor: '#7C867F' },
+      { off: '13:40', course: 'Bath',      race: '1m Nursery',    runners: '13 runners', places: '3 places', frac: '1/5', note: 'standard',                noteColor: '#7C867F' },
+    ];
+    return {
+      full: !compact,
+      compact,
+      pad: compact ? '7px' : '13px',
+      fontSize: compact ? '13.5px' : '14.5px',
+      fullBtn: compact ? off : on,
+      compactBtn: compact ? on : off,
+      setFull: () => this.setState({ density: 'full' }),
+      setCompact: () => this.setState({ density: 'compact' }),
+      rows: compact ? rows : rows.slice(0, 6),
+      cards: [
+        { when: '13:51 · THIRSK',  race: '6f Nursery · 14 runners', from: '4', to: '5' },
+        { when: '16:12 · WINDSOR', race: '5f Hcap · 10 runners',    from: '3', to: '4' },
+        { when: '19:30 · KEMPTON', race: '6f Hcap · 13 runners',    from: '3', to: '4' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
