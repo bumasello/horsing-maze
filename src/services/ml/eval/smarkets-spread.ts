@@ -49,10 +49,21 @@ const ESTRANGEIROS = new Set([
 	"per",
 ]);
 
+// ⚠️ CORRIGIDO 2026-09-13. A versão original lia `split("/")[4]`, mas o slug é
+// `/sport/horse-racing/<pista>/<ano>/<mm>/<dd>/<hh-mm>` e o split de uma string
+// com barra inicial devolve "" em [0] — logo [3] é a pista e [4] é o ANO. Como
+// "2026" nunca está em ESTRANGEIROS, o filtro sempre devolvia true e NUNCA
+// filtrou nada: 36% das cotações de 2026-08-20 eram de Austrália, EUA e França.
+// Consequência: as medições de spread publicadas até aqui (spread_smarkets.ts e
+// a curva de custo consumida por drift_economics.ts) estavam infladas por livro
+// estrangeiro, mais largo e negociado em horário deslocado.
+// Ancorado no segmento seguinte a "horse-racing" para não depender do índice.
 export function ehUkIre(slug: string): boolean {
-	const venue = slug.split("/")[4] || "";
-	const i = venue.lastIndexOf("-");
-	return !ESTRANGEIROS.has(i > 0 ? venue.slice(i + 1) : "");
+	const partes = slug.split("/");
+	const i = partes.indexOf("horse-racing");
+	const venue = (i >= 0 ? partes[i + 1] : partes[3]) || "";
+	const j = venue.lastIndexOf("-");
+	return !ESTRANGEIROS.has(j > 0 ? venue.slice(j + 1) : "");
 }
 
 /** Lê os CSVs do coletor. Aceita os dois esquemas: o v2 nomeia as colunas pela

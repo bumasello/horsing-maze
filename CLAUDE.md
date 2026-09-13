@@ -369,35 +369,71 @@ Modelos de execução: *otimista* = 1 tick na entrada e saída grátis (ordem "a
 
 **E não dá pra resolver com estes dados.** Os CSVs da Betfair **não têm bid-ask**. `ppmax`/`ppmin` são máximo e mínimo NEGOCIADOS ao longo de horas — amplitude mediana de **56,7%** —, não spread instantâneo; usá-los como proxy mataria qualquer estratégia por construção. As colunas são idênticas desde 2024-01 (só mudou a caixa do cabeçalho), então nenhuma janela ajuda: é limitação da fonte, não de cobertura.
 
-**Pré-requisito do pré-registro #3: MEDIDO em 2026-08-20** — ver a seção seguinte. O custo real consome 81% do sinal só na entrada.
+**Pré-requisito do pré-registro #3: MEDIDO, e REMEDIDO em 2026-09-13** — ver a seção seguinte. O custo real consome **65%** do sinal só na entrada, sobre 26 dias. (A primeira medição dizia 81%, com o filtro de país quebrado.)
 
 Outros dados de contexto: volume negociado na manhã (odd 4–20) mediana £787 (p10 £227, p90 £2.799); pré-live total mediana £17.349. Stake de R$10 cabe; o gargalo não é tamanho.
 
-### 📏 Spread real medido (2026-08-20) — o custo consome 81% do sinal só na entrada
+### 📏 Spread real medido — REMEDIDO em 2026-09-13, o custo consome 65% do sinal
 
-`src/oneTimeScript/spread_smarkets.ts`, sobre o livro coletado no Smarkets pela VM de Londres (`scripts/smarkets_collector.py`): **54 rodadas de cron entre 08:00 e 21:00 UTC**, sem buraco, 16.569 cotações UK/IRE em 148 corridas, 1 falha de coleta (503 num mercado às 11:30). Primeiro dia completo.
+⚠️ **A medição de 2026-08-20 estava CONTAMINADA e o número publicado (8,7% /
+meia 4,35% / 81% do sinal) está morto.** `ehUkIre()` em
+`services/ml/eval/smarkets-spread.ts` lia `slug.split("/")[4]` como sendo a
+pista, mas o slug é `/sport/horse-racing/<pista>/<ano>/<mm>/<dd>/<hh-mm>` e o
+split de uma string com barra inicial põe `""` no índice 0 — logo [3] é a pista
+e [4] é o ANO. Como `"2026"` nunca está na lista de sufixos estrangeiros, **o
+filtro devolvia `true` para tudo e nunca filtrou nada**: 6.104 das 16.902 linhas
+de 20/08 (36%) eram Austrália, EUA e França, cujo livro é mais largo e negocia
+em horário deslocado. Corrigido, com teste de regressão que **foi verificado
+falhando** na implementação antiga (`smarkets-spread.test.ts`).
 
-Spread como % do preço, e em ticks da Betfair (a escada de `drift_economics.ts`):
+O sintoma estava à vista e ninguém leu: a versão contaminada dizia que o spread
+ALARGAVA da manhã (8,7%) para a tarde (10,8%). Livro não faz isso — ele aperta
+conforme a largada se aproxima, e é o que os dados limpos mostram.
+
+**Medição válida: 26 dias, 2026-08-20 → 2026-09-13**, coletor do Smarkets no
+bspnode (v1+v2+v3), **212.373 cotações UK/IRE em 1.089 corridas**.
+
+Spread como % do preço (mediana), e em ticks da Betfair:
 
 | faixa | manhã (240-360min) | ticks | tarde (60-240) | largada (0-15) |
 |---|---:|---:|---:|---:|
-| odd 4–8 | 8,7% | 4,0 | 10,8% | 8,9% |
-| odd 8–13 | 15,5% | 5,5 | 24,8% | 16,8% |
-| odd 13–20 (banda de prod) | 19,5% | 6,0 | 22,5% | 22,4% |
+| odd 4–8 | 7,1% | 3,0 | 5,6% | 3,8% |
+| odd 8–13 | 11,7% | 3,2 | 9,0% | 6,4% |
+| odd 13–20 (banda de prod) | 14,9% | 5,0 | 11,7% | 8,3% |
 
-**Célula decisiva — odd 4–8 de manhã** (o Q5 do drift entra com odd mediana 5,85), n=903:
+**Célula decisiva — odd 4–8 de manhã** (o Q5 do drift entra com odd mediana
+5,85), n=14.187:
 
-- spread%: p10 4,0 · p25 6,0 · **mediana 8,7** · p75 15,0 · p90 80,8
-- em ticks: p10 2,0 · **mediana 4,0** · p75 6,0 · p90 40,5
-- **só 15% das cotações têm o livro de 2 ticks que o cenário "otimista" supõe**; 56% cabem em 4 ticks
-- size no melhor lay: p10 £13, mediana £57, p90 £621 — **liquidez não é o gargalo** (stake de R$10 ≈ £1,4)
+- spread%: p10 3,4 · p25 5,2 · **mediana 7,1** · p75 10,1 · p90 14,1
+- em ticks: p25 2,0 · **mediana 3,0** · p75 4,0 · p90 6,0
+- **22%** das cotações têm o livro de 2 ticks do cenário "otimista"; **72%**
+  cabem em 4 ticks e 91% em 6
+- size no melhor lay: p10 £12, mediana £45, p90 £179 — **liquidez não é o
+  gargalo** (stake de R$10 ≈ £1,4)
 
-**Confronto com `drift_economics.ts`:** cruzar o spread custa MEIA spread contra o mid = **4,35%**, contra sinal bruto Q5 de **5,39%**. Isso é **81% do bruto consumido só na entrada** — o kill switch #3 do próprio ticket ("custo consome >80% do bruto") **dispara**. O livro mediano de 4 ticks equivale à premissa **pessimista** (2 ticks por ponta), que rendia **−4,31%**. Mesmo com a saída grátis (ordem "at BSP", a hipótese mais generosa defensável), o Q5 cai de +2,82% para **≈ +0,25%**.
+**Estabilidade:** a mediana da célula decisiva fica entre **6,0% e 8,4% em todos
+os 25 dias** com amostra. Não há outlier. Os dois dias que apareciam em 61% e
+53% na versão contaminada eram 100% corrida estrangeira. O dia do Ebor (20/08),
+que se temia enviesado para livro apertado, dá 7,6% — o mais largo do conjunto,
+não o mais fino. **O viés temido corria na direção oposta.**
 
-**Veredicto: o pré-registro #3 não vale a janela cega.** A margem que existia era artefato do cenário otimista, e o cenário otimista é falso em 85% do livro. O sinal direcional de `analyze_directional_drift.ts` continua real — ele é que é menor que o custo de atravessar o spread uma única vez.
+**Confronto com `drift_economics.ts`:** cruzar o spread custa MEIA spread contra
+o mid = **3,53%**, contra sinal bruto Q5 de **5,39%**. São **65% do bruto
+consumidos só na entrada** — o kill switch #3 do ticket ("custo consome >80% do
+bruto") **NÃO dispara**.
 
-⚠️ Duas ressalvas, e nenhuma salva a tese: (1) **Smarkets é limite superior** — menos líquido que a Betfair, então isso não prova que a Betfair é assim; prova que a premissa otimista não pode ser assumida de graça (o caso favorável exigiria a Betfair ser ~4× mais apertada na mesma faixa); (2) **é 1 dia** (quinta da semana do Ebor em York — se enviesa, enviesa pra líquido demais). O cron segue rodando; acumular alguns dias custa zero.
+⚠️ **Isto NÃO reabre o pré-registro #3, e não é convite a reabrir.** O que caiu
+foi um critério de descarte, não uma confirmação de edge. O que continua de pé:
+(1) o sinal direcional de `analyze_directional_drift.ts` foi medido em **janela
+queimada**, e nada nesta remedição muda isso; (2) Smarkets segue sendo **limite
+superior** de custo, não estimativa da Betfair; (3) o líquido do Q5 depende da
+hipótese de execução, e **`drift_economics.ts` NÃO foi re-rodado com a curva
+corrigida** — não existe número de P/L novo, só de custo. Reabrir exige janela
+nunca tocada e pré-registro escrito antes, como toda vez.
 
+**Alcance do erro:** `buildSpreadCurve` é consumida por `drift_economics.ts` e
+`trade_compound.ts`. Qualquer número que eles tenham produzido com a curva
+medida herdou a contaminação e precisa ser refeito antes de ser citado.
 ### 🪦 Mercado PLACE — REFUTADO (2026-08-21), e o mercado fino é o MAIS informado
 
 `src/oneTimeScript/place_mispricing_probe.ts`. **Tese:** parar de tentar bater o
