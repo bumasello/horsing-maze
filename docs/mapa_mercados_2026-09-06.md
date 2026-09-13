@@ -810,6 +810,22 @@ O ramo culpado é `p === 3 → h && fd >= 12 ? 4 : 5`: a regra "handicap grande
 paga 1/4 em 3 vagas" não é o que a Paddy Power pratica. Ela paga 1/5 em tudo que
 tem 3 ou mais vagas.
 
+> ### ✅ REMEDIDO em 2026-09-13 — o achado sobreviveu, e ficou mais forte
+>
+> A medição acima é de **37 corridas de um dia** — o próprio texto avisa que não
+> é estimativa. Com 8 dias acumulados pelo coletor PP (06/09 a 13/09), refeita
+> com a mesma `termFor()`:
+>
+> | | original | remedido |
+> |---|---|---|
+> | amostra | 37 corridas, 1 dia | **510 corridas, 8 dias** |
+> | regra erra | 43% | **44,5%** (227 casos) |
+> | direção | "sempre para cima" | **227 inflam, 0 desinflam** |
+>
+> As 25 corridas **só-vitória** foram excluídas: nelas não há fração de place e a
+> regra não se aplica — contá-las como divergência era o erro da primeira
+> contagem. Fora elas, a direção não tem uma única exceção em 510 corridas.
+
 **Consequência: o +8,77% do §7.3 e todos os números do §10 estão medidos com a
 perna de place superestimada em ~43% das corridas.** Não dá pra dizer ainda
 quanto isso come — 37 corridas de um dia não são estimativa —, mas o sinal do

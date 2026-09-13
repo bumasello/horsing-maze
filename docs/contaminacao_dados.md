@@ -167,7 +167,7 @@ Regra pedida: se não vem claro de uma API, reconstruir com o que temos.
 | spread bid-ask | `PPMAX`/`PPMIN` (amplitude mediana 56,7%!) | `smarkets_book_v2_*.csv`, que é livro real carimbado |
 | habilidade do cavalo | `rpr_rating`/`ts_rating`/`secs`/`comment` da corrida atual | os mesmos campos das corridas **anteriores** (é o que `pace.features` já faz) |
 | campo de corredores confiável | `non_runner` do banco | `runner_status` do coletor PP no instante t, ou contagem no CSV da Betfair |
-| termos de each-way | `termFor()` hardcoded (erra 43%) | `num_places`/`place_num`/`place_den` do coletor PP |
+| termos de each-way | `termFor()` hardcoded (erra 44,5%) | `num_places`/`place_num`/`place_den` do coletor PP |
 | probabilidade de referência | saída do modelo de prod | prob implícita do preço, ou `baselines/no_market_*` |
 
 **E a régua que você mesmo apontou:** o encompassing test mostrou que o modelo

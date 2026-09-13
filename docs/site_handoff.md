@@ -85,8 +85,8 @@ Timeform: eles não mostram o dado do Racing Post, mostram a nota deles.
 | preço | odd da casa | coletor PP | ⚠️ segurar até o acordo de afiliado |
 
 **O detalhe que vira autoridade:** medimos que a tabela clássica de termos erra
-a fração em **43% das corridas, sempre para cima** (diz 1/4 onde a casa paga
-1/5). Então a página não deve dizer "vaga extra" apoiada na regra de livro — ela
+a fração em **44,5% das corridas, e toda divergência é para cima** (diz 1/4
+onde a casa paga 1/5). São 510 corridas em 8 dias, com **zero exceções**. Então a página não deve dizer "vaga extra" apoiada na regra de livro — ela
 mostra **o que a casa anuncia**, e usa a regra só como comparação, dizendo isso.
 
 **Estado vazio honesto:** fora de 06–21 UTC, ou sem corrida UK/IRE, a página diz
@@ -146,8 +146,8 @@ Cinco primeiros artigos, escolhidos por interesse × força do número:
 
 1. **Apostar no favorito acerta 33% e perde dinheiro** — 33.508 corridas. Mostra
    por que taxa de acerto não é lucro.
-2. **A regra clássica de each-way erra em 43% das corridas** — e sempre para o
-   lado que infla o retorno.
+2. **A regra clássica de each-way erra em 44,5% das corridas** — 510 corridas,
+   227 divergências, e todas para o lado que infla o retorno. Zero exceções.
 3. **O tote paga menos que a exchange nos três produtos** — 0,94 / 0,85 / 0,81.
 4. **Dez regras de handicapping contra 180 mil runners** — cada uma já está no
    preço, com erro de meio ponto percentual.

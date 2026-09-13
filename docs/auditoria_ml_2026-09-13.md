@@ -104,7 +104,7 @@ valor ÷ custo, com o custo medido em relação ao que já existe.
 | **Calculadoras** — Rule 4, termos de each-way, responsabilidade de LAY, win rate de equilíbrio | são páginas de alta intenção, permanentes e muito linkáveis; a matemática já está escrita e testada, inclusive a fórmula de break-even que o projeto corrigiu (`p = (odd−1)/(odd−1+1−c)`) | `eval/simulator.ts`, `rule4_probe`, coletor PP |
 | **As refutações como conteúdo** | eram becos sem saída para apostar; para publicar são o ativo mais defensável que temos. Ninguém publica resultado negativo com 180 mil runners | as 80 sondas |
 | **Página de cobertura de dados** | um portal de dados que mostra a própria cobertura (o que tem, de quando, o que falta) constrói confiança de graça | manifestos do backup, coletores |
-| **Termos de each-way por casa** — o que a regra clássica erra | medimos que a tabela padrão erra a fração em 43% das corridas, sempre para cima | `pp_ew_v1_*` |
+| **Termos de each-way por casa** — o que a regra clássica erra | medimos que a tabela padrão erra a fração em 44,5% das corridas (510 corridas, zero exceções na direção) | `pp_ew_v1_*` |
 
 ## 7.2 Médio custo, e é onde mora a diferenciação
 
