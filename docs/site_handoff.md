@@ -269,18 +269,49 @@ sempre visível, e "o que o número NÃO diz" no corpo. Regra editorial registra
 na revisão: **a abertura com citação folclórica é usada uma vez só** na série,
 senão vira fórmula e o registro escorrega para blog.
 
+**Quatro publicam; o do spread está SEGURADO** (`draft: true`, então a rota nem
+é gerada). Motivo: está medido em UM DIA — o mesmo defeito que fez o each-way
+ser segurado e remedido horas antes, aplicado por mim a um artigo e não ao
+seguinte. O coletor do Smarkets roda desde 20/08 e já tem **26 dias e 402.233
+cotações, 24× a amostra**. E a aposta é maior que o artigo: o dia medido foi a
+quinta-feira da semana do Ebor em York, quando a liquidez é alta demais — se
+enviesa, enviesa para livro apertado, ou seja, para custo MENOR que o normal. E
+esse custo é o número que matou a estratégia de trading. Se ele mudar, muda a
+decisão, não só o texto. A remedição roda na orquestração; o cabeçalho do
+arquivo diz o que atualizar antes de tirar o `draft`.
+
+Os cinco números foram conferidos contra as fontes um a um — 33.508, 510, 343,
+179.990 e 16.569 — e todos batem.
+
 O veredicto de cada artigo descreve o destino da **afirmação testada**, não a
 qualidade do achado: "Refuted" / "Held up" / "Inconclusive". Os cinco são
 Refuted — é a postura editorial da §3 funcionando.
 
-**Verificação virou código.** `scripts/verify.mjs` roda no `npm run build` e
-falha com exit 1. Nove checagens, e a regra que as governa: **toda checagem
-varre TODAS as páginas geradas, nunca uma amostra e nunca uma região.** Nasceu
-de um bug que a lista manual não pegava — o compilador do Astro apara a quebra
-de linha antes de uma tag inline em vez de virar espaço, e o rodapé renderizava
-"fromBeGambleAwareandGamCare" nas 9 páginas. A lista checava "links do rodapé:
-nenhum 404" e passava, porque os `href` estavam certos; o que quebrou foi o
-texto ao redor deles. Escopo de verificação é onde este projeto mais escorrega.
+### ⚙️ Verificação virou código — e as duas regras que a governam
+
+`scripts/verify.mjs` roda dentro do `npm run build` e **falha com exit 1**.
+Nove checagens: regra 2 (sem Betfair/BSP no HTML), espaçamento em volta de `<a>`
+inline, `data-density` inicial, `lang`, canônica sem `.html`, canônicas ⊆
+sitemap, links internos, sem script externo além do beacon, sem literal de cor.
+
+**Regra 1 — toda checagem varre TODAS as páginas geradas, nunca uma amostra e
+nunca uma região.** Nasceu de um bug que a lista manual não pegava: o compilador
+do Astro apara a quebra de linha antes de uma tag inline em vez de virar espaço,
+e o rodapé renderizava "fromBeGambleAwareandGamCare" nas 9 páginas. A lista
+checava "links do rodapé: nenhum 404" e passava, porque os `href` estavam
+certos — o que quebrou foi o texto ao redor deles. E a inspeção do artigo varreu
+só o `<main>`, deixando o rodapé fora do escopo. **Escopo de verificação é onde
+este projeto mais escorrega.**
+
+**Regra 2 — um verificador que nunca falhou não foi verificado.** Toda checagem
+nova tem de ser testada contra a regressão que a motivou: quebrar de propósito,
+ver o build falhar, restaurar, ver passar. Feito para o bug de espaçamento, e
+inclui conferir que o código de saída propaga — um script que imprime "FALHOU" e
+devolve 0 é decoração.
+
+Esta é a regra que o projeto aprendeu **errando três vezes em dois dias**, e vale
+muito além do site: é a mesma disciplina do pré-registro, aplicada a código em
+vez de a medição.
 
 **Pendente de aval do dono** (envolve contas dele, não foi executado): criar o
 repo no GitHub, ligar o Cloudflare Pages, apontar o domínio, e gerar o token do
