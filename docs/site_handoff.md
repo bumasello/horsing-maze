@@ -290,6 +290,15 @@ herdou a contaminação; os cenários de líquido foram **retirados, não
 corrigidos**. Publicar custo corrigido ao lado de lucro não corrigido seria pior
 que não publicar.
 
+⚠️ **E uma terceira, cometida no próprio título do artigo sobre molduras
+enganosas:** ele saiu como *"Crossing the spread costs 7.1%"*. 7,1% é a
+**largura** do book; cruzar custa **meia** spread — 3,53% —, e é o 3,53% que
+produz os 65%. Com 7,1% no título, a conta contra o sinal bruto de 5,39% daria
+132% de custo, quase o que a versão contaminada dizia. **O número estava certo e
+a moldura mentia** — exatamente o que o artigo denuncia. Corrigido para
+*"Crossing the spread costs 3.5%"*, com a distinção largura-vs-custo explícita
+no corpo e nos cabeçalhos das tabelas.
+
 Duas lições que valem além do artigo, e a segunda é minha:
 
 1. **A falha que se sabe nomear não é automaticamente a falha que se tem.** O
@@ -330,11 +339,19 @@ ver o build falhar, restaurar, ver passar. Feito para o bug de espaçamento e
 para a checagem 10, e inclui conferir que o código de saída propaga — um script
 que imprime "FALHOU" e devolve 0 é decoração.
 
-A checagem 10 (**cor hardcoded no HTML gerado**) existe porque a 9 olhava só
-`src/` e o realce de sintaxe do Astro injetava `background-color:#24292e` direto
-no HTML, um bloco escuro fora do sistema de tokens. Terceira ocorrência da mesma
-classe: **a verificação olhava a região errada.** O realce foi desligado — os
-blocos de código aqui são caminhos e comandos, sem sintaxe a realçar.
+**Onde a verificação olha, conferido e não suposto:** 9 das 10 checagens leem
+`dist/`. Só a **9** lê `src/`, e deve continuar lendo — ela vigia a *intenção*
+("nenhum componente escreve cor literal"), que é uma afirmação sobre o fonte.
+Afirmação sobre a PÁGINA (cor, espaçamento, link, meta, rota) pertence ao
+artefato; **fonte é intenção, `dist/` é o que o leitor recebe.**
+
+A checagem **10** cobre o artefato servido e varre **HTML e bundle CSS**, com a
+lista de cores permitidas derivada de `tokens.css`. Ela nasceu do realce de
+sintaxe do Astro, que injetava `background-color:#24292e` direto no HTML — onde
+a 9 não tinha como ver (o realce foi desligado; os blocos de código aqui são
+caminhos e comandos). E foi ampliada para o CSS porque cor também entra pelo
+bundle, por `<style>` de componente, dependência ou integração, onde nem a 9 nem
+uma checagem só de HTML a veriam.
 
 Esta é a regra que o projeto aprendeu **errando três vezes em dois dias**, e vale
 muito além do site: é a mesma disciplina do pré-registro, aplicada a código em
