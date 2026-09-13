@@ -12,7 +12,7 @@ erro é deste documento.
   devolve o que ficou pronto. Não redecide estratégia — se bater numa decisão
   que não está aqui, para e pergunta.
 
-Última atualização: 2026-09-13.
+Última atualização: 2026-09-13 (construção: §6c).
 
 ---
 
@@ -234,6 +234,49 @@ Não é ordem de importância, é ordem de dependência e de relógio:
    PP até a página. Fazer depois que o site já existir de pé.
 4. **`/movers` e `/horse/[id]`** por último — dependem do Smarkets e das stats
    ponto-no-tempo, que exigem o banco canônico da Etapa 2.
+
+## 6c. Decisões tomadas NA CONSTRUÇÃO (2026-09-13)
+
+A §6.4 mandava decidir a convenção de slug na construção e registrar aqui. Estas
+são todas as decisões que a construção fechou, para que a próxima sessão fria
+não as reabra.
+
+| decisão | escolha |
+|---|---|
+| **repo do site** | separado: `/home/maze/dev/node/mazetick`, `main`, sem remote ainda. O `horsing-maze` segue sendo só o laboratório. |
+| **stack** | Astro 7, `output: 'static'`. Zero JS de aplicação; o único script próprio é o inline da densidade. |
+| **hospedagem** | **Cloudflare Pages**, e a §4 deixava isto em aberto. O plano Hobby da Vercel **proíbe uso comercial** e a lista de exemplos nomeia literalmente *"Affiliate linking is the primary purpose of the site"* e *"the inclusion of advertisements, including but not limited to online advertising platforms like Google AdSense"* — os dois planos de receita do mazetick. Verificado na fonte (`vercel.com/docs/limits/fair-use-guidelines`, atualizada 2026-07-29), não de memória. |
+| **slug** | kebab-case, inglês, sem data: `/research/backing-the-favourite`. |
+| **analytics** | **Cloudflare Web Analytics**: cookieless, sem fingerprint, sem identificador persistente. Existe porque os critérios de morte do plano são expressos em sessões/mês, e critério que não dá para apurar é decoração. Token em `PUBLIC_CF_BEACON_TOKEN`; o beacon vai explícito no `BaseLayout` em vez de injetado pelo painel, para ser greppável e conferível contra a política. |
+| **fontes** | self-hosted (`@fontsource`). Nenhuma requisição ao Google Fonts, nenhum IP de leitor europeu entregue a terceiro por causa de tipografia — e a política de privacidade fica curta e verdadeira. |
+| **móvel** | abaixo de 720px a tabela densa **vira lista**, não tabela rolando. Fecha o item em aberto de `design_tokens.md` §5. |
+| **canônica** | `build.format: 'file'` faz o pathname sair com `.html`; a canônica é normalizada para bater com o sitemap. Sem isso a página competiria consigo mesma no índice. |
+
+**A regra 4 virou condição de build.** O schema Zod em `src/content.config.ts`
+torna `sample`, `window`, `method` e `measured` obrigatórios, mais pelo menos um
+item em `limits` ("o que o número NÃO diz"). Um artigo de pesquisa sem amostra
+declarada **não compila**. É a regra 4 deixando de ser boa intenção.
+
+### Estado em 2026-09-13
+
+Prontas: `/`, `/research`, `/research/backing-the-favourite`, `/about`,
+`/privacy`, `/cookies`, `/responsible-gambling`, `/contact`, `404`.
+
+Pendente de aval do dono (envolve contas dele, não foi executado): criar o repo
+no GitHub, ligar o Cloudflare Pages, apontar o domínio, e gerar o token do Web
+Analytics. Passos escritos no `README.md` do repo novo.
+
+**Próximo passo combinado:** o dono revisa tom e densidade do artigo do
+favorito; aprovado, a construção escreve os outros quatro de uma vez.
+
+⚠️ **Lacuna deste documento, apontada pela construção.** Dois requisitos reais
+chegaram por conversa e **não estão em arquivo nenhum de `docs/`**: (a) "sitemap
+diário, dados estruturados, canônicas estáveis"; (b) os critérios de morte do
+projeto ("90 dias no ar, menos de 3.000 sessões orgânicas/mês"; "120 dias, mais
+de 5.000 cliques e zero conversão"), junto com o "documento de plano" que os
+contém. Uma sessão de construção fria não os encontraria — e não encontrou.
+Ambos estão implementados, mas **precisam entrar em `docs/`** para que a
+promessa da abertura deste arquivo continue verdadeira.
 
 ## 7. Estado da infra em 2026-09-12
 
