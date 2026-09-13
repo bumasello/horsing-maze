@@ -262,3 +262,54 @@ Se a sessão de construção quiser entender *por que* as regras da §2 existem:
 - `docs/contaminacao_dados.md` — a disciplina de carimbo de tempo, que aqui
   deixa de ser regra de medição e vira especificação de esquema
 - `CLAUDE.md` — infra, esquemas, e o histórico de medições
+
+## 8. SEO técnico — requisito de fundação, não de polimento
+
+Acrescentado em 2026-09-13 depois que a sessão de construção apontou a falta.
+Este parágrafo existia numa versão anterior da §3 e **foi apagado por engano**
+na reescrita do esqueleto de conteúdo; a sessão de construção o reconstruiu de
+memória da orquestração, o que não deveria ter sido necessário.
+
+Entra junto com as páginas, porque é agora que custa barato:
+
+- **Sitemap** gerado no build, `changefreq: daily`, e `robots.txt` apontando
+  para ele.
+- **Canônica absoluta**, derivada da configuração do site — **nunca** da URL da
+  requisição. O domínio de pré-visualização da hospedagem geraria canônica
+  própria e competiria com a produção no índice.
+- **Dados estruturados** (JSON-LD): `WebSite` e `Organization` no layout base;
+  `Article` nos artigos, com as datas vindas **do mesmo frontmatter** que
+  alimenta o bloco de método na tela — uma fonte só, para marcação e página não
+  poderem discordar.
+- **`lang="en-GB"`**.
+- **URLs que sobrevivem ao arquivamento**: a corrida de ontem continua valendo
+  como página. Slug sem data, `kebab-case`, em inglês.
+
+## 9. Critérios de morte — escritos antes, porque depois a gente racionaliza
+
+Também acrescentado em 2026-09-13. Viviam só no documento de plano (um artifact),
+fora do repositório — uma sessão fria não os encontraria.
+
+Este projeto já reverteu conclusão cinco vezes, sempre porque um número bom não
+foi questionado a tempo. A mesma disciplina vale para o produto; a diferença é
+que aqui o autoengano custa meses.
+
+| momento | se acontecer isto | então |
+|---|---|---|
+| 90 dias no ar | menos de 3.000 sessões orgânicas/mês | o SEO não pegou. Parar de construir e investigar |
+| 120 dias no ar | mais de 5.000 cliques e zero conversão de afiliado | o formato não converte; assinatura e anúncio não salvam funil que não fecha |
+| 6 meses | custo > receita sem tráfego crescendo | encerrar a parte paga, manter o que roda de graça |
+| qualquer momento | alguém pedir "vende os picks" | não. Não temos edge, sabemos que não temos, e vender isso queima a única coisa que nos diferencia |
+
+**Consequência prática, e é o que obriga a ter analytics:** dois destes critérios
+são medidos em sessões e cliques. Sem medição, eles não são apuráveis — e
+critério que não se apura é decoração.
+
+### Regra de gatilho para gastar
+
+Nenhum tier pago sai do bolso antes de a receita cobri-lo:
+
+- **theracingapi Basic** (~R$196/mês): só depois de **dois meses seguidos com
+  receita ≥ R$400**.
+- **theracingapi Standard** (~R$420/mês): só depois de **dois meses seguidos com
+  ≥ R$1.200**, e só se a página de comparação existir.
