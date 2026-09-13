@@ -259,15 +259,40 @@ declarada **não compila**. É a regra 4 deixando de ser boa intenção.
 
 ### Estado em 2026-09-13
 
-Prontas: `/`, `/research`, `/research/backing-the-favourite`, `/about`,
-`/privacy`, `/cookies`, `/responsible-gambling`, `/contact`, `404`.
+**Os itens 1 e 2 da §6b estão FEITOS.** 13 páginas: `/`, `/research`, os cinco
+artigos, `/about`, `/privacy`, `/cookies`, `/responsible-gambling`, `/contact`,
+`404`.
 
-Pendente de aval do dono (envolve contas dele, não foi executado): criar o repo
-no GitHub, ligar o Cloudflare Pages, apontar o domínio, e gerar o token do Web
-Analytics. Passos escritos no `README.md` do repo novo.
+Os cinco artigos da §3 estão escritos, com a voz aprovada na revisão do
+primeiro: registro de seção de métodos, número antes de adjetivo, amostra
+sempre visível, e "o que o número NÃO diz" no corpo. Regra editorial registrada
+na revisão: **a abertura com citação folclórica é usada uma vez só** na série,
+senão vira fórmula e o registro escorrega para blog.
 
-**Próximo passo combinado:** o dono revisa tom e densidade do artigo do
-favorito; aprovado, a construção escreve os outros quatro de uma vez.
+O veredicto de cada artigo descreve o destino da **afirmação testada**, não a
+qualidade do achado: "Refuted" / "Held up" / "Inconclusive". Os cinco são
+Refuted — é a postura editorial da §3 funcionando.
+
+**Verificação virou código.** `scripts/verify.mjs` roda no `npm run build` e
+falha com exit 1. Nove checagens, e a regra que as governa: **toda checagem
+varre TODAS as páginas geradas, nunca uma amostra e nunca uma região.** Nasceu
+de um bug que a lista manual não pegava — o compilador do Astro apara a quebra
+de linha antes de uma tag inline em vez de virar espaço, e o rodapé renderizava
+"fromBeGambleAwareandGamCare" nas 9 páginas. A lista checava "links do rodapé:
+nenhum 404" e passava, porque os `href` estavam certos; o que quebrou foi o
+texto ao redor deles. Escopo de verificação é onde este projeto mais escorrega.
+
+**Pendente de aval do dono** (envolve contas dele, não foi executado): criar o
+repo no GitHub, ligar o Cloudflare Pages, apontar o domínio, e gerar o token do
+Web Analytics. Passos no `README.md` do repo novo.
+
+**Não verificado:** layout e densidade no navegador. O Chromium do Playwright
+exige `libasound2` e o sudo pede senha; nenhum pacote de sistema foi instalado.
+A verificação estrutural passa inteira, mas o visual continua por conferir.
+
+**Próximo passo da §6b: item 3, `/extra-places`** — precisa da tubulação do
+coletor PP até a página, e é a primeira vez que a arquitetura por instantâneo
+sai do papel.
 
 ✅ **Lacuna fechada no mesmo dia.** Os requisitos de SEO e os critérios de morte
 tinham chegado por conversa e não estavam em arquivo nenhum — uma sessão de
