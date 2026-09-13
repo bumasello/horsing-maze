@@ -269,14 +269,12 @@ Analytics. Passos escritos no `README.md` do repo novo.
 **Próximo passo combinado:** o dono revisa tom e densidade do artigo do
 favorito; aprovado, a construção escreve os outros quatro de uma vez.
 
-⚠️ **Lacuna deste documento, apontada pela construção.** Dois requisitos reais
-chegaram por conversa e **não estão em arquivo nenhum de `docs/`**: (a) "sitemap
-diário, dados estruturados, canônicas estáveis"; (b) os critérios de morte do
-projeto ("90 dias no ar, menos de 3.000 sessões orgânicas/mês"; "120 dias, mais
-de 5.000 cliques e zero conversão"), junto com o "documento de plano" que os
-contém. Uma sessão de construção fria não os encontraria — e não encontrou.
-Ambos estão implementados, mas **precisam entrar em `docs/`** para que a
-promessa da abertura deste arquivo continue verdadeira.
+✅ **Lacuna fechada no mesmo dia.** Os requisitos de SEO e os critérios de morte
+tinham chegado por conversa e não estavam em arquivo nenhum — uma sessão de
+construção fria não os encontraria, e não encontrou. Entraram na §3 e na §9
+enquanto esta entrega era escrita. Os três estão implementados: sitemap diário,
+canônica absoluta normalizada e JSON-LD; e o analytics cookieless existe
+justamente para que os critérios da §9 sejam apuráveis.
 
 ## 7. Estado da infra em 2026-09-12
 
