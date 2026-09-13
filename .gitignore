@@ -11,3 +11,4 @@ tools/lgbm_benchmark/data
 # canvas de design: só os arquivos-fonte, não o pacote publicado
 design/*.html
 !design/*.dc.html
+__pycache__/

@@ -12,7 +12,7 @@ erro é deste documento.
   devolve o que ficou pronto. Não redecide estratégia — se bater numa decisão
   que não está aqui, para e pergunta.
 
-Última atualização: 2026-09-12.
+Última atualização: 2026-09-13.
 
 ---
 
@@ -197,23 +197,43 @@ cobertura de dados, alerta de vaga extra por e-mail.
   aparecer uma decisão que não está neste documento, **parar e perguntar.**
 - Não publicar nada que viole a §2.
 
-## 6. Decisões ainda em aberto (para 2026-09-13)
+## 6. Decisões — resolvidas em 2026-09-13
 
-Marcadas como abertas de propósito. Não presuma nenhuma delas.
+1. **Direção visual e paleta: FECHADA.** Ver `docs/design_tokens.md` — cor,
+   tipografia, escala de espaçamento e a regra semântica, todos extraídos da
+   direção aprovada. O canvas com as pranchetas fica em
+   *Extra Places — Three Directions* (artifact do usuário); os arquivos-fonte
+   estão em `design/*.dc.html` e toda alteração re-semeia a partir deles.
+   **Não reabrir sem pedido.**
+2. **Nome na tela:** `mazetick`, em caixa baixa, em Newsreader. Domínio
+   `mazetick.com`.
+3. **`/horse/[id]` no MVP: SIM**, redesenhada — ver §3.
+4. **Idioma:** inglês britânico. Convenção de slug ainda aberta; decidir na
+   construção e registrar aqui.
+5. **Catálogo de templates: não existia, foi criado.** São as pranchetas do
+   canvas: cabeçalho, tabela densa, cartão de mudança, faixa de tempo, rótulo
+   com carimbo de hora, estado vazio.
 
-1. **Direção visual e paleta.** Recomendação de sequência: primeiro o
-   esqueleto de conteúdo de cada página (o que aparece, o que o leitor faz),
-   **depois** o visual derivado desse conteúdo. Escolher paleta antes de saber
-   o que a página mostra produz decoração; as nossas páginas são densas —
-   tabelas, carimbo de hora, variação de preço — e o visual tem de servir isso.
-2. **Nome do produto na tela.** "mazetick" é o domínio; falta decidir se é
-   também a marca exibida, e qual é a linha de apoio.
-3. **`/horse/[id]` no MVP?** Depende da regra 2. Ou sai do MVP, ou é
-   reconstruída só com Smarkets e coleta própria.
-4. **Estrutura de URL e idioma.** Confirmado inglês; falta a convenção de slug.
-5. **Catálogo de templates.** O usuário mencionou um catálogo próprio de
-   templates. **A sessão de orquestração não o conhece** — precisa ser
-   apresentado antes de qualquer decisão de layout.
+### A alavanca de densidade
+
+A página tem um estado **Full** e um **Compact** — não são dois layouts, é um com
+duas densidades (especificação em `design_tokens.md` §4). Padrão é Full, porque
+o Google indexa o estado inicial. A preferência do leitor persiste no navegador
+dele, nunca no servidor.
+
+## 6b. Ordem de trabalho sugerida para a construção
+
+Não é ordem de importância, é ordem de dependência e de relógio:
+
+1. **`/research` primeiro.** Não depende de feed pago, de decisão legal pendente
+   nem de coletor — só de texto que já existe nas 80 sondas. E é a página cujo
+   relógio (indexação) é o único que dinheiro nenhum acelera depois.
+2. **Páginas de suporte** (sobre, privacidade, 18+, contato). Uma tarde, e são
+   pré-requisito de inscrição em afiliado e AdSense.
+3. **`/extra-places`.** A bandeira, mas precisa da tubulação de dados do coletor
+   PP até a página. Fazer depois que o site já existir de pé.
+4. **`/movers` e `/horse/[id]`** por último — dependem do Smarkets e das stats
+   ponto-no-tempo, que exigem o banco canônico da Etapa 2.
 
 ## 7. Estado da infra em 2026-09-12
 
