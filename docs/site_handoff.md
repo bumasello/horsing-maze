@@ -217,7 +217,7 @@ cobertura de dados, alerta de vaga extra por e-mail.
 - **Domínio:** `mazetick.com`, comprado em 2026-09-12, WHOIS privado, 2FA e
   renovação automática ligados. O `.co.uk` fica para novembro.
 - **Orçamento até novembro: zero.** Hospedagem em tier gratuito (Cloudflare
-  Pages ou Vercel). O site pode ficar no ar sem custo nenhum.
+  Workers ou Vercel). O site pode ficar no ar sem custo nenhum.
 - **Feed licenciado de cartão só em novembro.** `theracingapi`: Free (temos),
   Basic £27,99, Standard £59,99 (odds de 20+ casas), Pro £99,99 (histórico de
   variação de odd). Enquanto isso, o cartão completo **não** pode ser publicado
@@ -270,10 +270,15 @@ Não é ordem de importância, é ordem de dependência e de relógio:
    relógio (indexação) é o único que dinheiro nenhum acelera depois.
 2. **Páginas de suporte** (sobre, privacidade, 18+, contato). Uma tarde, e são
    pré-requisito de inscrição em afiliado e AdSense.
-3. **`/extra-places`.** A bandeira, mas precisa da tubulação de dados do coletor
-   PP até a página. Fazer depois que o site já existir de pé.
-4. **`/movers` e `/horse/[id]`** por último — dependem do Smarkets e das stats
-   ponto-no-tempo, que exigem o banco canônico da Etapa 2.
+3. ~~**`/extra-places`**~~ — **NO AR desde 2026-09-14**, consumindo
+   `extra-places.json` do repo `mazetick-data`.
+4. ~~**`/movers`**~~ — **NO AR desde 2026-09-14**. `/horse/[id]` continua por
+   fazer, e ⚠️ **o bloqueio dele é de arquitetura, não de código**: as stats
+   ponto-no-tempo rodam no `mazeserver` contra o Supabase, e a máquina de build
+   da Cloudflare não alcança nenhum dos dois. Ou o `mazeserver` passa a publicar
+   no `mazetick-data` — o que contraria o princípio "quem coleta não publica"
+   que justificou o repositório separado —, ou as features migram para o
+   `bspnode` sobre o JSONL da HR API. Decidir antes de escrever a primeira linha.
 
 ## 6c. Decisões tomadas NA CONSTRUÇÃO (2026-09-13)
 
