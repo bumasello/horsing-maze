@@ -500,3 +500,66 @@ Nenhum tier pago sai do bolso antes de a receita cobri-lo:
   receita ≥ R$400**.
 - **theracingapi Standard** (~R$420/mês): só depois de **dois meses seguidos com
   ≥ R$1.200**, e só se a página de comparação existir.
+
+---
+
+## 10. Pendências de produto, achadas na revisão visual
+
+A revisão no navegador era a única coisa da primeira semana que ninguém tinha
+conferido de verdade — Playwright nunca rodou (`libasound2` exige sudo). O que
+está aqui veio de olhar o site, não de ler código.
+
+### 10.1 `/movers` — "All runners · most unusual first" despeja tudo
+
+**Achado pelo Bruno em 2026-09-14.** A seção renderiza os 303 corredores de uma
+vez. Pedido: **limite selecionável**, **busca por nome de corredor e por pista**,
+e **filtro por horário de largada**.
+
+Medido no mesmo dia, e os números mudam a recomendação:
+
+| | |
+|---|---:|
+| corredores | 303 |
+| **notáveis** (percentil ≤5 ou ≥95) | **19 (6%)** |
+| pistas distintas | 5 |
+| corridas distintas | 35 |
+| HTML servido (Brotli) | 13 KB |
+
+⚠️ **Não é problema de peso.** 13 KB comprimidos é pequeno; o navegador aguenta.
+É problema de **leitura**: a página oferece 303 linhas onde 19 significam alguma
+coisa.
+
+**Sugestão da orquestração, que vai além do pedido — a decisão é da construção:**
+
+O dado já sabe o que importa. Em vez de um limite arbitrário ("mostrar 25"), o
+padrão deveria ser **só os notáveis**, com "mostrar todos" como expansão. Usa a
+medição que já existe em vez de inventar um corte. Um limite numérico continua
+útil na visão expandida.
+
+E com **5 pistas e 35 corridas**, agrupar por corrida provavelmente lê melhor que
+lista plana — a própria construção notou que Sedgefield 13:30 tinha os dois
+extremos do dia, dinheiro saindo de um cavalo para outro na mesma prova. Isso
+some numa lista ordenada por percentil.
+
+O filtro por largada é a ideia mais forte das três, porque mapeia um uso real:
+*"o que se moveu nas corridas da próxima hora"*. `off_utc` já está no contrato, e
+a página já converte para `Europe/London`.
+
+**Restrições que a implementação precisa respeitar:**
+
+- O site é **estático**. Busca e filtro são JavaScript no cliente, sobre o JSON
+  que já está na página. Nada de servidor.
+- A **CSP não tem `unsafe-inline`** — script novo exige hash, que o
+  `headers.mjs` gera. A checagem 12 quebra o build se sair de sincronia, e isso
+  é o comportamento desejado.
+- **Sem JavaScript, a página tem de continuar útil.** É o que o Google indexa, e
+  degradar para uma lista vazia perderia a indexação das duas páginas de dado.
+- Filtro **não pode mentir sobre a amostra**: se o leitor filtra por pista, o
+  texto que descreve o dia (quantos se moveram, quantos notáveis) precisa ou
+  acompanhar o filtro, ou deixar explícito que se refere ao dia inteiro.
+
+### 10.2 O resto da revisão visual continua por fazer
+
+Layout e densidade nas duas páginas de dado, claro e escuro, desktop e celular,
+e o toggle de densidade. `/movers` foi a primeira olhada; as outras 14 páginas
+não.
