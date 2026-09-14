@@ -41,6 +41,18 @@ manual.
    leitor recebe deixa de ser o que o `verify.mjs` conferiu, e colide com a CSP.
    Está em snippet manual de propósito.
 
+**✅ TERCEIRO PORTÃO LEGAL FECHADO (2026-09-14):** o theracingapi respondeu por
+escrito — anúncio e link de afiliado liberados, **assinatura paga sobre páginas
+derivadas** liberada e explicitamente não considerada revenda, e cache das
+respostas em banco próprio liberado (é exatamente o desenho do
+`racingapi_collector.py`). ⛔ **Proibido para sempre: API pública, feed ou export
+em massa** — isso é revenda, e está no ToS além do e-mail. A resposta está
+transcrita na íntegra em `docs/licenca_theracingapi_2026-09-14.md`, porque eles
+não fazem acordo individual e **o ToS é silencioso** sobre cache, páginas
+derivadas e atribuição: naqueles pontos o e-mail é a única evidência que existe.
+Continua em aberto, e não é com eles: publicidade de aposta dirigida ao Reino
+Unido cai sob CAP Code/ASA — portão a resolver **antes** de ligar afiliado.
+
 **Falta para o produto ter uso diário:** `/extra-places` e `/movers` dão 404
 porque ainda não existe a ligação `bspnode` → página. O dado das duas já é
 coletado e cresce sozinho (Paddy Power de hora em hora, Smarkets a cada 15 min);

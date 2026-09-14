@@ -52,6 +52,21 @@ em problema legal.
    Uma tabela sem "as of HH:MM" não é o nosso produto, é o de todo mundo.
 5. **Nada de dado inventado, nem de exemplo apresentado como real.** Se a
    página precisa de dado que ainda não temos, ela mostra estado vazio honesto.
+6. **Nunca expor o dado bruto de terceiro — nem como API, nem como arquivo.**
+   Confirmado com o theracingapi em 2026-09-14 (`docs/licenca_theracingapi_2026-09-14.md`,
+   com a resposta transcrita na íntegra): páginas derivadas e cache em banco
+   próprio são permitidos, inclusive sob assinatura paga; **revenda não é**, e
+   revenda inclui "expor a sua própria API para terceiros" e "export em massa".
+   Vale para o que não parece API: um `.json` público que o site não consome, um
+   endpoint "para parceiros", um botão de baixar CSV da tabela.
+   ⚠️ **O caso traiçoeiro é o site estático:** se o build gerar um JSON que o
+   navegador busca, esse arquivo é publicamente acessível. Contendo **derivado
+   nosso**, tudo bem; contendo o payload da API, vira export acidental. Isto
+   precisa ser decidido no desenho da ligação `bspnode` → página, não depois.
+   A mesma postura vale para a HR API, que é mais restritiva ainda.
+7. **Creditar as fontes no rodapé, mesmo sem obrigação.** O theracingapi não
+   exige atribuição. Damos assim mesmo: custa uma linha e torna óbvio para
+   qualquer um que olhe que publicamos *sobre* o dado, não *o* dado.
 
 ## 3. As quatro páginas do MVP — esqueleto de conteúdo
 
