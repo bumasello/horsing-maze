@@ -558,7 +558,55 @@ a página já converte para `Europe/London`.
   texto que descreve o dia (quantos se moveram, quantos notáveis) precisa ou
   acompanhar o filtro, ou deixar explícito que se refere ao dia inteiro.
 
-### 10.2 O resto da revisão visual continua por fazer
+### 10.2 ⚠️ "Now" não é agora — e às 18:52 a `/movers` é 93% retrospectiva
+
+**Achado pelo Bruno em 2026-09-14, olhando a página às 15:51 local.** A linha
+mostrava `14:30 Sedgefield Helmsley 34.25 → 10.48` sob um cabeçalho de "morning
+vs now". Mas a corrida já tinha corrido havia mais de uma hora, e `now` não é
+agora: é a **última cotação vista antes da largada**, porque o coletor para de
+observar quando a corrida parte.
+
+Medido no mesmo instante (18:52 UTC):
+
+| | itens | já correram |
+|---|---:|---:|
+| `/movers` | 303 | **282 (93%)** |
+| `/extra-places` | 67 | **27 (40%)** |
+
+E a última observação de cada corredor acontece, em mediana, **6 minutos antes
+da largada** (p10 = 0, p90 = 45).
+
+**O problema não é o dado, é o rótulo.** O número está certo e é interessante —
+o que o mercado fez até a largada é exatamente o nosso produto. O que está
+errado é apresentá-lo como estado presente, porque isso depende do relógio de
+quem lê, e o leitor não tem como saber disso.
+
+É a mesma família do `generated_at`: um carimbo que muda de significado conforme
+quem olha. E fere a regra 4 de um jeito que passou despercebido — o número
+carrega um instante, mas o rótulo nomeia outro.
+
+**A direção do conserto — decisão da construção:**
+
+1. **Expressar a segunda observação em relação à LARGADA, não ao relógio do
+   leitor.** `latest.mins_to_off` já está no contrato. "Last seen 6 min before
+   the off" é verdade para sempre, e é verdade igual às 10h e às 23h. "Now" só é
+   verdade num instante que ninguém controla.
+2. **Separar as corridas que ainda vão correr das que já correram.** São
+   populações diferentes: numa o movimento está em curso, na outra terminou. A
+   mesma tabela não descreve as duas.
+3. A parte retrospectiva **não é defeito** — "o que o mercado fez até a largada"
+   é publicável e nosso. Mas tem de estar rotulada como retrospectiva, e aí ela
+   ganha até um uso melhor: é a única visão que está completa.
+
+⚠️ Vale para as **duas** páginas. O Bruno achou na `/movers`, mas a
+`/extra-places` tem 40% do mesmo problema — e lá dói mais, porque "quais corridas
+pagam vaga extra **agora**" é literalmente a pergunta da página. Vaga extra numa
+corrida que já correu não serve a ninguém.
+
+O filtro de largada da §10.1 resolve parte disto por tabela, mas **não substitui
+o rótulo**: mesmo filtrando, a coluna continuaria dizendo "now".
+
+### 10.3 O resto da revisão visual continua por fazer
 
 Layout e densidade nas duas páginas de dado, claro e escuro, desktop e celular,
 e o toggle de densidade. `/movers` foi a primeira olhada; as outras 14 páginas
