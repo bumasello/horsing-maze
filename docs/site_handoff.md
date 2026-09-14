@@ -606,7 +606,28 @@ corrida que já correu não serve a ninguém.
 O filtro de largada da §10.1 resolve parte disto por tabela, mas **não substitui
 o rótulo**: mesmo filtrando, a coluna continuaria dizendo "now".
 
-### 10.3 O resto da revisão visual continua por fazer
+### 10.3 Bing Webmaster Tools — cinco minutos, e destrava três buscadores
+
+Medido em 2026-09-14: `site:mazetick.com` no Bing devolve **"There are no
+results"**. O Google recusou a consulta automatizada, mas com o domínio de dois
+dias e o sitemap submetido no mesmo dia, é quase certo que também não indexou.
+
+`bing.com/webmasters`, grátis. **Importa direto do Search Console**, então não
+precisa verificar o domínio de novo. Alimenta Bing, DuckDuckGo e o Copilot.
+
+Volume pequeno, esforço quase zero — deixa de estar invisível em três buscadores
+em vez de um. **É do Bruno**, como o Search Console.
+
+⚠️ E o registro do que a medição mostrou, para não se criar expectativa errada:
+dos 16 acessos do primeiro dia, **16 vieram sem referrer**. Zero links de
+entrada. Indexar resolve "achar quem já sabe o nome"; não resolve descoberta.
+Descoberta virá de gente linkando — e os artigos de pesquisa é que são
+linkáveis, não as páginas de dado. Mas **não antes** da revisão visual e do
+conserto do rótulo "now" da §10.2: mandar leitor para uma página que diz "agora"
+sobre corrida que já correu queima a primeira impressão, e em fórum ela não se
+repete.
+
+### 10.4 O resto da revisão visual continua por fazer
 
 Layout e densidade nas duas páginas de dado, claro e escuro, desktop e celular,
 e o toggle de densidade. `/movers` foi a primeira olhada; as outras 14 páginas
