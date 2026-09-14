@@ -158,6 +158,19 @@ def monta(estados, meta, base, agora: dt.datetime) -> dict:
     }
 
 
+def _hook_do_arquivo() -> str:
+    """URL do deploy hook da Cloudflare, em ~/.mazetick_deploy_hook (0600).
+
+    Segredo fraco — quem tiver consegue disparar builds e queimar a cota, nada
+    além disso. Fica em arquivo pelo mesmo motivo das credenciais dos outros
+    coletores: não passa por linha de comando nem aparece em `ps`.
+    """
+    arq = pathlib.Path.home() / ".mazetick_deploy_hook"
+    if not arq.exists():
+        return ""
+    return arq.read_text().strip()
+
+
 def executa(cmd, cwd) -> tuple[int, str]:
     p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     return p.returncode, (p.stdout + p.stderr).strip()
@@ -213,7 +226,7 @@ def main() -> int:
         sys.exit(f"FATAL: push falhou\n{saida}")
     print("  empurrado")
 
-    hook = os.getenv("MAZETICK_DEPLOY_HOOK")
+    hook = os.getenv("MAZETICK_DEPLOY_HOOK") or _hook_do_arquivo()
     if hook:
         rc, _ = executa(["curl", "-fsS", "-X", "POST", "-m", "20", hook], destino)
         print("  deploy hook:", "acionado" if rc == 0 else "FALHOU")
