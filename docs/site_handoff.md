@@ -12,6 +12,13 @@ erro é deste documento.
   devolve o que ficou pronto. Não redecide estratégia — se bater numa decisão
   que não está aqui, para e pergunta.
 
+> **⚠️ QUANDO ESTE DOCUMENTO DISCORDAR DO REPOSITÓRIO, O REPOSITÓRIO VENCE.**
+> Este arquivo é escrito pela orquestração e envelhece; o código é o que está no
+> ar. Ao encontrar discrepância: **não siga o documento, e não o corrija você** —
+> reporte, que a orquestração sincroniza. Já aconteceu de este arquivo afirmar
+> um número que o artigo publicado havia retratado, e uma sessão fria que o
+> seguisse teria republicado número morto.
+
 Última atualização: 2026-09-13 (construção: §6c).
 
 ---
@@ -100,9 +107,25 @@ Timeform: eles não mostram o dado do Racing Post, mostram a nota deles.
 | preço | odd da casa | coletor PP | ⚠️ segurar até o acordo de afiliado |
 
 **O detalhe que vira autoridade:** medimos que a tabela clássica de termos erra
-a fração em **44,5% das corridas, e toda divergência é para cima** (diz 1/4
-onde a casa paga 1/5). São 510 corridas em 8 dias, com **zero exceções**. Então a página não deve dizer "vaga extra" apoiada na regra de livro — ela
-mostra **o que a casa anuncia**, e usa a regra só como comparação, dizendo isso.
+⚠️ **RETIFICADO 2026-09-14.** A versão anterior deste parágrafo afirmava "44,5%
+das corridas, 510 corridas, zero exceções". **Aquele número não reproduz e foi
+retratado**; o artigo publicado diz outra coisa, e melhor. Derivação versionada
+em `scripts/ew_terms_audit.py`, que emite as seis seções que o artigo cita.
+
+Sobre 9 dias e 324 corridas UK/IRE: a tabela clássica **não está errada, está
+sem data.** Ela descreve a abertura do mercado. Durante o dia a casa promove, e
+a promoção é uma troca — mais uma vaga, fração de 1/4 para 1/5. Em 54 promoções
+a fração nunca melhorou uma vez. Onde os termos são estáveis (113 corridas, zero
+mudanças) a tabela acerta; onde há promoção, "erra".
+
+⚠️ E as duas escadas divergem de verdade em metade das faixas: concordam em 91
+dos 215 handicaps e divergem em 124, sendo campo 12-13 (n=60) o caso mais
+povoado. **Não escrever que a clássica "é" a escada de abertura** — foi uma
+generalização da orquestração, corrigida na quinta reexecução.
+
+Consequência para a página: ela mostra **o que a casa anuncia**, usa a escada da
+PRÓPRIA casa como referência (`house_standard` no contrato), e nunca se apoia na
+regra de livro.
 
 **Estado vazio honesto:** fora de 06–21 UTC, ou sem corrida UK/IRE, a página diz
 a hora da última coleta e quando volta. Nunca inventa.
@@ -161,8 +184,10 @@ Cinco primeiros artigos, escolhidos por interesse × força do número:
 
 1. **Apostar no favorito acerta 33% e perde dinheiro** — 33.508 corridas. Mostra
    por que taxa de acerto não é lucro.
-2. **A regra clássica de each-way erra em 44,5% das corridas** — 510 corridas,
-   227 divergências, e todas para o lado que infla o retorno. Zero exceções.
+2. **A tabela clássica de each-way não está errada, está sem data** — 324
+   corridas, 81 mudanças de termo em 9 dias, e a promoção nunca melhorou a
+   fração. ⚠️ Publicado; o enunciado antigo ("erra 44,5%, zero exceções") foi
+   retratado — ver §3.
 3. **O tote paga menos que a exchange nos três produtos** — 0,94 / 0,85 / 0,81.
 4. **Dez regras de handicapping contra 180 mil runners** — cada uma já está no
    preço, com erro de meio ponto percentual.
@@ -260,7 +285,7 @@ não as reabra.
 |---|---|
 | **repo do site** | separado: `/home/maze/dev/node/mazetick`, `main`, sem remote ainda. O `horsing-maze` segue sendo só o laboratório. |
 | **stack** | Astro 7, `output: 'static'`. Zero JS de aplicação; o único script próprio é o inline da densidade. |
-| **hospedagem** | **Cloudflare Pages**, e a §4 deixava isto em aberto. O plano Hobby da Vercel **proíbe uso comercial** e a lista de exemplos nomeia literalmente *"Affiliate linking is the primary purpose of the site"* e *"the inclusion of advertisements, including but not limited to online advertising platforms like Google AdSense"* — os dois planos de receita do mazetick. Verificado na fonte (`vercel.com/docs/limits/fair-use-guidelines`, atualizada 2026-07-29), não de memória. |
+| **hospedagem** | **Cloudflare Workers** (era Pages; a Cloudflare migrou o produto e a interface perdeu o campo de framework preset), e a §4 deixava isto em aberto. O plano Hobby da Vercel **proíbe uso comercial** e a lista de exemplos nomeia literalmente *"Affiliate linking is the primary purpose of the site"* e *"the inclusion of advertisements, including but not limited to online advertising platforms like Google AdSense"* — os dois planos de receita do mazetick. Verificado na fonte (`vercel.com/docs/limits/fair-use-guidelines`, atualizada 2026-07-29), não de memória. |
 | **slug** | kebab-case, inglês, sem data: `/research/backing-the-favourite`. |
 | **analytics** | **Cloudflare Web Analytics**: cookieless, sem fingerprint, sem identificador persistente. Existe porque os critérios de morte do plano são expressos em sessões/mês, e critério que não dá para apurar é decoração. Token em `PUBLIC_CF_BEACON_TOKEN`; o beacon vai explícito no `BaseLayout` em vez de injetado pelo painel, para ser greppável e conferível contra a política. |
 | **fontes** | self-hosted (`@fontsource`). Nenhuma requisição ao Google Fonts, nenhum IP de leitor europeu entregue a terceiro por causa de tipografia — e a política de privacidade fica curta e verdadeira. |
@@ -373,7 +398,7 @@ muito além do site: é a mesma disciplina do pré-registro, aplicada a código 
 vez de a medição.
 
 **Pendente de aval do dono** (envolve contas dele, não foi executado): criar o
-repo no GitHub, ligar o Cloudflare Pages, apontar o domínio, e gerar o token do
+repo no GitHub, ligar o Cloudflare Workers, apontar o domínio, e gerar o token do
 Web Analytics. Passos no `README.md` do repo novo.
 
 **Não verificado:** layout e densidade no navegador. O Chromium do Playwright

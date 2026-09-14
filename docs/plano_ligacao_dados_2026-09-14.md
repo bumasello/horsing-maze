@@ -48,6 +48,12 @@ Cloudflare Workers Build
 mazetick.com
 ```
 
+**Por que o repositório de dados é PÚBLICO** (decisão, não acidente): a máquina
+de build da Cloudflare precisa buscá-lo sem credencial, e o conteúdo é derivado
+nosso — o recorte por lista de permissão garante que nenhum payload de
+fornecedor entra. É a fronteira que a §10 discute, e ela é respeitada: publicar
+o nosso derivado é permitido; expor o dado deles é que é revenda.
+
 **Por que um repositório separado, e não commitar direto no `mazetick`:** é o
 mesmo raciocínio do backup pull — *quem guarda a cópia é quem inicia a conexão*.
 Aqui: **quem publica o site não deve ser a máquina que coleta.** Se o `bspnode`
@@ -60,6 +66,21 @@ Se isso se mostrar chato demais na prática, a alternativa aceitável é o
 e tem raio de dano maior. **Preferir a separada.**
 
 ## 3. O contrato de dados
+
+> **⚠️ O QUE ESTÁ ABAIXO É O RASCUNHO, NÃO O IMPLEMENTADO.** O contrato real
+> divergiu ao construir, e para melhor. Diferenças que importam:
+>
+> | rascunho | implementado | por quê |
+> |---|---|---|
+> | `standard` / `differs` | `house_standard` / `extra_place` | a referência virou a escada da PRÓPRIA casa, não a tabela de livro — que medimos que ela nunca seguiu |
+> | `baseline_pct` / `excess_pct` | `band` / `percentile` | a mediana do movimento é ~0 em toda faixa; o que muda é a DISPERSÃO, então o número honesto é o percentil dentro da faixa |
+> | `history` em movers | não existe | não se mostrou necessário |
+> | — | **`collected_through`** | acrescentado 2026-09-14: `generated_at` diz quando DERIVAMOS, e diverge horas de quando o coletor LEU. Sem ele, coleta quebrada se disfarça de dia sem corrida |
+>
+> A forma canônica é o que `scripts/build_site_data.py` emite. Este bloco fica
+> como registro do que se pensou antes de medir.
+
+
 
 É a única parte que as duas sessões precisam combinar. O resto — layout,
 componentes, densidade — é decisão da construção.

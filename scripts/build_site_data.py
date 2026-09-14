@@ -101,6 +101,40 @@ def snapshots(diretorio: str):
     return estados, meta, arquivos
 
 
+def ultima_coleta_pp(diretorio: str, dia: str) -> str | None:
+    """Instante da ultima LEITURA do coletor no arquivo de hoje.
+
+    ⚠️ NAO confundir com `generated_at`, que diz quando NOS derivamos. Os dois
+    divergem de horas: o `history` so grava MUDANCAS, entao a leitura mais
+    recente pode ser bem anterior a derivacao. E se o coletor morrer, este
+    script continua rodando sobre os CSVs acumulados e publicaria termos de
+    ontem com carimbo de agora — exatamente o caso 3 (coleta quebrada) se
+    disfarcando de caso 1 (dia sem corrida) que o plano manda distinguir.
+    """
+    arq = os.path.join(diretorio, f"pp_ew_v1_{dia}.csv")
+    if not os.path.exists(arq):
+        return None
+    ultimo = None
+    for r in csv.DictReader(open(arq)):
+        t = r.get("collected_at")
+        if t and (ultimo is None or t > ultimo):
+            ultimo = t
+    return iso(ultimo) if ultimo else None
+
+
+def ultima_coleta_smk(diretorio: str, dia: str) -> str | None:
+    """Idem para o coletor do Smarkets."""
+    ultimo = None
+    for arq in glob.glob(os.path.join(diretorio, f"smarkets_book_*{dia}.csv")):
+        with open(arq) as fh:
+            rd = csv.DictReader(fh)
+            for r in rd:
+                t = r.get("ts_utc")
+                if t and (ultimo is None or t > ultimo):
+                    ultimo = t
+    return iso(ultimo) if ultimo else None
+
+
 def escada_base(estados, meta) -> dict:
     """(handicap, campo) -> (vagas, denominador) da escada BASE da casa.
 
@@ -164,7 +198,8 @@ def monta(estados, meta, base, agora: dt.datetime) -> dict:
         "note": ("'extra_place' compares the bookmaker's offer with the "
                  "bookmaker's own ladder, derived from our collection — not "
                  "with the classic each-way table, which it does not follow."),
-        "ladder_days": None,   # preenchido em main()
+        "ladder_days": None,      # preenchido em main()
+        "collected_through": None, # idem — e e' ELE que a pagina deve mostrar
         "races": corridas,
     }
 
@@ -352,6 +387,7 @@ def monta_movers(dir_smk: str, base: dict, agora: dt.datetime) -> dict:
                  "move is near zero in every band; what changes with price is "
                  "the spread of outcomes."),
         "baseline": magra,
+        "collected_through": ultima_coleta_smk(dir_smk, hoje),
         "runners": corredores,
     }
 
@@ -381,7 +417,10 @@ def main() -> int:
              if meta[rid]["off_utc"][:10] >= hoje}
     doc = monta(vivos, meta, base, agora)
     doc["ladder_days"] = len(arquivos)
+    doc["collected_through"] = ultima_coleta_pp(args.pp_dir, agora.strftime("%Y%m%d"))
 
+    if doc["collected_through"] is None:
+        print("  ⚠️  sem arquivo do coletor para hoje — collected_through fica nulo")
     extras = sum(1 for c in doc["races"] if c["extra_place"])
     mudaram = sum(1 for c in doc["races"] if len(c["history"]) > 1)
     print(f"[{agora:%F %T} UTC] {len(arquivos)} dias de escada | "
