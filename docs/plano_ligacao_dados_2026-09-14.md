@@ -244,7 +244,59 @@ ambas valem pela regra 2 do próprio verificador: **provar que disparam.**
 é um segredo de acionamento, então vai por variável de ambiente no `bspnode`, não
 para o repositório.
 
-## 10. Fora desta fase, de propósito
+## 10. Por que não uma API REST — decidido em 2026-09-14
+
+Registrado porque daqui a três meses alguém vai querer reabrir, e sem o
+raciocínio escrito a discussão recomeça do zero.
+
+**Primeiro, desfazendo um mal-entendido:** a proibição do theracingapi é sobre
+**revender o dado bruto deles**. Não é proibido termos uma API. E há um detalhe
+que iguala as duas arquiteturas no plano jurídico: **uma API que a nossa página
+chama do navegador é, por construção, pública** — a URL está no código-fonte da
+página, e qualquer um faz a mesma requisição. Não existe "API interna" consumida
+por página pública. Logo a restrição é idêntica nos dois desenhos: derivado sim,
+payload de fornecedor não. **A escolha é de engenharia, não de licença.**
+
+O host cogitado era o `bspnode`, não o `mazeserver` — e é boa ideia: com
+Cloudflare Tunnel (`cloudflared` na VM) dá `api.mazetick.com` com TLS, sem abrir
+porta e sem depender do IP público efêmero da Oracle.
+
+Mesmo assim, começamos estático. Quatro razões, em ordem de peso:
+
+1. **O `bspnode` é a máquina da coleta.** Serviço exposto à internet na mesma
+   caixa que guarda `smarkets_data`, `pp_ew_data` e `betfair_sp_data` aumenta a
+   superfície de ataque do único lugar onde vive dado que **não pode ser
+   recoletado**. Se formos de API, separar: uma VM serve, outra coleta.
+2. **SEO.** O site aposta em ser achado por quem busca "extra places today".
+   Tabela que já está no HTML indexa melhor que tabela renderizada por
+   JavaScript. Para um site novo, isso não é detalhe.
+3. **Verificação.** As checagens do `verify.mjs` conferem `dist/`. Conteúdo
+   buscado em tempo de execução nunca passa por elas — é a mesma família de
+   problema que custou três incidentes em 2026-09-13.
+4. **O ganho é menor do que parece.** O coletor do Smarkets roda a cada 15
+   minutos, então "tempo real" é na prática "15 minutos". Contra quatro builds
+   por dia (ou de hora em hora, que cabe folgado na cota), a diferença é modesta
+   para o que estas duas páginas fazem hoje.
+
+**Não é porta de mão única.** O contrato de dados da §3 é o mesmo nas duas
+arquiteturas: se as páginas consumirem aquele JSON, trocar "ler arquivo no build"
+por "buscar da API" é mudança pequena.
+
+**Gatilhos que invertem a decisão** — escritos antes para não serem
+racionalizados depois:
+
+- uma página precisar de frescor **abaixo de uma hora** (movimento de preço perto
+  da largada é o candidato óbvio);
+- existir **login ou assinatura paga**, que exige estado por usuário;
+- haver **consumo fora do site** — app próprio, ou parceiro lendo o NOSSO
+  derivado. Isto é permitido; o proibido é terceiro puxar o dado do theracingapi
+  através de nós.
+
+Passo intermediário, se só o frescor apertar: o `bspnode` escreve o JSON em
+**Cloudflare R2 ou KV** e a página busca de lá. Dá quase tempo real sem o
+`bspnode` servir tráfego — mas herda as objeções 2 e 3.
+
+## 11. Fora desta fase, de propósito
 
 - **`/horse/[id]`** — depende das estatísticas por condição do pipeline de ML e
   do histórico do theracingapi. É a terceira página e a mais cara; vem depois.
