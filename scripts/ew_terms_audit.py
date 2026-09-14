@@ -18,8 +18,10 @@ O QUE ELE MEDE, E A RESSALVA IMPORTANTE
 Comparar a casa contra "a tabela clássica" exige escolher uma tabela canônica, e
 essa escolha é discutível. Por isso o script reporta DUAS coisas:
 
-  1. A divergência contra a tabela abaixo, separando as duas direções. Nunca
-     reportar só a taxa: a direção é metade da informação.
+  1. A divergência contra a tabela abaixo na ABERTURA e no FECHAMENTO,
+     separadamente. ⚠️ Medir só no fechamento foi o erro de uma versão anterior
+     deste script: o que se mede ali não é a tabela errando, é a PROMOÇÃO já
+     aplicada. Nunca reportar só a taxa, e nunca só um instante.
   2. A ESCADA REAL da casa, lida do dado. ⚠️ Uma versão anterior deste script
      reportou "bimodalidade dentro da faixa" — era ARTEFATO de agrupar 8-11
      num balde só porque a tabela clássica agrupa. A casa corta em 10. Os
@@ -55,26 +57,36 @@ def tabela_classica(campo: int, hcap: bool) -> tuple[int, int]:
     return (4, 4)
 
 
-def ultimo_por_corrida(diretorio: str) -> dict:
-    """Último snapshot de cada corrida UK/IRE, em todos os arquivos."""
-    ult = {}
+def primeiro_e_ultimo(diretorio: str):
+    """Por corrida UK/IRE: (handicap, estado na abertura, estado no fechamento).
+
+    Estado = (campo, vagas, denominador). Só estados DISTINTOS entram, em ordem
+    de coleta, então "abertura" é o primeiro que vimos e "fechamento" o último.
+    """
+    est, meta = {}, {}
     arquivos = sorted(glob.glob(os.path.join(diretorio, "pp_ew_v1_*.csv")))
-    for f in arquivos:
-        for r in csv.DictReader(open(f)):
-            if r["country_code"] not in ("GB", "IE"):
+    for arq in arquivos:
+        for r in csv.DictReader(open(arq)):
+            if r["country_code"] not in ("GB", "IE") or not r["place_den"]:
                 continue
-            if not r["place_den"] or not r["field_size"]:
+            try:
+                k = (int(r["field_size"]), int(r["num_places"]), int(r["place_den"]))
+            except ValueError:
                 continue
-            ult[r["race_id"]] = r
-    return ult, arquivos
+            rid = r["race_id"]
+            meta[rid] = bool(EH_HCAP.search(r["race_name"]))
+            l = est.setdefault(rid, [])
+            if not l or l[-1] != k:
+                l.append(k)
+    return est, meta, arquivos
 
 
-def faixa(campo: int) -> str:
-    if campo < 5:   return "<5"
-    if campo <= 7:  return "5-7"
-    if campo <= 11: return "8-11"
-    if campo <= 15: return "12-15"
-    return "16+"
+def faixa_de(campo: int, hcap: bool) -> str:
+    if campo <= 9:  return ("hcap " if hcap else "comum") + " 5-9"
+    if not hcap:    return "comum 10+"
+    if campo <= 11: return "hcap  10-11"
+    if campo <= 15: return "hcap  12-15"
+    return "hcap  16+"
 
 
 def main() -> int:
@@ -82,84 +94,48 @@ def main() -> int:
     ap.add_argument("--dir", default=os.path.expanduser("~/pp_ew_data"))
     args = ap.parse_args()
 
-    ult, arquivos = ultimo_por_corrida(args.dir)
-    print(f"{len(arquivos)} arquivo(s) | {len(ult)} corridas UK/IRE distintas\n")
+    est, meta, arquivos = primeiro_e_ultimo(args.dir)
+    print(f"{len(arquivos)} arquivo(s) | {len(est)} corridas UK/IRE distintas\n")
 
-    # ---------------------------------------------- 1. contra a tabela clássica
-    infla = deflaciona = igual = 0
-    for r in ult.values():
-        hcap = bool(EH_HCAP.search(r["race_name"]))
-        _, den_padrao = tabela_classica(int(r["field_size"]), hcap)
-        den = int(r["place_den"])
-        # denominador MENOR = fração MAIOR = mais generoso.
-        if den_padrao < den:   infla += 1        # tabela promete mais do que a casa paga
-        elif den_padrao > den: deflaciona += 1   # tabela promete menos
-        else:                  igual += 1
-    n = len(ult)
-    print("DIVERGÊNCIA DA FRAÇÃO contra a tabela clássica")
-    print(f"  tabela infla      {infla:4d}  ({100*infla/n:.1f}%)  diz 1/4 onde a casa paga 1/5")
-    print(f"  tabela deflaciona {deflaciona:4d}  ({100*deflaciona/n:.1f}%)  diz 1/5 onde a casa paga 1/4")
-    print(f"  coincide          {igual:4d}  ({100*igual/n:.1f}%)")
-    print("  ⚠️ Reportar SEMPRE as duas direções. 'Zero exceções' é afirmação")
-    print("     forte e precisa ser lida desta linha, não suposta.\n")
+    # ------------ 1. o achado central: a tabela nao esta errada, esta SEM DATA
+    print("TERMOS NA ABERTURA vs NO FECHAMENTO, por faixa")
+    print("  A tabela classica descreve a ABERTURA. Durante o dia a casa promove:")
+    print("  mais uma vaga, fracao pior. Uma tabela nao tem eixo de tempo.\n")
+    por = collections.defaultdict(lambda: (collections.Counter(), collections.Counter()))
+    mudou = collections.Counter()
+    for rid, l in est.items():
+        h = meta[rid]
+        c1, p1, d1 = l[-1]
+        f = faixa_de(c1, h)
+        a, b = por[f]
+        c0, p0, d0 = l[0]
+        a["%d@1/%d" % (p0, d0)] += 1
+        b["%d@1/%d" % (p1, d1)] += 1
+        if (p0, d0) != (p1, d1):
+            mudou[f] += 1
+    for f in sorted(por):
+        a, b = por[f]
+        n = sum(a.values())
+        fmt = lambda c: "  ".join(f"{t}:{v}" for t, v in c.most_common(3))
+        print(f"  {f:12s} n={n:<4d} mudaram {mudou[f]:>3d}")
+        print(f"    abertura   {fmt(a)}")
+        print(f"    fechamento {fmt(b)}")
 
-    # --------------------------- 2. a escada REAL da casa, derivada do dado
-    # Promoção só ACRESCENTA vagas, nunca tira. Então a base de cada (tipo,
-    # campo) é o menor nº de vagas observado ali, forçado a não decrescer
-    # conforme o campo cresce.
-    obs = [(bool(EH_HCAP.search(r["race_name"])), int(r["field_size"]),
-            int(r["num_places"]), int(r["place_den"]), r) for r in ult.values()]
-    base: dict = {}
-    for h in (True, False):
-        campos = sorted({c for hh, c, _, _, _ in obs if hh == h})
-        corrente = (0, 0)
-        for c in campos:
-            menor = min((p, d) for hh, cc, p, d, _ in obs if hh == h and cc == c)
-            if menor[0] < corrente[0]:
-                menor = corrente
-            corrente = menor
-            base[(h, c)] = menor
-
-    print("ESCADA BASE DA CASA, lida do dado (não suposta)")
-    for h in (True, False):
-        linha = "  ".join(f"{c}:{v[0]}@1/{v[1]}"
-                          for (hh, c), v in sorted(base.items()) if hh == h)
-        print(f"  {'handicap' if h else 'comum   '}: {linha}")
-    print("  ⚠️ Handicap e comum são IDÊNTICOS até 13 corredores. A tabela")
-    print("     clássica os separa a partir de 8 — e é aí que ela erra.\n")
-
-    # ------------------------------- 3. vaga extra = acima da própria escada
-    promovidas = [(r, c, base[(h, c)], (p, d))
-                  for h, c, p, d, r in obs if p > base[(h, c)][0]]
-    n = len(obs)
-    print("VAGA EXTRA — a casa pagando acima da PRÓPRIA escada")
-    print(f"  {len(promovidas)} de {n} corridas ({100*len(promovidas)/n:.1f}%)")
-    print("  Esta é a definição certa de 'vaga extra': mais que a escada da casa,")
-    print("  não mais que uma tabela de livro que ela nunca seguiu.\n")
-
-    # ----------------------------------- 4. divergência da clássica, por faixa
-    faixas = [("hcap 5-9", lambda h, c: h and 5 <= c <= 9),
-              ("hcap 10-11", lambda h, c: h and 10 <= c <= 11),
-              ("hcap 12-15", lambda h, c: h and 12 <= c <= 15),
-              ("hcap 16+", lambda h, c: h and c >= 16),
-              ("comum 5-9", lambda h, c: not h and 5 <= c <= 9),
-              ("comum 10+", lambda h, c: not h and c >= 10)]
-    print("DIVERGÊNCIA DA CLÁSSICA POR FAIXA — a direção é o achado")
-    for nome, f in faixas:
+    # ------------------------------ 2. divergencia da classica, nos dois instantes
+    print("\nDIVERGENCIA DA FRACAO contra a tabela classica")
+    for rotulo, idx in (("ABERTURA", 0), ("FECHAMENTO", -1)):
         i_ = d_ = ok_ = 0
-        for h, c, p, den, _ in obs:
-            if not f(h, c):
-                continue
-            _, pd = tabela_classica(c, h)
+        for rid, l in est.items():
+            campo, _, den = l[idx]
+            _, pd = tabela_classica(campo, meta[rid])
             if pd < den:   i_ += 1
             elif pd > den: d_ += 1
             else:          ok_ += 1
-        tot = i_ + d_ + ok_
-        if tot:
-            print(f"  {nome:11s} n={tot:<4d} infla {i_:3d} | deflaciona {d_:3d} | igual {ok_:3d}")
-    print("  Dentro de cada faixa a direção é consistente — o erro da tabela")
-    print("  clássica é ESTRUTURAL, não ruído. Só afirmar 'zero exceções'")
-    print("  nomeando a faixa: é verdade em handicap 12+, falso no geral.")
+        n = i_ + d_ + ok_
+        print(f"  {rotulo:11s} infla {i_:3d} ({100*i_/n:4.1f}%) | "
+              f"deflaciona {d_:3d} ({100*d_/n:4.1f}%) | igual {ok_:3d}")
+    print("  A diferenca entre as duas linhas E a promocao. Publicar so a de")
+    print("  fechamento e' chamar de 'erro da tabela' o que e' oferta do dia.")
     return 0
 
 
