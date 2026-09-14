@@ -56,8 +56,11 @@ Unido cai sob CAP Code/ASA — portão a resolver **antes** de ligar afiliado.
 **Falta para o produto ter uso diário:** `/extra-places` e `/movers` dão 404
 porque ainda não existe a ligação `bspnode` → página. O dado das duas já é
 coletado e cresce sozinho (Paddy Power de hora em hora, Smarkets a cada 15 min);
-o que falta é o recorte diário virar JSON que o site lê no build. É a próxima
-fase.
+o que falta é o recorte diário virar JSON que o site lê no build.
+**Plano escrito em `docs/plano_ligacao_dados_2026-09-14.md`** — as duas páginas
+são de fonte ÚNICA (sem join), o recorte que remove as colunas proibidas acontece
+no `bspnode` e não no site, e o carimbo de tempo mora no payload, então a cadência
+de build é escolha de frescor e não requisito de produto.
 
 ## Project Overview
 
