@@ -65,7 +65,7 @@ def snapshots(diretorio: str):
                 continue
             try:
                 estado = {
-                    "at": r["collected_at"],
+                    "at": iso(r["collected_at"]),
                     "field_size": int(r["field_size"]),
                     "places": int(r["num_places"]),
                     "fraction": [int(r["place_num"]), int(r["place_den"])],
@@ -77,7 +77,7 @@ def snapshots(diretorio: str):
             meta[rid] = {
                 "venue": r["venue"],
                 "country": r["country_code"],
-                "off_utc": r["start_time"],
+                "off_utc": iso(r["start_time"]),
                 "name": r["race_name"],
                 "each_way": r["eachway_available"] == "True",
                 "handicap": bool(EH_HCAP.search(r["race_name"])),
@@ -169,6 +169,20 @@ def _hook_do_arquivo() -> str:
     if not arq.exists():
         return ""
     return arq.read_text().strip()
+
+
+def iso(valor: str) -> str:
+    """Normaliza para `AAAA-MM-DDTHH:MM:SSZ`.
+
+    O coletor grava dois formatos: `start_time` vem da API com milissegundos e
+    sufixo Z, `collected_at` vem do Python com `+00:00`. Dois formatos no mesmo
+    arquivo é bug esperando quem consome — a página compararia strings e erraria
+    em silêncio.
+    """
+    v = valor.strip().replace("+00:00", "Z")
+    if "." in v:
+        v = v.split(".")[0] + "Z"
+    return v
 
 
 def executa(cmd, cwd) -> tuple[int, str]:
