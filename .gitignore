@@ -12,3 +12,8 @@ tools/lgbm_benchmark/data
 design/*.html
 !design/*.dc.html
 __pycache__/
+
+# Permissões locais do Claude Code — pessoais, não versionar.
+# Os AGENTES (.claude/agents/) vão versionados de propósito: são contrato de
+# trabalho do projeto, não preferência de máquina.
+.claude/settings.local.json
