@@ -183,6 +183,35 @@ if [ -f "$BACKUP_LOG" ]; then
   fi
 fi
 
+# ------------------------------------- 7. o dado do site chegou ao GitHub?
+# Checagem de PONTA A PONTA, de propósito: lê o arquivo publicado, não um
+# proxy local. Um mtime no bspnode diria "o script rodou" mesmo com o push
+# falhando — e é o push que o site consome. Aqui, se a linha passa, a cadeia
+# inteira passou: recorte, commit, push, e o GitHub servindo.
+#
+# Cron do build_site_data.py: 07, 12, 16 e 21:30 UTC. O maior intervalo dentro
+# da janela é 5h30 (16:00 -> 21:30), então 7h tolera uma batida perdida sem
+# alarme falso. Fora de 08–23 UTC o intervalo noturno é legítimo e não se olha.
+SITE_DATA_URL="${SITE_DATA_URL:-https://raw.githubusercontent.com/bumasello/mazetick-data/main/data/extra-places.json}"
+if [ "$hora_utc" -ge 8 ] && [ "$hora_utc" -le 23 ]; then
+  # sem `head -c`: fechar o cano cedo faz o curl sair 23 e sujar o log. O
+  # arquivo tem dezenas de KB, ler inteiro não custa nada.
+  gerado=$(curl -fsS -m 25 "$SITE_DATA_URL" 2>/dev/null \
+           | sed -n 's/.*"generated_at"[ :]*"\([^"]*\)".*/\1/p' | head -1)
+  if [ -z "$gerado" ]; then
+    notify site_dados_mudo "Dado do site inacessível no GitHub — mazetick.com vai reconstruir com o que já tem, ou nada"
+  else
+    idade_min=$(( ( $(date -u +%s) - $(date -u -d "$gerado" +%s) ) / 60 ))
+    if [ "$idade_min" -gt 420 ]; then
+      notify site_dados_velho "Dado do mazetick.com parado há $((idade_min / 60))h — a página mostra dado velho com cara de dado bom"
+    else
+      echo "  ✅ dados do site    ${idade_min} min"
+    fi
+  fi
+else
+  echo "  ⏸  dados do site    fora da janela (08–23 UTC)"
+fi
+
 echo "📊 RESUMO alertas=$alertas"
 [ "$alertas" -gt 0 ] && exit 1
 exit 0
