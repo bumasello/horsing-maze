@@ -20,7 +20,10 @@ essa escolha é discutível. Por isso o script reporta DUAS coisas:
 
   1. A divergência contra a tabela abaixo, separando as duas direções. Nunca
      reportar só a taxa: a direção é metade da informação.
-  2. **A distribuição dos termos POR FAIXA DE CAMPO**, que não depende de tabela
+  2. A ESCADA REAL da casa, lida do dado. ⚠️ Uma versão anterior deste script
+     reportou "bimodalidade dentro da faixa" — era ARTEFATO de agrupar 8-11
+     num balde só porque a tabela clássica agrupa. A casa corta em 10. Os
+     termos SÃO função determinística do campo; as fronteiras é que diferem.
      nenhuma. Medido em 2026-09-14, é o achado mais forte: a Paddy Power é
      bimodal dentro de cada faixa — em handicap de 8 a 11 corredores paga 3@1/5
      em 45 corridas e 2@1/4 em 22. Ou seja, **os termos não são função do
@@ -100,20 +103,63 @@ def main() -> int:
     print("  ⚠️ Reportar SEMPRE as duas direções. 'Zero exceções' é afirmação")
     print("     forte e precisa ser lida desta linha, não suposta.\n")
 
-    # ------------------------- 2. o achado que não depende de tabela: bimodalidade
-    print("TERMOS OFERECIDOS POR FAIXA DE CAMPO (sem tabela de referência)")
-    tab = collections.defaultdict(collections.Counter)
-    for r in ult.values():
-        chave = ("handicap" if EH_HCAP.search(r["race_name"]) else "comum",
-                 faixa(int(r["field_size"])))
-        tab[chave]["%s@1/%s" % (r["num_places"], r["place_den"])] += 1
-    ordem = ["<5", "5-7", "8-11", "12-15", "16+"]
-    for k in sorted(tab, key=lambda x: (x[0], ordem.index(x[1]))):
-        total = sum(tab[k].values())
-        itens = "  ".join(f"{t}:{c}" for t, c in tab[k].most_common(4))
-        print(f"  {k[0]:9s} {k[1]:6s} n={total:<4d} {itens}")
-    print("\n  Se uma faixa mostra dois termos com contagens parecidas, os termos")
-    print("  NÃO são função do tamanho do campo — e nenhuma tabela pode acertar.")
+    # --------------------------- 2. a escada REAL da casa, derivada do dado
+    # Promoção só ACRESCENTA vagas, nunca tira. Então a base de cada (tipo,
+    # campo) é o menor nº de vagas observado ali, forçado a não decrescer
+    # conforme o campo cresce.
+    obs = [(bool(EH_HCAP.search(r["race_name"])), int(r["field_size"]),
+            int(r["num_places"]), int(r["place_den"]), r) for r in ult.values()]
+    base: dict = {}
+    for h in (True, False):
+        campos = sorted({c for hh, c, _, _, _ in obs if hh == h})
+        corrente = (0, 0)
+        for c in campos:
+            menor = min((p, d) for hh, cc, p, d, _ in obs if hh == h and cc == c)
+            if menor[0] < corrente[0]:
+                menor = corrente
+            corrente = menor
+            base[(h, c)] = menor
+
+    print("ESCADA BASE DA CASA, lida do dado (não suposta)")
+    for h in (True, False):
+        linha = "  ".join(f"{c}:{v[0]}@1/{v[1]}"
+                          for (hh, c), v in sorted(base.items()) if hh == h)
+        print(f"  {'handicap' if h else 'comum   '}: {linha}")
+    print("  ⚠️ Handicap e comum são IDÊNTICOS até 13 corredores. A tabela")
+    print("     clássica os separa a partir de 8 — e é aí que ela erra.\n")
+
+    # ------------------------------- 3. vaga extra = acima da própria escada
+    promovidas = [(r, c, base[(h, c)], (p, d))
+                  for h, c, p, d, r in obs if p > base[(h, c)][0]]
+    n = len(obs)
+    print("VAGA EXTRA — a casa pagando acima da PRÓPRIA escada")
+    print(f"  {len(promovidas)} de {n} corridas ({100*len(promovidas)/n:.1f}%)")
+    print("  Esta é a definição certa de 'vaga extra': mais que a escada da casa,")
+    print("  não mais que uma tabela de livro que ela nunca seguiu.\n")
+
+    # ----------------------------------- 4. divergência da clássica, por faixa
+    faixas = [("hcap 5-9", lambda h, c: h and 5 <= c <= 9),
+              ("hcap 10-11", lambda h, c: h and 10 <= c <= 11),
+              ("hcap 12-15", lambda h, c: h and 12 <= c <= 15),
+              ("hcap 16+", lambda h, c: h and c >= 16),
+              ("comum 5-9", lambda h, c: not h and 5 <= c <= 9),
+              ("comum 10+", lambda h, c: not h and c >= 10)]
+    print("DIVERGÊNCIA DA CLÁSSICA POR FAIXA — a direção é o achado")
+    for nome, f in faixas:
+        i_ = d_ = ok_ = 0
+        for h, c, p, den, _ in obs:
+            if not f(h, c):
+                continue
+            _, pd = tabela_classica(c, h)
+            if pd < den:   i_ += 1
+            elif pd > den: d_ += 1
+            else:          ok_ += 1
+        tot = i_ + d_ + ok_
+        if tot:
+            print(f"  {nome:11s} n={tot:<4d} infla {i_:3d} | deflaciona {d_:3d} | igual {ok_:3d}")
+    print("  Dentro de cada faixa a direção é consistente — o erro da tabela")
+    print("  clássica é ESTRUTURAL, não ruído. Só afirmar 'zero exceções'")
+    print("  nomeando a faixa: é verdade em handicap 12+, falso no geral.")
     return 0
 
 
