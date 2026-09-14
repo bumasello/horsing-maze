@@ -21,6 +21,32 @@ turfe de UK/IRE, domínio comprado em 2026-09-12.
   construção do site rodam em sessões separadas. A de construção começa fria e
   se orienta só pelo `site_handoff.md`.
 
+**🟢 O SITE ESTÁ NO AR desde 2026-09-13:** https://mazetick.com — Astro estático,
+repositório público `bumasello/mazetick` (MIT no código, CC BY 4.0 no conteúdo),
+publicado por Cloudflare **Workers** (não Pages — a Cloudflare migrou o produto).
+Doze URLs: home, cinco artigos de pesquisa, cinco páginas de apoio e 404.
+Verificado de fora: `www` → apex em 301, `/about/` → `/about` em 307, 404 próprio,
+JSON-LD válido nas doze, CSP com hash por script (sem `unsafe-inline`), HSTS com
+preload, Brotli, `immutable` nos ativos com hash, e Web Analytics por snippet
+manual.
+
+⚠️ **Três armadilhas de deploy que custaram caro e vão voltar:**
+1. **A Cloudflare injeta `@astrojs/cloudflare` no build** se não encontrar
+   configuração — isso transforma o site em SSR e move a saída para
+   `dist/client/`. O `wrangler.jsonc` na raiz do repo do site existe só para
+   impedir isso; **não apagar por parecer supérfluo.**
+2. **`PUBLIC_CF_BEACON_TOKEN` é variável de BUILD, não de runtime.** Em site
+   estático as de runtime não fazem nada.
+3. **O Web Analytics em "Automatic setup" reescreve o HTML na borda** — o que o
+   leitor recebe deixa de ser o que o `verify.mjs` conferiu, e colide com a CSP.
+   Está em snippet manual de propósito.
+
+**Falta para o produto ter uso diário:** `/extra-places` e `/movers` dão 404
+porque ainda não existe a ligação `bspnode` → página. O dado das duas já é
+coletado e cresce sozinho (Paddy Power de hora em hora, Smarkets a cada 15 min);
+o que falta é o recorte diário virar JSON que o site lê no build. É a próxima
+fase.
+
 ## Project Overview
 
 **HorsingMaze** is a horse racing prediction and lay-betting platform built in TypeScript/Node.js. The application:
