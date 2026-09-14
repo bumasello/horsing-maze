@@ -106,7 +106,8 @@ Timeform: eles não mostram o dado do Racing Post, mostram a nota deles.
 | histórico do dia | "às 10h eram 3 vagas; às 14h passaram a 4" | coletor PP, carimbado | ✅ **e é o que ninguém publica** |
 | preço | odd da casa | coletor PP | ⚠️ segurar até o acordo de afiliado |
 
-**O detalhe que vira autoridade:** medimos que a tabela clássica de termos erra
+**O detalhe que vira autoridade.**
+
 ⚠️ **RETIFICADO 2026-09-14.** A versão anterior deste parágrafo afirmava "44,5%
 das corridas, 510 corridas, zero exceções". **Aquele número não reproduz e foi
 retratado**; o artigo publicado diz outra coisa, e melhor. Derivação versionada
