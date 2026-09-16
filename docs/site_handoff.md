@@ -509,7 +509,10 @@ A revisão no navegador era a única coisa da primeira semana que ninguém tinha
 conferido de verdade — Playwright nunca rodou (`libasound2` exige sudo). O que
 está aqui veio de olhar o site, não de ler código.
 
-### 10.1 `/movers` — "All runners · most unusual first" despeja tudo
+### 10.1 ✅ FEITO em 2026-09-15 — `/movers` despejava 303 linhas
+
+> Resolvido: padrão passou a ser só os notáveis, lista completa num `<details>`
+> (funciona sem JavaScript), agrupada por corrida, com filtro no cliente.
 
 **Achado pelo Bruno em 2026-09-14.** A seção renderiza os 303 corredores de uma
 vez. Pedido: **limite selecionável**, **busca por nome de corredor e por pista**,
@@ -558,7 +561,10 @@ a página já converte para `Europe/London`.
   texto que descreve o dia (quantos se moveram, quantos notáveis) precisa ou
   acompanhar o filtro, ou deixar explícito que se refere ao dia inteiro.
 
-### 10.2 ⚠️ "Now" não é agora — e às 18:52 a `/movers` é 93% retrospectiva
+### 10.2 ✅ FEITO em 2026-09-15 — "Now" não era agora
+
+> Resolvido nas duas páginas: `First seen` / `Last seen` / `Last look`, com o
+> corte ancorado em `collected_through` e não no relógio do leitor.
 
 **Achado pelo Bruno em 2026-09-14, olhando a página às 15:51 local.** A linha
 mostrava `14:30 Sedgefield Helmsley 34.25 → 10.48` sob um cabeçalho de "morning
