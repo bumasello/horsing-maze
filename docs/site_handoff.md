@@ -632,3 +632,79 @@ repete.
 Layout e densidade nas duas páginas de dado, claro e escuro, desktop e celular,
 e o toggle de densidade. `/movers` foi a primeira olhada; as outras 14 páginas
 não.
+
+---
+
+## 11. Decisões de 2026-09-16
+
+### 11.1 ✅ `/horse` — o histórico profundo MIGRA para o `bspnode` (opção C)
+
+**Decidido pelo Bruno:** *"tudo que o site vai depender não pode estar num
+ambiente frágil"*. A rede da casa onde vive o `mazeserver` caiu por horas em
+15/09 — a coleta e o site não sentiram, porque nenhum dos dois passa por lá.
+O `/horse` mudaria isso, e é o que a decisão impede.
+
+**O que a página precisa e onde está:**
+
+| bloco | fonte | hoje |
+|---|---|---|
+| identificação, linha de forma | HR API | ✅ JSONL no `bspnode` |
+| stats por condição, jóquei/treinador, linhagem | `historical`/`relationship.features` | ⚠️ Supabase no `mazeserver` |
+
+**O dado que decide, e que ninguém tinha olhado:**
+
+```
+hr_data no bspnode:  55 dias (2026-07-23 → 09-15), 8,9 MB
+rpscrape_results:    662 mil linhas, 2019 → 2026-07, SÓ no Supabase
+espaço livre no bspnode: 39 GB
+```
+
+O diferencial prometido é **"a carreira inteira, sem look-ahead"** contra os 14
+dias dos portais. Com 55 dias, essa promessa não existe. Então a decisão real
+não é onde calcular — é **onde mora o histórico**.
+
+**Opção C, em três passos:**
+
+1. **Exportar uma vez** o histórico profundo do Supabase para o `bspnode`. É
+   migração, não dependência: depois disso o `mazeserver` volta a ser
+   laboratório descartável.
+2. **Calcular as features no `bspnode`**, sobre JSONL + histórico exportado.
+3. **Publicar como os outros dois JSON**, pelo `build_site_data.py`.
+
+Efeito colateral bom: o Supabase guarda só **13–20% das corridas** (o pipeline
+filtra por qualidade na ingestão, e filtrar na ingestão é irreversível). O JSONL
+da HR API tem tudo. A página passaria a usar **mais** dado que o pipeline atual.
+
+⚠️ **O risco, nomeado antes de começar:** reimplementar corte ponto-no-tempo é
+onde look-ahead se reintroduz em silêncio. Este projeto já reverteu conclusão
+por isso, e a auditoria de 13/09 registrou que o corte em
+`fetchHistoricalDataForHorses` é **condicional** — depende de o chamador passar
+a data. **Vai com teste que PROVA o corte**, não com a promessa de que ele
+existe. É a disciplina que pegou cinco erros na semana passada.
+
+### 11.2 ⏳ `horsing-maze` vira privado — decidido, mas BLOQUEADO por dependência
+
+**Decidido:** o laboratório fecha. Ele publica IP da tailnet, IP de LAN do
+Supabase, usuário do Studio e caminho do arquivo de segredos — mapa, não senha.
+(O item diretamente abusável, o tópico do ntfy, já foi rotacionado em 16/09.)
+
+⛔ **Não fechar antes de resolver isto:** os **cinco** artigos linkam a derivação
+para lá, rotulada *"Derivation: <script>"*. Fechar dá 404 em todos e quebra a
+promessa central do site.
+
+```
+each-way-terms-table        → horsing-maze/blob/3b94cc2/scripts/ew_terms_audit.py
+cost-of-crossing-the-spread → .../1cf7e69/src/services/ml/eval/smarkets-spread.ts
+backing-the-favourite       → .../a606064/src/oneTimeScript/back_favourite_probe.py
+ten-handicapping-rules      → .../54ee96a/src/oneTimeScript/human_rules_probe.py
+tote-versus-exchange        → .../a606064/src/oneTimeScript/tote_vs_bsp_probe.py
+```
+
+**O que barateia a solução:** o leitor **não consegue reproduzir de qualquer
+jeito** — os CSVs da Paddy Power e do Smarkets não são publicados. O valor do
+link é *método legível*, não execução. Logo uma cópia dos scripts numa pasta
+`derivations/` do `mazetick`, com cabeçalho dizendo de qual commit do
+laboratório veio, cumpre a promessa por inteiro.
+
+**Ordem obrigatória:** mover e repontar **primeiro**, fechar **depois**.
+
