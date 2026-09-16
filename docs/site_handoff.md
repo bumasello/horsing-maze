@@ -714,3 +714,22 @@ laboratório veio, cumpre a promessa por inteiro.
 
 **Ordem obrigatória:** mover e repontar **primeiro**, fechar **depois**.
 
+### 11.3 Regra de trabalho: número não sobe sem o `reprodutor`
+
+Decidido em 2026-09-16. **Todo número que for para o site passa antes pelo
+`reprodutor`** — que mede a partir do dado cru, sem `Write`, sem `Edit`, e sem
+saber qual resposta se espera.
+
+Não é cerimônia. Das correções desta semana, as que importaram vieram de alguém
+ter de **derivar o número de novo** e não chegar ao mesmo lugar. Revisar não
+pega: quem revisa lê o mesmo raciocínio e concorda com ele. Refazer pega.
+
+⚠️ O instrumento existia desde 14/09 e **nunca foi invocado** — a falha era de
+prática, não de desenho.
+
+E o `conferente` (criado hoje) faz o mesmo pelo lado da orquestração, que não
+tinha segundo par de olhos: cron, watchdogs, scripts nos servidores e
+afirmações nos documentos. O erro que ele caça não é raciocínio errado, é
+**omissão e estado intermediário abandonado** — arquivo deixado em `/tmp`, aviso
+ignorado por uma semana, commit local sem push.
+
