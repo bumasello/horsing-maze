@@ -392,6 +392,50 @@ def monta_movers(dir_smk: str, base: dict, agora: dt.datetime) -> dict:
     }
 
 
+def avisa(msg: str) -> None:
+    """Grita no ntfy. O watchdog detecta o SINTOMA (dado velho); este diz a CAUSA.
+
+    Em 2026-09-16 o push ficou quatro execucoes rejeitado porque outra copia do
+    repo havia empurrado antes. Os dois vigias alertaram "dado parado ha 23h" —
+    correto e inutil: ninguem sabia POR QUE ate abrir o log aqui.
+    """
+    arq = pathlib.Path.home() / ".mazetick_ntfy_topic"
+    topico = os.getenv("HM_NTFY_TOPIC") or (arq.read_text().strip() if arq.exists() else "")
+    if not topico:
+        print("  (sem topico de ntfy — alerta nao enviado)")
+        return
+    subprocess.run(["curl", "-s", "-m", "15",
+                    "-H", "Title: mazetick PUBLICACAO",
+                    "-H", "Priority: high", "-d", msg,
+                    f"https://ntfy.sh/{topico}"], capture_output=True)
+
+
+def morrer(msg: str) -> None:
+    avisa(msg)
+    sys.exit(f"FATAL: {msg}")
+
+
+def sincroniza(destino) -> None:
+    """Alinha com o remoto ANTES de gerar. Sem isto, uma escrita de outra copia
+    trava o publicador para sempre — foi o que aconteceu em 2026-09-16.
+
+    O rebase preserva o nosso historico. Se ele nao resolver, `reset --hard` e'
+    seguro aqui e so' aqui: os dois JSON sao regenerados por inteiro a cada
+    execucao, entao nao ha trabalho local a perder — so' um commit que seria
+    reescrito identico no proximo minuto.
+    """
+    rc, saida = executa(["git", "fetch", "-q", "origin"], destino)
+    if rc != 0:
+        morrer(f"publicacao: `git fetch` falhou no repo de dados\n{saida[:200]}")
+    rc, _ = executa(["git", "rebase", "origin/main"], destino)
+    if rc != 0:
+        executa(["git", "rebase", "--abort"], destino)
+        rc2, saida2 = executa(["git", "reset", "--hard", "origin/main"], destino)
+        if rc2 != 0:
+            morrer(f"publicacao: nao consegui alinhar com o remoto\n{saida2[:200]}")
+        print("  ⚠️  rebase falhou; alinhado por reset --hard (conteudo e' regenerado)")
+
+
 def executa(cmd, cwd) -> tuple[int, str]:
     p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     return p.returncode, (p.stdout + p.stderr).strip()
@@ -452,7 +496,8 @@ def main() -> int:
 
     destino = pathlib.Path(args.repo)
     if not (destino / ".git").is_dir():
-        sys.exit(f"FATAL: {destino} não é um repositório git")
+        morrer(f"publicacao: {destino} nao e' um repositorio git")
+    sincroniza(destino)
     (destino / "data").mkdir(exist_ok=True)
     alvo = destino / "data" / "extra-places.json"
     alvo.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n")
@@ -465,13 +510,13 @@ def main() -> int:
     rc, saida = executa(
         ["git", "commit", "-m", f"dados: {agora:%F %H:%M} UTC"], destino)
     if rc != 0 and "nothing to commit" not in saida:
-        sys.exit(f"FATAL: commit falhou\n{saida}")
+        morrer(f"publicacao: commit falhou no repo de dados\n{saida[:200]}")
     if "nothing to commit" in saida:
         print("  nada mudou desde a última execução — sem push")
         return 0
     rc, saida = executa(["git", "push", "origin", "HEAD"], destino)
     if rc != 0:
-        sys.exit(f"FATAL: push falhou\n{saida}")
+        morrer(f"publicacao: push falhou mesmo apos sincronizar\n{saida[:200]}")
     print("  empurrado")
 
     hook = os.getenv("MAZETICK_DEPLOY_HOOK") or _hook_do_arquivo()
