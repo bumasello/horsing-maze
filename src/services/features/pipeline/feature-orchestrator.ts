@@ -930,17 +930,38 @@ function clearHistoryCache(): void {
 // ⚡ OTIMIZAÇÃO #3: Batch query em vez de 1 query por cavalo
 // ANTES: 12 cavalos = 12 queries individuais + 12 queries de enrichment = 24 queries
 // DEPOIS: 12 cavalos = 1-2 queries batch + 1-2 queries enrichment = 2-4 queries
+/**
+ * Histórico de corridas dos cavalos, SEMPRE cortado antes de `beforeDate`.
+ *
+ * ⚠️ `beforeDate` é OBRIGATÓRIO desde 2026-09-16, e o corte deixou de ser
+ * condicional. Antes a assinatura era `beforeDate?: string` e o corte vivia
+ * dentro de um `if (beforeDate)`: um chamador que esquecesse a data recebia a
+ * carreira inteira do cavalo, INCLUSIVE corridas posteriores à que se está
+ * prevendo, e nada avisava. Look-ahead silencioso é o erro que este projeto já
+ * reverteu quatro vezes, e era o único caminho aberto que restava para ele.
+ *
+ * A guarda em tempo de execução existe além do tipo porque o corte é a
+ * diferença entre uma estatística honesta e uma que conhece o futuro — e
+ * `tsc` não protege chamador em JS nem valor vindo de dado.
+ */
 async function fetchHistoricalDataForHorses(
 	supabase: SupabaseClient,
 	horseIds: number[],
-	beforeDate?: string,
+	beforeDate: string,
 ): Promise<Map<number, HistoricalRaceData[]>> {
+	if (!beforeDate) {
+		throw new Error(
+			"fetchHistoricalDataForHorses: `beforeDate` é obrigatório. " +
+				"Sem ele o histórico incluiria corridas posteriores à que se prevê " +
+				"(look-ahead), e o número sairia errado sem ninguém perceber.",
+		);
+	}
 	const historicalMap = new Map<number, HistoricalRaceData[]>();
 
 	// ─── PASSO 1: Separar cavalos cacheados dos não-cacheados ───
 	const uncachedHorseIds: number[] = [];
 	for (const horseId of horseIds) {
-		const cacheKey = `${horseId}-${beforeDate?.toString() || "all"}`;
+		const cacheKey = `${horseId}-${beforeDate}`;
 		if (historyCache.has(cacheKey)) {
 			historicalMap.set(horseId, historyCache.get(cacheKey)!);
 		} else {
@@ -1027,9 +1048,8 @@ async function fetchHistoricalDataForHorses(
 						.eq("finished", 1)
 						.eq("canceled", 0);
 
-					if (beforeDate) {
-						query = query.lt("date", beforeDate);
-					}
+					// Sempre, sem condicional: ver a nota na assinatura.
+					query = query.lt("date", beforeDate);
 
 					return await query;
 				},
@@ -1102,7 +1122,7 @@ async function fetchHistoricalDataForHorses(
 			});
 
 			// Cache e armazenar resultado
-			const cacheKey = `${horseId}-${beforeDate?.toString() || "all"}`;
+			const cacheKey = `${horseId}-${beforeDate}`;
 			cacheSet(cacheKey, historicalData);
 			historicalMap.set(horseId, historicalData);
 		}
@@ -1194,109 +1214,18 @@ async function fetchRpscrapeHistoricalForHorses(
 }
 
 /**
- * Enriquecer registros de cavalos com dados das corridas
- * NOTA: Esta função não é mais chamada por fetchHistoricalDataForHorses (otimização #3),
- * que agora faz o enrichment em batch. Mantida para uso em outros contextos se necessário.
+ * ⚠️ `enrichWithRaceData` foi REMOVIDA em 2026-09-16.
+ *
+ * Estava morta desde a "otimização #3" (o enrichment passou a ser em batch
+ * dentro de `fetchHistoricalDataForHorses`) e o comentário dizia "mantida para
+ * uso em outros contextos se necessário" — mas ela carregava a MESMA armadilha
+ * que acabamos de fechar: `beforeDate?: string` com o corte dentro de um `if`.
+ *
+ * Código morto com armadilha é pior que código morto: o próximo a precisar de
+ * "enriquecer com dados de corrida" encontraria uma função pronta, plausível e
+ * sem corte obrigatório. Removida em vez de corrigida, porque ninguém a chama.
  */
-async function enrichWithRaceData(
-	supabase: SupabaseClient,
-	horseRecords: any[],
-	beforeDate?: string,
-): Promise<HistoricalRaceData[]> {
-	if (!horseRecords || horseRecords.length === 0) {
-		return [];
-	}
 
-	// Obter IDs únicos de racecards
-	const racecardIds = [...new Set(horseRecords.map((h) => h.racecard_id))];
-
-	// Buscar dados das corridas
-	let raceQuery = supabase
-		.schema(getDataSchema())
-		.from("racecards_hr_enriched")
-		.select(
-			"id, date, course, distance, going, class, finished, canceled, title, prize, id_race, off_time_br",
-		)
-		.in("id", racecardIds)
-		.eq("finished", 1)
-		.eq("canceled", 0);
-
-	// Adicionar filtro de data se fornecido
-	if (beforeDate) {
-		raceQuery = raceQuery.lt("date", beforeDate);
-	}
-
-	const { data: raceData, error: raceError } = await raceQuery;
-
-	if (raceError) {
-		console.error("Error fetching race data:", raceError);
-		return [];
-	}
-
-	// Criar mapa de corridas
-	const raceMap = new Map<number, any>();
-	(raceData || []).forEach((race) => {
-		raceMap.set(race.id, race);
-	});
-
-	// Combinar dados e filtrar por corridas válidas
-	const historicalData: HistoricalRaceData[] = [];
-
-	for (const horse of horseRecords) {
-		const race = raceMap.get(horse.racecard_id);
-		if (!race) continue; // Pular se não encontrar a corrida
-
-		historicalData.push({
-			horse: {
-				id: horse.id,
-				id_horse: horse.id_horse,
-				horse: horse.horse,
-				position: horse.position,
-				or_rating: horse.or_rating,
-				sp_decimal: horse.sp_decimal,
-				weight: horse.weight,
-				distance_beaten: horse.distance_beaten,
-				non_runner: horse.non_runner,
-				age: horse.age,
-				jockey: horse.jockey,
-				trainer: horse.trainer,
-				form: horse.form,
-				racecard_id: horse.racecard_id,
-				number: horse.number || null,
-				dam: horse.dam || null,
-				sire: horse.sire || null,
-				owner: horse.owner || null,
-				last_ran_days_ago: horse.last_ran_days_ago || null,
-				sp: horse.sp || null,
-			} as RaceHorseEnriched,
-			race: {
-				id: race.id,
-				date: race.date,
-				course: race.course,
-				distance: race.distance,
-				going: race.going,
-				class: race.class,
-				finished: race.finished,
-				canceled: race.canceled,
-				title: race.title || "",
-				prize: race.prize || "",
-				id_race: race.id_race || "",
-				off_time_br: race.off_time_br || "",
-				age: race.age || null,
-				finish_time: race.finish_time || null,
-			} as RaceCardEnriched,
-		});
-	}
-
-	// Ordenar por data (mais recente primeiro)
-	historicalData.sort((a, b) => {
-		const dateA = new Date(a.race.date).getTime();
-		const dateB = new Date(b.race.date).getTime();
-		return dateB - dateA;
-	});
-
-	return historicalData;
-}
 
 async function saveTrainingFeaturesToDatabase(
 	supabase: SupabaseClient,
