@@ -8,7 +8,26 @@
 # Assinar alertas: https://ntfy.sh/<TOPIC> (navegador ou app ntfy)
 
 set -u
-TOPIC="${HM_NTFY_TOPIC:-horsingmaze-maze-alerts-x7k2}"
+# O tópico do ntfy NUNCA fica em literal aqui: este repositório é público, e um
+# tópico publicado deixa qualquer um ler os nossos alertas e injetar falsos.
+# Vive em ~/.mazetick_ntfy_topic (0600), como o deploy hook.
+# Sem ele o script MORRE em vez de seguir mudo — vigia que não consegue alertar
+# é pior que vigia nenhum, porque dá a sensação de cobertura.
+topico_ntfy() {
+  [ -n "${HM_NTFY_TOPIC:-}" ] && { printf '%s' "$HM_NTFY_TOPIC"; return; }
+  local arq="$HOME/.mazetick_ntfy_topic"
+  [ -r "$arq" ] || return 1
+  tr -d ' \n\r' < "$arq"
+}
+# ⚠️ `exit` dentro de $( ) encerra a SUBSHELL, não o script — a primeira versão
+# desta guarda imprimia FATAL e seguia com TOPIC vazio, postando em ntfy.sh/ e
+# falhando calada. Verificado em 2026-09-16. A checagem tem de ser AQUI.
+TOPIC="$(topico_ntfy)" || TOPIC=""
+if [ -z "$TOPIC" ]; then
+  echo "FATAL: sem tópico de alerta (HM_NTFY_TOPIC ou ~/.mazetick_ntfy_topic)." >&2
+  echo "       Vigia que não consegue alertar é pior que vigia nenhum." >&2
+  exit 3
+fi
 STATE_DIR="${HOME}/.cache/horsingmaze-watchdog"
 mkdir -p "$STATE_DIR"
 
