@@ -633,7 +633,37 @@ conserto do rótulo "now" da §10.2: mandar leitor para uma página que diz "ago
 sobre corrida que já correu queima a primeira impressão, e em fórum ela não se
 repete.
 
-### 10.4 O resto da revisão visual continua por fazer
+### 10.4 📋 TODO — pesquisa de distribuição: onde o nosso público está
+
+Registrado em 2026-09-16. **Pontual, não agendada**, e depois do que já está
+decidido — a ordem é do Bruno: *implementar o que precisamos primeiro, inovar
+depois*.
+
+**A pergunta:** quais fóruns, subreddits e comunidades concentram apostador e
+trader sério de UK/IRE; quais as regras de cada um sobre autopromoção; que tipo
+de post é bem recebido lá.
+
+**Por que esta e não "vasculhar lacunas de produto":** o gargalo medido não é
+saber o que construir — o backlog da `auditoria_ml_2026-09-13.md` §7 já tem
+páginas prontas que ninguém teve tempo de fazer. O gargalo é **ninguém saber que
+o site existe**: 16 acessos no primeiro dia, todos sem referrer, e nem Bing nem
+Google haviam indexado em 15/09.
+
+**Por que pontual:** a resposta é estável. Onde o público está não muda toda
+semana, e um agente agendado produziria hipótese plausível e não-ranqueável —
+a classe de sinal em que este projeto já se queimou quatro vezes.
+
+⚠️ **E há uma fonte melhor para a pergunta vizinha**, de graça e já ligada: o
+Search Console vai mostrar em algumas semanas as buscas REAIS que exibiram o
+site. Fórum diz o que a pessoa fala que quer; busca diz o que ela digitou quando
+precisava. Se o Search Console mostrar demanda que não atendemos, aí a busca por
+lacuna passa a ter alvo em vez de ser cega.
+
+⛔ **Não fazer antes** da revisão visual e do conserto dos rótulos: mandar leitor
+de fórum para uma página com problema queima a primeira impressão, e em fórum
+ela não se repete.
+
+### 10.5 O resto da revisão visual continua por fazer
 
 Layout e densidade nas duas páginas de dado, claro e escuro, desktop e celular,
 e o toggle de densidade. `/movers` foi a primeira olhada; as outras 14 páginas
