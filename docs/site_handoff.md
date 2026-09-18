@@ -763,3 +763,59 @@ afirmações nos documentos. O erro que ele caça não é raciocínio errado, é
 **omissão e estado intermediário abandonado** — arquivo deixado em `/tmp`, aviso
 ignorado por uma semana, commit local sem push.
 
+### 11.4 ⚠️ TODO URGENTE — a Oracle pode recuperar o `bspnode` por ociosidade
+
+Levantado em 2026-09-18, depois do e-mail de fim do trial. **O e-mail não é o
+problema** — a VM está dentro da cota Always Free (1 OCPU e 6 GB contra 4 e 24
+permitidos). O problema é a política de ociosidade, e ela é conjuntiva:
+
+> *"Oracle will deem virtual machine and bare metal compute instances as idle if,
+> during a 7-day period, the following are true: CPU utilization for the 95th
+> percentile is less than 20%; Network utilization is less than 20%; Memory
+> utilization is less than 20% (applies to A1 shapes only)"*
+> — docs.oracle.com, lido em 2026-09-18
+
+Medido no mesmo dia: **os três estão abaixo.** CPU com load 0,00; memória em
+**9,8%** (581 MB de 5.903). ⚠️ A nota antiga no `CLAUDE.md` dizia que *"o cron do
+coletor serve de atividade"* — **isso está errado**, e agora tem número.
+
+**Basta quebrar UM critério.** Mas a saída que eu tinha proposto não alcança:
+todo o dado coletado soma **254 MB**, então uma cópia quente em `tmpfs` levaria a
+memória a ~14%, ainda abaixo do limiar. Faltariam ~350 MB, e não há 350 MB de
+trabalho real nessa máquina para pôr ali. **Encher o resto seria truque, e fica
+registrado como tal em vez de disfarçado de otimização.**
+
+**O que se perde se for recuperada:** nada de dado. Backup conferido em
+2026-09-18 — 3.960 arquivos de BSP, 30 de Smarkets, 24 de each-way, 56 de HR, 5
+de theracingapi, manifesto do dia. Os scripts estão no repositório. O que
+acontece é a coleta parar e as páginas congelarem até alguém recriar a VM.
+
+**As opções, para decidir com o Bruno:**
+
+| | custo | honestidade | eficácia |
+|---|---|---|---|
+| reservar memória de propósito | meia hora | ⚠️ é gamificar a métrica, e deve ser chamado assim | alta |
+| Pay As You Go | cartão cadastrado | limpa | ⚠️ **não documentado** que isenta — procurei e não está na página |
+| script de provisionamento e aceitar o risco | ~2h | limpa | não evita, mas transforma desastre em tarde chata |
+| dar trabalho real à máquina | grande | limpa | as features do `/horse` (§11.1) rodariam aqui — mas é episódico, não sustentado |
+
+⏱️ **A janela é de 7 dias**, e hoje a instância está ociosa por todos os critérios.
+
+### 11.5 TODO — o vigia externo roda 6× por dia, não 24
+
+O cron pede `17 * * * *`, mas o GitHub estrangula workflow agendado em
+repositório de pouca atividade. Medido em 2026-09-18: `01:25 · 07:40 · 13:28 ·
+18:14 · 21:25 · 00:20` — intervalos de 3 a 6 horas.
+
+Com o limiar de 7h, a detecção real de uma parada pode levar **até ~13h** por
+esse canal. O vigia interno cobre a diferença de hora em hora — mas é justamente
+quando a rede da casa cai que o externo fica sozinho, que é o caso para o qual
+ele foi feito.
+
+Saída provável: **Cloudflare Worker com cron trigger**, que é confiável e a conta
+já existe. Alternativa: serviço de cron externo gratuito.
+
+⚠️ Dívida junto: o teste dos quatro caminhos de falha rodou sobre a lógica
+REPLICADA num harness, não sobre o passo extraído do workflow — o `sed` que
+injetaria a hora não casou e eu segui. É cópia, não o original.
+
