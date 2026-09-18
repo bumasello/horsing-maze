@@ -506,6 +506,29 @@ def main() -> int:
         (destino / "data" / "movers.json").write_text(
             json.dumps(mov, indent=1, ensure_ascii=False) + "\n")
 
+    # ─────────────────────────────────────────── /horse, se o script existir
+    # Rodado DAQUI, e nao por cron proprio, de proposito: dois processos
+    # empurrando no mesmo repositorio foi o que travou a publicacao por quatro
+    # execucoes em 2026-09-16. Um publicador so'.
+    #
+    # E rodado DEPOIS do `sincroniza()`: escrever no repo antes de alinhar com o
+    # remoto suja a arvore e o rebase recusa.
+    cavalos = pathlib.Path(__file__).resolve().parent / "build_horse_features.py"
+    if cavalos.exists():
+        print("  /horse: calculando features ponto-no-tempo…")
+        r = subprocess.run([str(cavalos), "--repo", str(destino)],
+                           capture_output=True, text=True)
+        for l in (r.stdout or "").strip().splitlines():
+            print("   ", l)
+        if r.returncode != 0:
+            # Falha alta, nao degradacao silenciosa: a pagina ficaria com
+            # estatistica de ontem e carimbo de hoje, que e' o disfarce que a
+            # regra 5 do handoff proibe.
+            morrer("publicacao: build_horse_features falhou\\n"
+                   + (r.stderr or "")[:300])
+    else:
+        print("  /horse: build_horse_features.py ausente — pulado")
+
     executa(["git", "add", "data/"], destino)
     rc, saida = executa(
         ["git", "commit", "-m", f"dados: {agora:%F %H:%M} UTC"], destino)
