@@ -222,7 +222,7 @@ def main():
                     t[2] += pos is not None and pos <= vb
             print(f"\n{titulo}")
             print(f"  {'grupo':14} {'corridas':>8} {'corredores':>10} {'coloca A':>9} {'coloca B':>9} "
-                  f"{'volta A':>8} {'volta B':>8} {'B - A':>8}   IC95 de B - A")
+                  f"{'vaga nova':>9} {'volta A':>8} {'volta B':>8} {'B - A':>8}   IC95 de B - A")
             for g in ordem(cel):
                 lista = [tuple(x) for x in cel[g].values()]
                 n = sum(x[2] for x in lista)
@@ -238,11 +238,11 @@ def main():
                 # pelo reprodutor em 2026-10-05.
                 na_vaga_nova = t[2] - t[1]
                 if na_vaga_nova < 10:
-                    veredito = f"amostra fina: {na_vaga_nova} na vaga nova, não diz nada"
+                    veredito = "amostra fina na vaga nova: não diz nada"
                 else:
                     veredito = "B melhor" if lo > 0 else "A melhor" if hi < 0 else "não separa"
                 print(f"  {str(g):14} {len(lista):8d} {n:10d} {100 * t[1] / t[0]:8.1f}% {100 * t[2] / t[0]:8.1f}% "
-                      f"{ra:8.3f} {rb:8.3f} {rb - ra:+8.3f}   [{lo:+.3f}, {hi:+.3f}]  {veredito}")
+                      f"{na_vaga_nova:9d} {ra:8.3f} {rb:8.3f} {rb - ra:+8.3f}   [{lo:+.3f}, {hi:+.3f}]  {veredito}")
 
         def ordem(cel):
             rot = [r for _, _, r in FAIXAS] + [r for _, _, r in FAIXAS_FINAS]
