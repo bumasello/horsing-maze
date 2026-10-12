@@ -23,16 +23,128 @@ export interface Quote {
 	qtyLay: number; // size no melhor lay, em £
 	qtyBack: number;
 	corrida: string;
+	dia: string; // AAAAMMDD, do nome do arquivo
 }
 
-// Sufixo de país no slug. Sem sufixo = UK/IRE (newmarket, york, leopardstown).
-const ESTRANGEIROS = new Set([
+// ⚠️ REFEITO 2026-10-06. O filtro já errou DUAS vezes do mesmo jeito: o que a
+// lista não previa virava UK/IRE em silêncio. Em 13/09 era o índice do split;
+// em 06/10 o `reprodutor` achou que a lista tinha "ger" e os slugs reais usam
+// "-de", e que "-ksa" e "-mu" nem estavam nela — 9.308 das 212.373 cotações
+// publicadas (117 de 1.089 corridas) eram da Alemanha, da Arábia Saudita e de
+// Maurício, com livro quase vazio. A manhã mal mexe; perto da largada a faixa
+// 8-13 caía de 6,4% para 4,9%.
+//
+// Por isso agora são DUAS listas e nenhuma regra por omissão: a pista está em
+// UK_IRE, ou tem sufixo de FORA, ou a medição PARA. Pista nova que o Smarkets
+// passe a listar não entra em nenhum número sem alguém classificá-la aqui.
+//
+// As pistas marcadas "vista" apareceram nos dados de 20/08 a 06/10. As outras
+// são pistas de UK/IRE ainda não vistas, com o slug presumido: se o Smarkets
+// escrever diferente, o erro de "pista desconhecida" avisa.
+const UK_IRE = new Set([
+	// Grã-Bretanha — vistas
+	"ascot",
+	"ayr",
+	"bangor-on-dee",
+	"bath",
+	"beverley",
+	"brighton",
+	"carlisle",
+	"cartmel",
+	"catterick",
+	"chepstow",
+	"chester",
+	"doncaster",
+	"epsom-downs",
+	"ffos-las",
+	"fontwell",
+	"goodwood",
+	"hamilton",
+	"haydock",
+	"hexham",
+	"huntingdon",
+	"kelso",
+	"kempton",
+	"leicester",
+	"lingfield",
+	"market-rasen",
+	"musselburgh",
+	"newbury",
+	"newcastle",
+	"newmarket",
+	"newton-abbot",
+	"nottingham",
+	"perth",
+	"plumpton",
+	"pontefract",
+	"redcar",
+	"ripon",
+	"salisbury",
+	"sandown",
+	"sedgefield",
+	"southwell",
+	"stratford",
+	"thirsk",
+	"uttoxeter",
+	"warwick",
+	"windsor",
+	"wolverhampton",
+	"worcester",
+	"yarmouth",
+	"york",
+	// Grã-Bretanha — ainda não vistas (slug presumido)
+	"aintree",
+	"chelmsford-city",
+	"cheltenham",
+	"exeter",
+	"fakenham",
+	"hereford",
+	"ludlow",
+	"taunton",
+	"wetherby",
+	"wincanton",
+	// Irlanda — vistas
+	"ballinrobe",
+	"bellewstown",
+	"clonmel",
+	"cork",
+	"curragh",
+	"down-royal",
+	"downpatrick",
+	"dundalk",
+	"fairyhouse",
+	"galway",
+	"gowran-park",
+	"kilbeggan",
+	"killarney",
+	"laytown",
+	"leopardstown",
+	"listowel",
+	"naas",
+	"navan",
+	"punchestown",
+	"roscommon",
+	"sligo",
+	"wexford",
+	// Irlanda — ainda não vistas (slug presumido)
+	"limerick",
+	"thurles",
+	"tipperary",
+	"tramore",
+]);
+
+// Sufixo de país no fim do slug da pista. Os nove primeiros foram vistos nos
+// dados; o resto é o que a lista antiga já trazia.
+const FORA = new Set([
 	"aus",
-	"nz",
-	"jpn",
 	"usa",
 	"fra",
 	"rsa",
+	"jpn",
+	"nz",
+	"de",
+	"ksa",
+	"mu",
 	"uae",
 	"can",
 	"hkg",
@@ -62,21 +174,40 @@ export function ehUkIre(slug: string): boolean {
 	const partes = slug.split("/");
 	const i = partes.indexOf("horse-racing");
 	const venue = (i >= 0 ? partes[i + 1] : partes[3]) || "";
+	// UK_IRE primeiro: "ffos-las" e "bangor-on-dee" terminam no que parece
+	// sufixo, e "warwick" tem homônima australiana que só o sufixo separa.
+	if (UK_IRE.has(venue)) return true;
 	const j = venue.lastIndexOf("-");
-	return !ESTRANGEIROS.has(j > 0 ? venue.slice(j + 1) : "");
+	if (j > 0 && FORA.has(venue.slice(j + 1))) return false;
+	throw new Error(
+		`pista desconhecida no slug do Smarkets: "${venue}" (${slug}). ` +
+			"Classifique-a em UK_IRE ou FORA em smarkets-spread.ts antes de medir.",
+	);
 }
 
 /** Lê os CSVs do coletor. Aceita os dois esquemas: o v2 nomeia as colunas pela
  *  EXECUÇÃO (`lay_exec_odd`/`back_exec_odd`); o v1 nomeava pelo lado do livro e
  *  com os nomes TROCADOS — `back_odd` do v1 vem dos bids, que é onde se LAYA.
  *  O spread é simétrico, então o v1 segue utilizável desde que lido assim. */
-export function loadSmarketsQuotes(dir: string): {
+export function loadSmarketsQuotes(
+	dir: string,
+	// Janela por data do ARQUIVO (AAAAMMDD), inclusiva. Sem ela o número
+	// dependia do que havia no diretório no dia em que se rodou — foi assim que
+	// a medição de 13/09 ficou sem como ser repetida igual.
+	janela: { de?: string; ate?: string } = {},
+): {
 	quotes: Quote[];
 	files: string[];
 } {
+	const dia = (f: string) => f.match(/(\d{8})\.csv$/)?.[1] ?? "";
 	const files = fs
 		.readdirSync(dir)
 		.filter((f) => f.startsWith("smarkets_book") && f.endsWith(".csv"))
+		.filter(
+			(f) =>
+				(!janela.de || dia(f) >= janela.de) &&
+				(!janela.ate || dia(f) <= janela.ate),
+		)
 		.sort();
 	const quotes: Quote[] = [];
 	for (const f of files) {
@@ -112,6 +243,7 @@ export function loadSmarketsQuotes(dir: string): {
 				qtyLay: Number(c[iQLay]) / 1e4,
 				qtyBack: Number(c[iQBack]) / 1e4,
 				corrida: c[iEv],
+				dia: dia(f),
 			});
 		}
 	}

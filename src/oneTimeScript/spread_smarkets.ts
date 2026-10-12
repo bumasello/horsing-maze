@@ -62,7 +62,12 @@ const JANELAS: [number, number, string][] = [
 ];
 
 function main() {
-	const { quotes, files } = loadSmarketsQuotes(DIR);
+	// SMARKETS_DE / SMARKETS_ATE (AAAAMMDD) fixam a janela. A medição publicada
+	// é SMARKETS_DE=20260820 SMARKETS_ATE=20260913.
+	const { quotes, files } = loadSmarketsQuotes(DIR, {
+		de: process.env.SMARKETS_DE,
+		ate: process.env.SMARKETS_ATE,
+	});
 	if (!files.length) {
 		console.error(`sem CSV em ${DIR}`);
 		process.exit(1);
@@ -130,6 +135,36 @@ function main() {
 	}
 	console.log(
 		`  size no melhor lay: p10 £${fmt(q(ql, 0.1), 0)} | mediana £${fmt(q(ql, 0.5), 0)} | p90 £${fmt(q(ql, 0.9), 0)}`,
+	);
+
+	// A mediana da célula decisiva DIA A DIA. O artigo afirmava qual era o dia
+	// mais largo sem que este script o imprimisse — e errou (dizia 20/08; é
+	// 31/08). Número que vai a público sai daqui.
+	const porDia = new Map<string, number[]>();
+	for (const c of q5) {
+		if (!porDia.has(c.dia)) porDia.set(c.dia, []);
+		porDia.get(c.dia)?.push(c.spreadPct);
+	}
+	const dias = [...porDia.entries()]
+		.map(([d, v]) => {
+			v.sort((a, b) => a - b);
+			return { d, n: v.length, med: q(v, 0.5) };
+		})
+		.sort((a, b) => a.d.localeCompare(b.d));
+	console.log(`\n📅 MEDIANA POR DIA — odd 4-8 de manhã (${dias.length} dias)`);
+	for (const x of dias) {
+		console.log(`  ${x.d}  n=${String(x.n).padStart(4)}  ${fmt(x.med, 2)}%`);
+	}
+	const validos = dias.filter((x) => x.n >= 100).sort((a, b) => a.med - b.med);
+	if (validos.length) {
+		const mn = validos[0];
+		const mx = validos[validos.length - 1];
+		console.log(
+			`  dias com n>=100: ${validos.length} | mínimo ${fmt(mn.med, 2)}% (${mn.d}) | máximo ${fmt(mx.med, 2)}% (${mx.d})`,
+		);
+	}
+	console.log(
+		`  corridas distintas na célula: ${new Set(q5.map((c) => c.corrida)).size}`,
 	);
 
 	// Confronto com drift_economics.ts. Cruzar o spread custa MEIA spread em

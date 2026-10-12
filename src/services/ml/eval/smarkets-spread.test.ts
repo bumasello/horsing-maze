@@ -36,4 +36,33 @@ describe("ehUkIre", () => {
 			false,
 		);
 	});
+
+	// Regressão de 2026-10-06, achada pelo `reprodutor`: a lista de sufixos
+	// tinha "ger" e os slugs reais usam "-de"; "-ksa" e "-mu" nem estavam nela.
+	// 9.308 das 212.373 cotações publicadas (117 de 1.089 corridas) eram da
+	// Alemanha, da Arábia Saudita e de Maurício. Estes casos FALHARAM na
+	// implementação de 13/09 antes do conserto.
+	it("rejeita os sufixos que a lista de 13/09 deixava passar", () => {
+		for (const v of ["taif-ksa", "baden-baden-de", "mauritius-mu"]) {
+			expect(ehUkIre(slug(v))).toBe(false);
+		}
+	});
+
+	it("aceita pista de UK/IRE cujo fim parece sufixo de país", () => {
+		for (const v of ["ffos-las", "bangor-on-dee", "epsom-downs"]) {
+			expect(ehUkIre(slug(v))).toBe(true);
+		}
+	});
+
+	it("separa a homônima estrangeira pelo sufixo", () => {
+		expect(ehUkIre(slug("warwick"))).toBe(true);
+		expect(ehUkIre(slug("warwick-aus"))).toBe(false);
+		expect(ehUkIre(slug("warwick-farm-aus"))).toBe(false);
+	});
+
+	it("recusa decidir sobre pista que não conhece", () => {
+		// O defeito das duas versões anteriores foi o mesmo: o que a lista não
+		// previa virava UK/IRE em silêncio. Pista nova tem de parar a medição.
+		expect(() => ehUkIre(slug("pista-nova-xyz"))).toThrow(/desconhecida/);
+	});
 });
